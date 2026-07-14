@@ -1,0 +1,23 @@
+kind = "mobile"
+previewPath = "/"
+title = "Voice Recorder"
+version = "1.0.0"
+id = "artifacts/voice-recorder"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 23313
+
+[services.development]
+run = "pnpm --filter @workspace/voice-recorder run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/voice-recorder", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/voice-recorder", "run", "serve" ]
+
+[services.env]
+PORT = "23313"
+BASE_PATH = "/"
