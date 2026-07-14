@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -6,7 +6,12 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Audio, RecordingStatus } from 'expo-av';
+import {
+  AudioModule,
+  RecordingPresets,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -69,9 +74,7 @@ const WaveformBar = React.memo(function WaveformBar({
   return <Animated.View style={[styles.bar, animStyle]} />;
 });
 
-// ─── Main screen ─────────────────────────────────────────────────────────────
-type AppState = 'requesting' | 'denied' | 'recording' | 'stopping' | 'saved';
-
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function formatTime(ms: number): string {
   const totalSecs = Math.floor(ms / 1000);
   const m = Math.floor(totalSecs / 60).toString().padStart(2, '0');
@@ -79,121 +82,139 @@ function formatTime(ms: number): string {
   return `${m}:${s}`;
 }
 
+type ScreenState = 'requesting' | 'denied' | 'ready' | 'recording' | 'stopping' | 'saved';
+
+// ─── Main screen ─────────────────────────────────────────────────────────────
 export default function RecorderScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [appState, setAppState] = useState<AppState>('requesting');
+  const [screenState, setScreenState] = useState<ScreenState>('requesting');
   const [amplitudes, setAmplitudes] = useState<number[]>(INITIAL_AMPLITUDES);
-  const [durationMs, setDurationMs] = useState(0);
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const [savedDurationMs, setSavedDurationMs] = useState(0);
+
+  // Always call the hook — record() / stop() are called imperatively
+  const recorder = useAudioRecorder(
+    { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true },
+  );
+  const recorderState = useAudioRecorderState(recorder, 80);
+
+  // Push new metering value into the scrolling amplitudes array
+  useEffect(() => {
+    if (!recorderState.isRecording) return;
+    const raw = recorderState.metering ?? -60;
+    const normalized = Math.max(0, Math.min(1, (raw + 60) / 60));
+    const jitter = (Math.random() - 0.5) * 0.05;
+    setAmplitudes(prev => [...prev.slice(1), Math.max(0, normalized + jitter)]);
+  }, [recorderState.metering, recorderState.isRecording]);
 
   const startRecording = useCallback(async () => {
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      await AudioModule.setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
-
-      const onStatus = (status: RecordingStatus) => {
-        if (!status.isRecording) return;
-        setDurationMs(status.durationMillis ?? 0);
-        const raw = status.metering ?? -160;
-        const normalized = Math.max(0, Math.min(1, (raw + 60) / 60));
-        setAmplitudes(prev => {
-          const jitter = (Math.random() - 0.5) * 0.06;
-          return [...prev.slice(1), Math.max(0, normalized + jitter)];
-        });
-      };
-
-      const { recording } = await Audio.Recording.createAsync(
-        { ...Audio.RecordingOptionsPresets.HIGH_QUALITY, isMeteringEnabled: true },
-        onStatus,
-        80,
-      );
-
-      recordingRef.current = recording;
-      setAppState('recording');
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setScreenState('recording');
     } catch (e) {
-      console.error('Failed to start recording', e);
+      console.error('start error', e);
     }
-  }, []);
+  }, [recorder]);
 
   const stopRecording = useCallback(async () => {
-    const rec = recordingRef.current;
-    if (!rec) return;
-    setAppState('stopping');
+    setScreenState('stopping');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
     try {
-      await rec.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      setSavedDurationMs(recorderState.durationMillis);
+      await recorder.stop();
+      await AudioModule.setAudioModeAsync({ allowsRecording: false });
 
-      const uri = rec.getURI();
-      recordingRef.current = null;
-
+      const uri = recorder.uri;
       if (uri) {
         const dir = FileSystem.documentDirectory + 'recordings/';
         await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-        const filename = `dic-${Date.now()}.m4a`;
-        const dest = dir + filename;
+        const dest = dir + `dic-${Date.now()}.m4a`;
         await FileSystem.copyAsync({ from: uri, to: dest });
       }
 
-      setAppState('saved');
       setAmplitudes(INITIAL_AMPLITUDES);
+      setScreenState('saved');
     } catch (e) {
-      console.error('Failed to stop recording', e);
-      setAppState('recording');
+      console.error('stop error', e);
+      setScreenState('recording');
     }
-  }, []);
+  }, [recorder, recorderState.durationMillis]);
 
   const recordAgain = useCallback(async () => {
-    setDurationMs(0);
     setAmplitudes(INITIAL_AMPLITUDES);
     await startRecording();
   }, [startRecording]);
 
+  // Request permission on mount, auto-start if granted
   useEffect(() => {
     (async () => {
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status === 'granted') {
+      const { granted } = await AudioModule.requestRecordingPermissionsAsync();
+      if (granted) {
         await startRecording();
       } else {
-        setAppState('denied');
+        setScreenState('denied');
       }
     })();
     return () => {
-      recordingRef.current?.stopAndUnloadAsync().catch(() => {});
+      // Clean up — stop if still going
+      if (recorder.isRecording) {
+        recorder.stop().catch(() => {});
+      }
     };
   }, []);
 
   const webTop = Platform.OS === 'web' ? 67 : 0;
   const webBottom = Platform.OS === 'web' ? 34 : 0;
 
-  if (appState === 'denied') {
+  // ── Denied ──────────────────────────────────────────────────────────────────
+  if (screenState === 'denied') {
     return (
-      <View style={[styles.container, styles.centered, { backgroundColor: colors.background, paddingTop: insets.top + webTop }]}>
+      <View style={[styles.container, styles.centered, {
+        backgroundColor: colors.background,
+        paddingTop: insets.top + webTop,
+      }]}>
         <Ionicons name="mic-off-outline" size={44} color={colors.mutedForeground} />
-        <Text style={[styles.deniedTitle, { color: colors.foreground }]}>Microphone access needed</Text>
-        <Text style={[styles.deniedSub, { color: colors.mutedForeground }]}>Enable microphone access in Settings to use dic.</Text>
+        <Text style={[styles.deniedTitle, { color: colors.foreground }]}>
+          Microphone access needed
+        </Text>
+        <Text style={[styles.deniedSub, { color: colors.mutedForeground }]}>
+          Enable microphone access in Settings to use dic.
+        </Text>
       </View>
     );
   }
 
-  if (appState === 'saved') {
+  // ── Saved ────────────────────────────────────────────────────────────────────
+  if (screenState === 'saved') {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top + webTop, paddingBottom: insets.bottom + webBottom }]}>
+      <View style={[styles.container, {
+        backgroundColor: colors.background,
+        paddingTop: insets.top + webTop,
+        paddingBottom: insets.bottom + webBottom,
+      }]}>
         <View style={styles.savedContent}>
           <View style={[styles.savedRing, { borderColor: colors.primary + '55' }]}>
             <Ionicons name="checkmark" size={36} color={colors.primary} />
           </View>
           <Text style={[styles.savedLabel, { color: colors.mutedForeground }]}>saved</Text>
-          <Text style={[styles.savedDuration, { color: colors.foreground }]}>{formatTime(durationMs)}</Text>
-          <Text style={[styles.savedPath, { color: colors.mutedForeground }]}>Files → On My iPhone → dic → recordings</Text>
+          <Text style={[styles.savedDuration, { color: colors.foreground }]}>
+            {formatTime(savedDurationMs)}
+          </Text>
+          <Text style={[styles.savedPath, { color: colors.mutedForeground }]}>
+            Files → On My iPhone → dic → recordings
+          </Text>
         </View>
         <Pressable
           onPress={recordAgain}
-          style={({ pressed }) => [styles.recordAgainBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.78 : 1 }]}
+          style={({ pressed }) => [
+            styles.recordAgainBtn,
+            { backgroundColor: colors.primary, opacity: pressed ? 0.78 : 1 },
+          ]}
         >
           <Ionicons name="mic" size={20} color="#fff" />
           <Text style={styles.recordAgainText}>record again</Text>
@@ -202,30 +223,46 @@ export default function RecorderScreen() {
     );
   }
 
-  const isActive = appState === 'recording';
-  const isStopping = appState === 'stopping';
+  // ── Recording / Requesting / Stopping ────────────────────────────────────────
+  const isActive = screenState === 'recording';
+  const isStopping = screenState === 'stopping';
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top + webTop, paddingBottom: insets.bottom + webBottom }]}>
+    <View style={[styles.container, {
+      backgroundColor: colors.background,
+      paddingTop: insets.top + webTop,
+      paddingBottom: insets.bottom + webBottom,
+    }]}>
+      {/* Header */}
       <View style={styles.topRow}>
         <Text style={[styles.appName, { color: colors.foreground }]}>dic</Text>
         <View style={styles.statusRow}>
           {isActive ? (
-            <><RecordDot /><Text style={[styles.recLabel, { color: colors.primary }]}>rec</Text></>
+            <>
+              <RecordDot />
+              <Text style={[styles.recLabel, { color: colors.primary }]}>rec</Text>
+            </>
           ) : (
-            <Text style={[styles.recLabel, { color: colors.mutedForeground }]}>{isStopping ? 'saving' : '···'}</Text>
+            <Text style={[styles.recLabel, { color: colors.mutedForeground }]}>
+              {isStopping ? 'saving' : '···'}
+            </Text>
           )}
         </View>
       </View>
 
-      <Text style={[styles.timer, { color: colors.foreground }]}>{formatTime(durationMs)}</Text>
+      {/* Timer */}
+      <Text style={[styles.timer, { color: colors.foreground }]}>
+        {formatTime(recorderState.durationMillis)}
+      </Text>
 
+      {/* Waveform */}
       <View style={styles.waveform}>
         {amplitudes.map((amp, i) => (
           <WaveformBar key={i} amplitude={amp} isRecording={isActive} index={i} />
         ))}
       </View>
 
+      {/* Stop button */}
       <Pressable
         onPress={isActive ? stopRecording : undefined}
         disabled={!isActive}
@@ -238,7 +275,10 @@ export default function RecorderScreen() {
           },
         ]}
       >
-        <View style={[styles.stopSquare, { backgroundColor: isActive ? colors.primary : colors.mutedForeground }]} />
+        <View style={[
+          styles.stopSquare,
+          { backgroundColor: isActive ? colors.primary : colors.mutedForeground },
+        ]} />
       </Pressable>
 
       <Text style={[styles.hint, { color: colors.mutedForeground }]}>tap to stop</Text>
@@ -295,12 +335,24 @@ const styles = StyleSheet.create({
   stopSquare: { width: 22, height: 22, borderRadius: 5 },
   hint: { fontSize: 12, fontFamily: 'DMSans_400Regular', letterSpacing: 0.8, marginBottom: 4 },
   deniedTitle: { fontSize: 19, fontFamily: 'DMSans_500Medium', textAlign: 'center' },
-  deniedSub: { fontSize: 14, fontFamily: 'DMSans_400Regular', textAlign: 'center', lineHeight: 21, paddingHorizontal: 24 },
+  deniedSub: {
+    fontSize: 14, fontFamily: 'DMSans_400Regular',
+    textAlign: 'center', lineHeight: 21, paddingHorizontal: 24,
+  },
   savedContent: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  savedRing: { width: 72, height: 72, borderRadius: 36, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  savedRing: {
+    width: 72, height: 72, borderRadius: 36, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 10,
+  },
   savedLabel: { fontSize: 12, fontFamily: 'DMSans_400Regular', letterSpacing: 2 },
   savedDuration: { fontSize: 44, fontFamily: 'DMSans_300Light', letterSpacing: -2, marginTop: 2 },
-  savedPath: { fontSize: 11, fontFamily: 'DMSans_400Regular', textAlign: 'center', marginTop: 16, lineHeight: 17, paddingHorizontal: 24, letterSpacing: 0.2 },
-  recordAgainBtn: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 15, paddingHorizontal: 30, borderRadius: 50, marginBottom: 12 },
+  savedPath: {
+    fontSize: 11, fontFamily: 'DMSans_400Regular', textAlign: 'center',
+    marginTop: 16, lineHeight: 17, paddingHorizontal: 24, letterSpacing: 0.2,
+  },
+  recordAgainBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 9,
+    paddingVertical: 15, paddingHorizontal: 30, borderRadius: 50, marginBottom: 12,
+  },
   recordAgainText: { color: '#fff', fontSize: 16, fontFamily: 'DMSans_500Medium', letterSpacing: 0.2 },
 });

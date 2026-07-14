@@ -30,9 +30,9 @@
       "expo-font",
       "expo-web-browser",
       [
-        "expo-av",
+        "expo-audio",
         {
-          "microphonePermission": "Allow Voice Recorder to access your microphone."
+          "microphonePermission": "Allow dic to access your microphone to record audio."
         }
       ]
     ],
