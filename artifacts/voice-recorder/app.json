@@ -30,7 +30,7 @@
       "expo-font",
       "expo-web-browser",
       [
-        "expo-audio",
+        "expo-av",
         {
           "microphonePermission": "Allow dic to access your microphone to record audio."
         }
