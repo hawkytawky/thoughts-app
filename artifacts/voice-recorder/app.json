@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Voice Recorder",
+    "name": "dic",
     "slug": "voice-recorder",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0d0d0d"
+      "backgroundColor": "#1a1b20"
     },
     "ios": {
       "supportsTablet": false

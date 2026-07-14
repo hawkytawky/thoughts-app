@@ -7,7 +7,7 @@ import {
   View,
 } from 'react-native';
 import { Audio, RecordingStatus } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -21,15 +21,15 @@ import Animated, {
 import { useColors } from '@/hooks/useColors';
 import { Ionicons } from '@expo/vector-icons';
 
-const BAR_COUNT = 50;
-const INITIAL_AMPLITUDES = Array(BAR_COUNT).fill(0.03) as number[];
+const BAR_COUNT = 48;
+const INITIAL_AMPLITUDES = Array(BAR_COUNT).fill(0.02) as number[];
 
-// ─── Blinking record dot ───────────────────────────────────────────────────
+// ─── Blinking record dot ────────────────────────────────────────────────────
 function RecordDot() {
   const opacity = useSharedValue(1);
   useEffect(() => {
     opacity.value = withRepeat(
-      withTiming(0.15, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+      withTiming(0.1, { duration: 900, easing: Easing.inOut(Easing.sine) }),
       -1,
       true,
     );
@@ -38,24 +38,40 @@ function RecordDot() {
   return <Animated.View style={[styles.recDot, animStyle]} />;
 }
 
-// ─── Single waveform bar ───────────────────────────────────────────────────
+// ─── Single waveform bar ────────────────────────────────────────────────────
 const WaveformBar = React.memo(function WaveformBar({
   amplitude,
   isRecording,
+  index,
 }: {
   amplitude: number;
   isRecording: boolean;
+  index: number;
 }) {
-  const height = useSharedValue(3);
+  const height = useSharedValue(2);
+  const opacity = useSharedValue(0.15);
+
+  // bars toward the center are slightly brighter
+  const centerBias = 1 - Math.abs((index - BAR_COUNT / 2) / (BAR_COUNT / 2)) * 0.4;
+
   useEffect(() => {
-    const target = isRecording ? Math.max(3, amplitude * 72) : 3;
-    height.value = withSpring(target, { damping: 18, stiffness: 280 });
+    const target = isRecording ? Math.max(2, amplitude * 68) : 2;
+    const targetOp = isRecording
+      ? Math.max(0.12, (amplitude * 0.75 + 0.15) * centerBias)
+      : 0.1;
+    height.value = withSpring(target, { damping: 20, stiffness: 260 });
+    opacity.value = withTiming(targetOp, { duration: 120 });
   }, [amplitude, isRecording]);
-  const animStyle = useAnimatedStyle(() => ({ height: height.value }));
+
+  const animStyle = useAnimatedStyle(() => ({
+    height: height.value,
+    opacity: opacity.value,
+  }));
+
   return <Animated.View style={[styles.bar, animStyle]} />;
 });
 
-// ─── Main screen ──────────────────────────────────────────────────────────
+// ─── Main screen ─────────────────────────────────────────────────────────────
 type AppState = 'requesting' | 'denied' | 'recording' | 'stopping' | 'saved';
 
 function formatTime(ms: number): string {
@@ -71,7 +87,6 @@ export default function RecorderScreen() {
   const [appState, setAppState] = useState<AppState>('requesting');
   const [amplitudes, setAmplitudes] = useState<number[]>(INITIAL_AMPLITUDES);
   const [durationMs, setDurationMs] = useState(0);
-  const [savedPath, setSavedPath] = useState<string | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
 
   const startRecording = useCallback(async () => {
@@ -93,8 +108,8 @@ export default function RecorderScreen() {
         const raw = status.metering ?? -160;
         const normalized = Math.max(0, Math.min(1, (raw + 60) / 60));
         setAmplitudes(prev => {
-          const next = [...prev.slice(1), normalized + Math.random() * 0.08];
-          return next;
+          const jitter = (Math.random() - 0.5) * 0.06;
+          return [...prev.slice(1), Math.max(0, normalized + jitter)];
         });
       });
 
@@ -123,10 +138,9 @@ export default function RecorderScreen() {
       if (uri) {
         const dir = FileSystem.documentDirectory + 'recordings/';
         await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-        const filename = `recording-${Date.now()}.m4a`;
+        const filename = `dic-${Date.now()}.m4a`;
         const dest = dir + filename;
         await FileSystem.copyAsync({ from: uri, to: dest });
-        setSavedPath(dest);
       }
 
       setAppState('saved');
@@ -138,7 +152,6 @@ export default function RecorderScreen() {
   }, []);
 
   const recordAgain = useCallback(async () => {
-    setSavedPath(null);
     setDurationMs(0);
     setAmplitudes(INITIAL_AMPLITUDES);
     await startRecording();
@@ -162,27 +175,28 @@ export default function RecorderScreen() {
   const webTop = Platform.OS === 'web' ? 67 : 0;
   const webBottom = Platform.OS === 'web' ? 34 : 0;
 
-  // ── Denied ────────────────────────────────────────────────────────────
+  // ── Denied ─────────────────────────────────────────────────────────────────
   if (appState === 'denied') {
     return (
       <View
         style={[
           styles.container,
+          styles.centered,
           { backgroundColor: colors.background, paddingTop: insets.top + webTop },
         ]}
       >
-        <Ionicons name="mic-off-outline" size={48} color={colors.mutedForeground} />
+        <Ionicons name="mic-off-outline" size={44} color={colors.mutedForeground} />
         <Text style={[styles.deniedTitle, { color: colors.foreground }]}>
           Microphone access needed
         </Text>
         <Text style={[styles.deniedSub, { color: colors.mutedForeground }]}>
-          Enable microphone access in Settings to use Voice Recorder.
+          Enable microphone access in Settings to use dic.
         </Text>
       </View>
     );
   }
 
-  // ── Saved ─────────────────────────────────────────────────────────────
+  // ── Saved ──────────────────────────────────────────────────────────────────
   if (appState === 'saved') {
     return (
       <View
@@ -196,15 +210,16 @@ export default function RecorderScreen() {
         ]}
       >
         <View style={styles.savedContent}>
-          <View style={[styles.savedIcon, { backgroundColor: colors.primary + '22' }]}>
-            <Ionicons name="checkmark" size={40} color={colors.primary} />
+          {/* Thin ring check */}
+          <View style={[styles.savedRing, { borderColor: colors.primary + '55' }]}>
+            <Ionicons name="checkmark" size={36} color={colors.primary} />
           </View>
-          <Text style={[styles.savedTitle, { color: colors.foreground }]}>Saved</Text>
-          <Text style={[styles.savedDuration, { color: colors.mutedForeground }]}>
+          <Text style={[styles.savedLabel, { color: colors.mutedForeground }]}>saved</Text>
+          <Text style={[styles.savedDuration, { color: colors.foreground }]}>
             {formatTime(durationMs)}
           </Text>
           <Text style={[styles.savedPath, { color: colors.mutedForeground }]}>
-            Files app → On My iPhone → Voice Recorder → recordings
+            Files → On My iPhone → dic → recordings
           </Text>
         </View>
 
@@ -212,17 +227,17 @@ export default function RecorderScreen() {
           onPress={recordAgain}
           style={({ pressed }) => [
             styles.recordAgainBtn,
-            { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
+            { backgroundColor: colors.primary, opacity: pressed ? 0.78 : 1 },
           ]}
         >
-          <Ionicons name="mic" size={22} color="#fff" />
-          <Text style={styles.recordAgainText}>Record again</Text>
+          <Ionicons name="mic" size={20} color="#fff" />
+          <Text style={styles.recordAgainText}>record again</Text>
         </Pressable>
       </View>
     );
   }
 
-  // ── Recording / Requesting / Stopping ─────────────────────────────────
+  // ── Recording / Requesting / Stopping ──────────────────────────────────────
   const isActive = appState === 'recording';
   const isStopping = appState === 'stopping';
 
@@ -237,21 +252,24 @@ export default function RecorderScreen() {
         },
       ]}
     >
-      {/* Status row */}
-      <View style={styles.statusRow}>
-        {isActive ? (
-          <>
-            <RecordDot />
-            <Text style={[styles.recLabel, { color: colors.primary }]}>REC</Text>
-          </>
-        ) : (
-          <Text style={[styles.recLabel, { color: colors.mutedForeground }]}>
-            {isStopping ? 'SAVING…' : 'STARTING…'}
-          </Text>
-        )}
+      {/* App name + status */}
+      <View style={styles.topRow}>
+        <Text style={[styles.appName, { color: colors.foreground }]}>dic</Text>
+        <View style={styles.statusRow}>
+          {isActive ? (
+            <>
+              <RecordDot />
+              <Text style={[styles.recLabel, { color: colors.primary }]}>rec</Text>
+            </>
+          ) : (
+            <Text style={[styles.recLabel, { color: colors.mutedForeground }]}>
+              {isStopping ? 'saving' : '···'}
+            </Text>
+          )}
+        </View>
       </View>
 
-      {/* Timer */}
+      {/* Timer — hero element */}
       <Text style={[styles.timer, { color: colors.foreground }]}>
         {formatTime(durationMs)}
       </Text>
@@ -259,7 +277,7 @@ export default function RecorderScreen() {
       {/* Waveform */}
       <View style={styles.waveform}>
         {amplitudes.map((amp, i) => (
-          <WaveformBar key={i} amplitude={amp} isRecording={isActive} />
+          <WaveformBar key={i} amplitude={amp} isRecording={isActive} index={i} />
         ))}
       </View>
 
@@ -270,18 +288,21 @@ export default function RecorderScreen() {
         style={({ pressed }) => [
           styles.stopBtn,
           {
-            backgroundColor: colors.primary,
-            opacity: isActive ? (pressed ? 0.75 : 1) : 0.4,
-            transform: [{ scale: pressed && isActive ? 0.93 : 1 }],
+            borderColor: isActive ? colors.primary : colors.border,
+            opacity: isActive ? (pressed ? 0.7 : 1) : 0.35,
+            transform: [{ scale: pressed && isActive ? 0.92 : 1 }],
           },
         ]}
       >
-        <View style={styles.stopSquare} />
+        <View
+          style={[
+            styles.stopSquare,
+            { backgroundColor: isActive ? colors.primary : colors.mutedForeground },
+          ]}
+        />
       </Pressable>
 
-      <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-        tap to stop
-      </Text>
+      <Text style={[styles.hint, { color: colors.mutedForeground }]}>tap to stop</Text>
     </View>
   );
 }
@@ -291,128 +312,148 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 32,
+    paddingHorizontal: 28,
+    paddingVertical: 28,
   },
-  // Status
+  centered: {
+    justifyContent: 'center',
+    gap: 14,
+  },
+  // Top row
+  topRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  appName: {
+    fontSize: 22,
+    fontFamily: 'DMSans_500Medium',
+    letterSpacing: -0.3,
+  },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    height: 32,
-    marginTop: 8,
+    gap: 7,
   },
   recDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
     backgroundColor: '#ff3b30',
   },
   recLabel: {
-    fontSize: 13,
-    fontFamily: 'Inter_600SemiBold',
-    letterSpacing: 2.5,
+    fontSize: 12,
+    fontFamily: 'DMSans_400Regular',
+    letterSpacing: 1.8,
   },
   // Timer
   timer: {
-    fontSize: 64,
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -2,
+    fontSize: 68,
+    fontFamily: 'DMSans_300Light',
+    letterSpacing: -3,
     textAlign: 'center',
     includeFontPadding: false,
+    marginTop: -8,
   },
   // Waveform
   waveform: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    height: 80,
+    height: 72,
+    width: '100%',
+    justifyContent: 'center',
   },
   bar: {
-    width: 3,
+    width: 3.5,
     borderRadius: 2,
     backgroundColor: '#ff3b30',
-    opacity: 0.85,
   },
-  // Stop button
+  // Stop button — outlined ring style
   stopBtn: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   stopSquare: {
-    width: 26,
-    height: 26,
+    width: 22,
+    height: 22,
     borderRadius: 5,
-    backgroundColor: '#fff',
   },
   hint: {
-    fontSize: 13,
-    fontFamily: 'Inter_400Regular',
-    letterSpacing: 0.3,
-    marginBottom: 8,
+    fontSize: 12,
+    fontFamily: 'DMSans_400Regular',
+    letterSpacing: 0.8,
+    marginBottom: 4,
   },
   // Denied
   deniedTitle: {
-    fontSize: 20,
-    fontFamily: 'Inter_600SemiBold',
-    marginTop: 20,
+    fontSize: 19,
+    fontFamily: 'DMSans_500Medium',
+    textAlign: 'center',
   },
   deniedSub: {
-    fontSize: 15,
-    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    fontFamily: 'DMSans_400Regular',
     textAlign: 'center',
-    marginTop: 10,
-    lineHeight: 22,
-    paddingHorizontal: 16,
+    lineHeight: 21,
+    paddingHorizontal: 24,
   },
   // Saved
   savedContent: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 8,
   },
-  savedIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+  savedRing: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  savedTitle: {
-    fontSize: 32,
-    fontFamily: 'Inter_700Bold',
-    letterSpacing: -0.5,
+  savedLabel: {
+    fontSize: 12,
+    fontFamily: 'DMSans_400Regular',
+    letterSpacing: 2,
   },
   savedDuration: {
-    fontSize: 18,
-    fontFamily: 'Inter_400Regular',
+    fontSize: 44,
+    fontFamily: 'DMSans_300Light',
+    letterSpacing: -2,
+    marginTop: 2,
   },
   savedPath: {
-    fontSize: 12,
-    fontFamily: 'Inter_400Regular',
+    fontSize: 11,
+    fontFamily: 'DMSans_400Regular',
     textAlign: 'center',
-    marginTop: 12,
-    lineHeight: 18,
+    marginTop: 16,
+    lineHeight: 17,
     paddingHorizontal: 24,
+    letterSpacing: 0.2,
   },
   recordAgainBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
+    gap: 9,
+    paddingVertical: 15,
+    paddingHorizontal: 30,
     borderRadius: 50,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   recordAgainText: {
     color: '#fff',
-    fontSize: 17,
-    fontFamily: 'Inter_600SemiBold',
+    fontSize: 16,
+    fontFamily: 'DMSans_500Medium',
+    letterSpacing: 0.2,
   },
 });
