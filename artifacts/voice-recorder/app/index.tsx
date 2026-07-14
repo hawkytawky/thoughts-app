@@ -96,13 +96,7 @@ export default function RecorderScreen() {
         playsInSilentModeIOS: true,
       });
 
-      const rec = new Audio.Recording();
-      await rec.prepareToRecordAsync({
-        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-        isMeteringEnabled: true,
-      });
-
-      rec.setOnRecordingStatusUpdate((status: RecordingStatus) => {
+      const onStatus = (status: RecordingStatus) => {
         if (!status.isRecording) return;
         setDurationMs(status.durationMillis ?? 0);
         const raw = status.metering ?? -160;
@@ -111,11 +105,15 @@ export default function RecorderScreen() {
           const jitter = (Math.random() - 0.5) * 0.06;
           return [...prev.slice(1), Math.max(0, normalized + jitter)];
         });
-      });
+      };
 
-      rec.setProgressUpdateInterval(80);
-      await rec.startAsync();
-      recordingRef.current = rec;
+      const { recording } = await Audio.Recording.createAsync(
+        { ...Audio.RecordingOptionsPresets.HIGH_QUALITY, isMeteringEnabled: true },
+        onStatus,
+        80,
+      );
+
+      recordingRef.current = recording;
       setAppState('recording');
     } catch (e) {
       console.error('Failed to start recording', e);
