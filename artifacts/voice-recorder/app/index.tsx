@@ -58,7 +58,7 @@ const WaveformBar = React.memo(function WaveformBar({
     const targetO = isRecording ? Math.max(0.12, (amplitude * 0.75 + 0.15) * centerBias) : 0.1;
     Animated.parallel([
       Animated.spring(height, { toValue: targetH, damping: 20, stiffness: 260, useNativeDriver: false }),
-      Animated.timing(opacity, { toValue: targetO, duration: 120, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: targetO, duration: 120, useNativeDriver: false }),
     ]).start();
   }, [amplitude, isRecording]);
 
