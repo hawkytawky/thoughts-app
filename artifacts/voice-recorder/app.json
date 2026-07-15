@@ -1,17 +1,17 @@
 {
   "expo": {
-    "name": "dic",
-    "slug": "voice-recorder",
+    "name": "thoughts",
+    "slug": "thoughts",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "voice-recorder",
+    "scheme": "thoughts",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#1a1b20"
+      "backgroundColor": "#10180F"
     },
     "ios": {
       "supportsTablet": false
@@ -32,7 +32,7 @@
       [
         "expo-av",
         {
-          "microphonePermission": "Allow dic to access your microphone to record audio."
+          "microphonePermission": "Allow thoughts to access your microphone to record audio."
         }
       ]
     ],

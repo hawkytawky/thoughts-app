@@ -1,15 +1,18 @@
-# [Project name]
+# thoughts
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An organic, minimal voice recorder for capturing thoughts without friction.
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `node --experimental-strip-types scripts/src/recording-receiver.ts` — receive private audio uploads on `127.0.0.1:4317`
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Optional receiver env: `THOUGHTS_RECORDINGS_DIR` (defaults to `~/Documents/thoughts/recordings`) and `THOUGHTS_RECEIVER_PORT` (defaults to `4317`)
+- Mobile upload env: `EXPO_PUBLIC_THOUGHTS_UPLOAD_URL` — private HTTPS URL created by Tailscale Serve
 
 ## Stack
 

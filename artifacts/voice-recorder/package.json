@@ -1,5 +1,5 @@
 {
-  "name": "@workspace/voice-recorder",
+  "name": "@workspace/thoughts",
   "version": "0.0.0",
   "private": true,
   "main": "expo-router/entry",
