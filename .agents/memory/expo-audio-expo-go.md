@@ -1,19 +1,24 @@
 ---
-name: expo-audio not in Expo Go SDK 54
-description: expo-audio causes a silent native crash in Expo Go; expo-av still works despite deprecation warning
+name: Expo Go SDK 54 — crash causes found the hard way
+description: Silent crash causes in Expo Go SDK 54 that produce zero logs before closing to home screen
 ---
 
-expo-audio (any version) is NOT bundled in Expo Go SDK 54. Importing it causes a silent native crash — iOS bundle loads fine ("iOS Bundled Xms"), then app closes to home screen with zero JS error logs.
+## SplashScreen.hideAsync() crash (CONFIRMED root cause)
+`SplashScreen.preventAutoHideAsync()` called at module level + `SplashScreen.hideAsync()` in useEffect crashes in Expo Go with:
+"No native splash screen registered for given view controller. Call 'SplashScreen.show' first."
 
-**Why:** expo-audio's native binary is not compiled into Expo Go. The expo-av deprecation warning ("will be removed in SDK 54") is misleading — expo-av native code IS still present in Expo Go SDK 54 and works fine.
+**Why:** In Expo Go SDK 54, the splash screen lifecycle changed. `preventAutoHideAsync()` must be configured in app.json (`"splash": { ... }`) AND the view controller must be the right one. Calling hideAsync() from a layout useEffect hits a timing issue.
 
-**How to apply:** For audio recording in Expo Go projects, always use expo-av. Only switch to expo-audio with a development build (custom native binary). Correct expo-av recording API:
-```ts
-const { recording } = await Audio.Recording.createAsync(
-  { ...Audio.RecordingOptionsPresets.HIGH_QUALITY, isMeteringEnabled: true },
-  onStatusCallback,
-  intervalMs,
-);
-```
+**Fix:** Remove all SplashScreen logic from `_layout.tsx`. The app renders fine without it. If you need it, configure `expo-splash-screen` plugin in app.json and test carefully.
 
-Other native modules that also crash Expo Go silently: react-native-keyboard-controller.
+## expo-audio (NOT in Expo Go SDK 54)
+expo-audio causes a silent native crash in Expo Go SDK 54. expo-av still works (the deprecation warning is JS-only; native code is present).
+
+## Reanimated 4.x (status: OK in Expo Go SDK 54)
+react-native-reanimated 4.x is fine in Expo Go SDK 54. Not the crash cause.
+
+## react-native-keyboard-controller (NOT in Expo Go)
+Causes native crash. Remove from _layout.tsx.
+
+## Diagnosis tip
+Always check Metro logs directly — the real JS error appears there. "iOS Bundled Xms" followed by silence = crash before first render = look for module-level errors or native module issues. ErrorBoundary cannot catch these.

@@ -1,1 +1,1 @@
-- [expo-audio not in Expo Go](expo-audio-expo-go.md) — expo-audio causes a silent native crash in Expo Go SDK 54; use expo-av instead
+- [Expo Go SDK 54 crash causes](expo-audio-expo-go.md) — SplashScreen.hideAsync() is the main silent crash; expo-audio also crashes; expo-av works
