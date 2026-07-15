@@ -31,15 +31,17 @@ function RecordDot() {
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.1, duration: 900, easing: Easing.inOut(Easing.sine), useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.sine), useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.1, duration: 900, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 900, useNativeDriver: true }),
       ])
     ).start();
+    return () => opacity.stopAnimation();
   }, []);
   return <Animated.View style={[styles.recDot, { opacity }]} />;
 }
 
 // ── Waveform bar ──────────────────────────────────────────────────────────────
+// scaleY + opacity both work with useNativeDriver: true (no layout props)
 const WaveformBar = React.memo(function WaveformBar({
   amplitude,
   isRecording,
@@ -49,21 +51,21 @@ const WaveformBar = React.memo(function WaveformBar({
   isRecording: boolean;
   index: number;
 }) {
-  const height = useRef(new Animated.Value(2)).current;
+  const scale = useRef(new Animated.Value(0.03)).current;
   const opacity = useRef(new Animated.Value(0.1)).current;
   const centerBias = 1 - Math.abs((index - BAR_COUNT / 2) / (BAR_COUNT / 2)) * 0.4;
 
   useEffect(() => {
-    const targetH = isRecording ? Math.max(2, amplitude * 68) : 2;
+    const targetS = isRecording ? Math.max(0.03, amplitude) : 0.03;
     const targetO = isRecording ? Math.max(0.12, (amplitude * 0.75 + 0.15) * centerBias) : 0.1;
     Animated.parallel([
-      Animated.spring(height, { toValue: targetH, damping: 20, stiffness: 260, useNativeDriver: false }),
-      Animated.timing(opacity, { toValue: targetO, duration: 120, useNativeDriver: false }),
+      Animated.spring(scale, { toValue: targetS, damping: 20, stiffness: 260, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: targetO, duration: 120, useNativeDriver: true }),
     ]).start();
   }, [amplitude, isRecording]);
 
   return (
-    <Animated.View style={[styles.bar, { height, opacity }]} />
+    <Animated.View style={[styles.bar, { opacity, transform: [{ scaleY: scale }] }]} />
   );
 });
 
@@ -251,7 +253,7 @@ const styles = StyleSheet.create({
   recLabel: { fontSize: 12, fontFamily: 'DMSans_400Regular', letterSpacing: 1.8 },
   timer: { fontSize: 68, fontFamily: 'DMSans_300Light', letterSpacing: -3, textAlign: 'center', includeFontPadding: false, marginTop: -8 },
   waveform: { flexDirection: 'row', alignItems: 'center', gap: 3, height: 72, width: '100%', justifyContent: 'center' },
-  bar: { width: 3.5, borderRadius: 2, backgroundColor: '#ff3b30' },
+  bar: { width: 3.5, height: 68, borderRadius: 2, backgroundColor: '#ff3b30' },
   stopBtn: { width: 76, height: 76, borderRadius: 38, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
   stopSquare: { width: 22, height: 22, borderRadius: 5 },
   hint: { fontSize: 12, fontFamily: 'DMSans_400Regular', letterSpacing: 0.8, marginBottom: 4 },
