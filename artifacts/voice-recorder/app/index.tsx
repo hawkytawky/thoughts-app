@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Audio, type RecordingStatus } from 'expo-av';
+import { Audio, InterruptionModeIOS, type RecordingStatus } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -84,6 +84,7 @@ export default function RecorderScreen() {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
       });
       const { recording } = await Audio.Recording.createAsync(
         { ...Audio.RecordingOptionsPresets.HIGH_QUALITY, isMeteringEnabled: true },
