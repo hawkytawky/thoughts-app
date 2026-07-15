@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Animated,
+  AppState,
   Easing,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -48,11 +50,9 @@ const SANS = Platform.select({
   android: "sans-serif",
   default: "sans-serif",
 });
-const WAVE_PROFILE = [
-  0.24, 0.34, 0.48, 0.4, 0.62, 0.52, 0.76, 0.66, 0.88, 0.7, 0.8, 0.58,
-  0.68, 0.46, 0.52, 0.34, 0.24,
-];
-const INITIAL_AMPLITUDES = WAVE_PROFILE.map(() => 0);
+const WAVE_HISTORY_POINTS = 14;
+const WAVE_POINT_COUNT = WAVE_HISTORY_POINTS * 2 - 1;
+const INITIAL_AMPLITUDES = Array.from({ length: WAVE_POINT_COUNT }, () => 0);
 const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings/`;
 const NOTE_NUMBER_KEY = "@thoughts/next-note-number";
 const RECORDING_UPLOAD_URL =
@@ -130,6 +130,32 @@ function formatTime(ms: number): string {
   return `${minutes}:${seconds}`;
 }
 
+function Timer({ durationMs }: { durationMs: number }) {
+  const time = formatTime(durationMs);
+
+  return (
+    <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={`Aufnahmedauer ${time}`}
+      style={styles.timerRow}
+    >
+      {time.split("").map((character, index) => (
+        <Text
+          accessibilityElementsHidden
+          key={`${index}-${character}`}
+          style={[
+            styles.timer,
+            character === ":" ? styles.timerSeparator : styles.timerDigit,
+          ]}
+        >
+          {character}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 function OrganicBackground() {
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -162,15 +188,6 @@ function OrganicBackground() {
         <Circle cx="15%" cy="95%" r="42%" fill="url(#b3)" />
         <Circle cx="90%" cy="78%" r="30%" fill="url(#b4)" />
       </Svg>
-    </View>
-  );
-}
-
-function Header({ noteNumber }: { noteNumber: number }) {
-  return (
-    <View style={styles.header}>
-      <Text style={styles.eyebrow}>thoughts</Text>
-      <Text style={[styles.eyebrow, styles.noteNumber]}>Note {noteNumber}</Text>
     </View>
   );
 }
@@ -216,10 +233,15 @@ const WaveformBar = React.memo(function WaveformBar({
 }) {
   const scale = useRef(new Animated.Value(0.04)).current;
   const opacity = useRef(new Animated.Value(0.24)).current;
+  const previousAmplitude = useRef(amplitude);
 
   useEffect(() => {
-    const targetScale = isRecording ? 0.04 + amplitude * 0.96 : 0.04;
-    const targetOpacity = isRecording ? 0.24 + amplitude * 0.76 : 0.24;
+    const targetScale = isRecording ? 0.045 + amplitude * 0.955 : 0.045;
+    const targetOpacity = isRecording
+      ? 0.22 + Math.min(1, amplitude * 1.3) * 0.72
+      : 0.22;
+    const isRising = amplitude > previousAmplitude.current;
+    previousAmplitude.current = amplitude;
 
     if (reduceMotion) {
       scale.setValue(targetScale);
@@ -227,12 +249,14 @@ const WaveformBar = React.memo(function WaveformBar({
       return;
     }
 
-    const duration = amplitude > 0.04 ? 150 : 260;
+    const duration = isRising ? 70 : 180;
     Animated.parallel([
       Animated.timing(scale, {
         toValue: targetScale,
         duration,
-        easing: Easing.out(Easing.quad),
+        easing: isRising
+          ? Easing.out(Easing.cubic)
+          : Easing.inOut(Easing.quad),
         useNativeDriver: true,
       }),
       Animated.timing(opacity, {
@@ -261,10 +285,11 @@ function Waveform({
 }) {
   return (
     <View style={styles.waveform} accessibilityElementsHidden>
-      {WAVE_PROFILE.map((_, index) => (
+      <View style={styles.waveBaseline} />
+      {amplitudes.map((amplitude, index) => (
         <WaveformBar
           key={index}
-          amplitude={amplitudes[index] ?? 0}
+          amplitude={amplitude}
           isRecording={isRecording}
           reduceMotion={reduceMotion}
         />
@@ -276,55 +301,12 @@ function Waveform({
 function StopButton({
   disabled,
   onPress,
-  reduceMotion,
 }: {
   disabled: boolean;
   onPress: () => void;
-  reduceMotion: boolean;
 }) {
-  const breathe = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    breathe.setValue(0);
-    if (reduceMotion || disabled) return;
-
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(breathe, {
-          toValue: 1,
-          duration: 1600,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(breathe, {
-          toValue: 0,
-          duration: 1600,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [breathe, disabled, reduceMotion]);
-
-  const ringScale = breathe.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.08],
-  });
-  const ringOpacity = breathe.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.6, 0.2],
-  });
-
   return (
     <View style={[styles.stopWrap, disabled && styles.disabled]}>
-      <Animated.View
-        style={[
-          styles.outerRing,
-          { opacity: ringOpacity, transform: [{ scale: ringScale }] },
-        ]}
-      />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Aufnahme stoppen"
@@ -352,6 +334,12 @@ export default function RecorderScreen() {
   const [remotePath, setRemotePath] = useState<string | null>(null);
   const [pendingUploadUri, setPendingUploadUri] = useState<string | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
+  const startingRef = useRef(false);
+  const screenStateRef = useRef<ScreenState>("requesting");
+  const smoothedLevelRef = useRef(0);
+  const levelHistoryRef = useRef<number[]>(
+    Array.from({ length: WAVE_HISTORY_POINTS }, () => 0),
+  );
 
   const attemptUpload = useCallback(async (localUri: string) => {
     setPendingUploadUri(localUri);
@@ -373,6 +361,8 @@ export default function RecorderScreen() {
   }, []);
 
   const startRecording = useCallback(async () => {
+    if (startingRef.current || recordingRef.current) return;
+    startingRef.current = true;
     try {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
@@ -387,26 +377,66 @@ export default function RecorderScreen() {
         (status) => {
           if (!status.isRecording) return;
           setDurationMs(status.durationMillis ?? 0);
-          const amplitude = meteringToAmplitude(status.metering);
-          setAmplitudes((previous) =>
-            WAVE_PROFILE.map((weight, index) => {
-              const current = previous[index] ?? 0;
-              const target = amplitude * weight;
-              const response = target > current ? 0.52 : 0.18;
-              const next = current + (target - current) * response;
-              return next < 0.012 ? 0 : next;
+          const target = meteringToAmplitude(status.metering);
+          const current = smoothedLevelRef.current;
+          const response = target > current ? 0.82 : 0.26;
+          const nextLevel = current + (target - current) * response;
+          const settledLevel = nextLevel < 0.012 ? 0 : nextLevel;
+          smoothedLevelRef.current = settledLevel;
+
+          const history = [
+            settledLevel,
+            ...levelHistoryRef.current.slice(0, WAVE_HISTORY_POINTS - 1),
+          ];
+          levelHistoryRef.current = history;
+
+          const mirrored = [
+            ...history.slice(1).reverse(),
+            history[0],
+            ...history.slice(1),
+          ];
+          const center = (mirrored.length - 1) / 2;
+          setAmplitudes(
+            mirrored.map((sample, index) => {
+              const distance = Math.abs(index - center) / center;
+              const envelope =
+                0.28 + 0.72 * (1 - Math.pow(distance, 1.45));
+              return sample * envelope;
             }),
           );
         },
-        100,
+        65,
       );
       recordingRef.current = recording;
       setScreenState("recording");
       void syncPendingRecordings();
     } catch (error) {
       console.error("start error:", error);
+    } finally {
+      startingRef.current = false;
     }
   }, []);
+
+  const startNextRecording = useCallback(() => {
+    if (
+      screenStateRef.current === "recording" ||
+      screenStateRef.current === "stopping"
+    ) {
+      return;
+    }
+
+    setNoteNumber((current) => current + 1);
+    setDurationMs(0);
+    smoothedLevelRef.current = 0;
+    levelHistoryRef.current = Array.from(
+      { length: WAVE_HISTORY_POINTS },
+      () => 0,
+    );
+    setAmplitudes(INITIAL_AMPLITUDES);
+    setRemotePath(null);
+    setSyncState("idle");
+    void startRecording();
+  }, [startRecording]);
 
   const stopRecording = useCallback(async () => {
     const recording = recordingRef.current;
@@ -441,6 +471,34 @@ export default function RecorderScreen() {
       setScreenState("recording");
     }
   }, [attemptUpload, durationMs, noteNumber]);
+
+  useEffect(() => {
+    screenStateRef.current = screenState;
+  }, [screenState]);
+
+  useEffect(() => {
+    let previousState = AppState.currentState;
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (nextState) => {
+        const isReturning =
+          nextState === "active" &&
+          (previousState === "background" || previousState === "inactive");
+        previousState = nextState;
+        if (isReturning && screenStateRef.current === "saved") {
+          startNextRecording();
+        }
+      },
+    );
+    const urlSubscription = Linking.addEventListener("url", ({ url }) => {
+      if (url.startsWith("thoughts://record")) startNextRecording();
+    });
+
+    return () => {
+      appStateSubscription.remove();
+      urlSubscription.remove();
+    };
+  }, [startNextRecording]);
 
   useEffect(() => {
     let mounted = true;
@@ -500,7 +558,6 @@ export default function RecorderScreen() {
     return (
       <View style={shellStyle}>
         <OrganicBackground />
-        <Header noteNumber={noteNumber} />
         <View style={styles.messageContent}>
           <Ionicons name="mic-off-outline" size={42} color={C.sage} />
           <Text style={styles.messageTitle}>microphone access needed</Text>
@@ -517,7 +574,6 @@ export default function RecorderScreen() {
     return (
       <View style={shellStyle}>
         <OrganicBackground />
-        <Header noteNumber={noteNumber} />
         <View style={styles.messageContent}>
           <View style={styles.savedRing}>
             <Ionicons name="checkmark" size={34} color={C.sage} />
@@ -568,12 +624,7 @@ export default function RecorderScreen() {
           <Pressable
             accessibilityRole="button"
             onPress={() => {
-              setNoteNumber((current) => current + 1);
-              setDurationMs(0);
-              setAmplitudes(INITIAL_AMPLITUDES);
-              setRemotePath(null);
-              setSyncState("idle");
-              void startRecording();
+              startNextRecording();
             }}
             style={({ pressed }) => [
               styles.recordAgainButton,
@@ -591,7 +642,6 @@ export default function RecorderScreen() {
   return (
     <View style={shellStyle}>
       <OrganicBackground />
-      <Header noteNumber={noteNumber} />
 
       <View style={styles.center}>
         <View style={styles.statusRow}>
@@ -600,7 +650,7 @@ export default function RecorderScreen() {
             {isActive ? "listening" : isStopping ? "saving" : "preparing"}
           </Text>
         </View>
-        <Text style={styles.timer}>{formatTime(durationMs)}</Text>
+        <Timer durationMs={durationMs} />
         <Waveform
           amplitudes={amplitudes}
           isRecording={isActive}
@@ -612,7 +662,6 @@ export default function RecorderScreen() {
         <StopButton
           disabled={!isActive}
           onPress={stopRecording}
-          reduceMotion={reduceMotion}
         />
         <Text style={styles.hint}>
           {isStopping ? "saving your thought" : "tap to stop"}
@@ -628,26 +677,12 @@ const styles = StyleSheet.create({
     backgroundColor: C.ink,
     paddingHorizontal: 30,
   },
-  header: {
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-  },
-  eyebrow: {
-    fontFamily: SANS,
-    fontSize: 10.5,
-    fontWeight: "500",
-    letterSpacing: 2.7,
-    textTransform: "uppercase",
-    color: C.ivory60,
-  },
-  noteNumber: { color: C.ivory35 },
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     gap: 28,
+    transform: [{ translateY: -16 }],
   },
   statusRow: { flexDirection: "row", alignItems: "center", gap: 9 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.sage },
@@ -663,36 +698,38 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: C.ivory,
     fontVariant: ["tabular-nums"],
-    letterSpacing: -2,
     includeFontPadding: false,
+    textAlign: "center",
   },
+  timerRow: { flexDirection: "row", alignItems: "baseline" },
+  timerDigit: { width: 45 },
+  timerSeparator: { width: 20 },
   waveform: {
-    height: 72,
+    height: 76,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 3.6,
+    position: "relative",
+  },
+  waveBaseline: {
+    position: "absolute",
+    width: 174,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: C.ivory12,
   },
   waveBar: {
-    width: 3,
-    height: 64,
+    width: 2.4,
+    height: 68,
     borderRadius: 2,
     backgroundColor: C.sage,
   },
   bottom: { alignItems: "center", gap: 22 },
   stopWrap: {
-    width: 100,
-    height: 100,
+    width: 86,
+    height: 86,
     alignItems: "center",
     justifyContent: "center",
-  },
-  outerRing: {
-    position: "absolute",
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 1,
-    borderColor: C.ivory12,
   },
   stopRing: {
     width: 84,

@@ -14,7 +14,8 @@
       "backgroundColor": "#10180F"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.otto.thoughts"
     },
     "android": {},
     "web": {

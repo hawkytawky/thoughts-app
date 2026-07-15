@@ -1,5 +1,5 @@
-import { createWriteStream } from "node:fs";
-import { link, mkdir, unlink } from "node:fs/promises";
+import { constants, createWriteStream } from "node:fs";
+import { copyFile, mkdir, unlink } from "node:fs/promises";
 import {
   createServer,
   type IncomingMessage,
@@ -81,7 +81,7 @@ async function moveToUniqueName(
     const fileName = `${baseName}${suffix}.m4a`;
     const destination = join(directory, fileName);
     try {
-      await link(temporaryPath, destination);
+      await copyFile(temporaryPath, destination, constants.COPYFILE_EXCL);
       await unlink(temporaryPath);
       return destination;
     } catch (error) {
