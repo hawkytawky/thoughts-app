@@ -29,13 +29,14 @@ function formatTime(ms: number): string {
 function RecordDot() {
   const opacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    Animated.loop(
+    const anim = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.1, duration: 900, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.15, duration: 800, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 800, useNativeDriver: true }),
       ])
-    ).start();
-    return () => opacity.stopAnimation();
+    );
+    anim.start();
+    return () => anim.stop();
   }, []);
   return <Animated.View style={[styles.recDot, { opacity }]} />;
 }
@@ -175,7 +176,7 @@ export default function RecorderScreen() {
           <Text style={[styles.savedLabel, { color: colors.mutedForeground }]}>saved</Text>
           <Text style={[styles.savedDuration, { color: colors.foreground }]}>{formatTime(savedDurationMs)}</Text>
           <Text style={[styles.savedPath, { color: colors.mutedForeground }]}>
-            Files → On My iPhone → dic → recordings
+            Dateien → Auf meinem iPhone → Expo Go → recordings
           </Text>
         </View>
         <Pressable
