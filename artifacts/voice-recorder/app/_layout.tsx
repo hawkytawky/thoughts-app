@@ -9,6 +9,7 @@ import {
   useFonts,
 } from '@expo-google-fonts/dm-sans';
 import { Stack } from 'expo-router';
+import { ActiveRecordingBar } from '@/components/ActiveRecordingBar';
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -24,9 +25,18 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" options={{ headerShown: false }} />
-        </Stack>
+        <>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" options={{ headerShown: false }} />
+            <Stack.Screen name="record" options={{ headerShown: false }} />
+            <Stack.Screen name="thoughts/index" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="thoughts/rec-16-32"
+              options={{ headerShown: false }}
+            />
+          </Stack>
+          <ActiveRecordingBar />
+        </>
       </ErrorBoundary>
     </SafeAreaProvider>
   );

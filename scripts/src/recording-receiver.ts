@@ -1,5 +1,14 @@
 import { createWriteStream } from "node:fs";
-import { copyFile, mkdir, rmdir, unlink, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readdir,
+  readFile,
+  rmdir,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import {
   createServer,
   type IncomingMessage,
@@ -21,6 +30,12 @@ type ReceiverConfig = {
   uploadFileMode: number;
   healthPath: string;
   recordingsPath: string;
+  notesListPath: string;
+  noteDaysPath: string;
+  featuredNotePath: string;
+  noteStatusPath: string;
+  featuredRecordingRelativePath: string;
+  featuredRecordingLocationLabel: string;
   openClawHookUrl: string;
   hookRetryDelaysMs: number[];
   hookRequestTimeoutMs: number;
@@ -50,12 +65,41 @@ type RecordingLocation = {
   accuracy: number | null;
   altitude: number | null;
   capturedAt: string;
+  city?: string | null;
+  suburb?: string | null;
 };
 
 type RecordingMetadata = {
   receivedAt: string;
   locationStatus: "captured" | "disabled" | "unavailable";
   location: RecordingLocation | null;
+};
+
+type ThoughtAnalysis = {
+  type: string;
+  title: string;
+  subtitle: string;
+  tags: string[];
+  summary: string;
+  key_points: string[];
+  open_questions: string[];
+  decisions: string[];
+  next_steps: string[];
+  people: string[];
+  projects: string[];
+  mentioned_locations: string[];
+};
+
+type TranscriptSegment = {
+  start: number;
+  end: number;
+  text: string;
+};
+
+type Transcript = {
+  text: string;
+  segments: TranscriptSegment[];
+  language: string;
 };
 
 class RequestError extends Error {
@@ -104,8 +148,242 @@ function sendJson(
   response.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
+    "Access-Control-Allow-Origin": "*",
   });
   response.end(JSON.stringify(body));
+}
+
+async function readJsonFile<T>(path: string): Promise<T> {
+  return JSON.parse(await readFile(path, "utf8")) as T;
+}
+
+function formatLocationLabel(location: RecordingLocation): string {
+  return (
+    [location.city, location.suburb].filter(Boolean).join(", ") ||
+    "Standort erfasst"
+  );
+}
+
+async function loadNote(
+  recordingRelativePath: string,
+  locationLabel?: string,
+): Promise<Record<string, unknown>> {
+  const recordingDirectory = resolve(RECORDINGS_ROOT, recordingRelativePath);
+  const recordingsPrefix = `${RECORDINGS_ROOT}/`;
+  if (!recordingDirectory.startsWith(recordingsPrefix)) {
+    throw new Error("Featured recording path is outside recordings root");
+  }
+
+  const recordingName = basename(recordingDirectory);
+  const [thought, transcript, location, audioStats] = await Promise.all([
+    readJsonFile<ThoughtAnalysis>(
+      join(recordingDirectory, `${recordingName}.thought.json`),
+    ),
+    readJsonFile<Transcript>(
+      join(recordingDirectory, `${recordingName}.transcript.json`),
+    ),
+    readJsonFile<RecordingMetadata>(
+      join(recordingDirectory, `${recordingName}.location.json`),
+    ),
+    stat(join(recordingDirectory, `${recordingName}.m4a`)),
+  ]);
+
+  const durationSeconds = transcript.segments.reduce(
+    (longest, segment) => Math.max(longest, segment.end),
+    0,
+  );
+  const wordCount = transcript.text.trim()
+    ? transcript.text.trim().split(/\s+/).length
+    : 0;
+
+  return {
+    id: recordingName,
+    relativePath: `${recordingRelativePath}/${recordingName}.m4a`,
+    type: thought.type,
+    title: thought.title,
+    subtitle: thought.subtitle,
+    tags: thought.tags,
+    summary: thought.summary,
+    keyPoints: thought.key_points,
+    openQuestions: thought.open_questions,
+    decisions: thought.decisions,
+    nextSteps: thought.next_steps,
+    people: thought.people,
+    projects: thought.projects,
+    mentionedLocations: thought.mentioned_locations,
+    recordedAt: location.location?.capturedAt ?? audioStats.mtime.toISOString(),
+    locationStatus: location.locationStatus,
+    location: location.location,
+    locationLabel: location.location
+      ? formatLocationLabel(location.location)
+      : (locationLabel ?? "Ohne Standort"),
+    durationSeconds,
+    wordCount,
+    audioBytes: audioStats.size,
+    transcript: {
+      text: transcript.text.trim(),
+      language: transcript.language,
+      segments: transcript.segments.map(({ start, end, text }) => ({
+        start,
+        end,
+        text: text.trim(),
+      })),
+    },
+  };
+}
+
+async function loadFeaturedNote(): Promise<Record<string, unknown>> {
+  return loadNote(
+    CONFIG.featuredRecordingRelativePath,
+    CONFIG.featuredRecordingLocationLabel,
+  );
+}
+
+function apiDateToDayFolder(apiDate: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(apiDate);
+  if (!match) throw new RequestError(400, "Date must use YYYY-MM-DD");
+
+  const [, year, month, day] = match;
+  const parsed = new Date(
+    Date.UTC(Number(year), Number(month) - 1, Number(day)),
+  );
+  if (
+    parsed.getUTCFullYear() !== Number(year) ||
+    parsed.getUTCMonth() + 1 !== Number(month) ||
+    parsed.getUTCDate() !== Number(day)
+  ) {
+    throw new RequestError(400, "Invalid date");
+  }
+  return `${day}-${month}-${year}`;
+}
+
+function noteCard(note: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: note.id,
+    relativePath: note.relativePath,
+    type: note.type,
+    title: note.title,
+    subtitle: note.subtitle,
+    tags: note.tags,
+    recordedAt: note.recordedAt,
+    locationStatus: note.locationStatus,
+    locationLabel: note.locationLabel,
+    durationSeconds: note.durationSeconds,
+  };
+}
+
+async function loadNotesForDate(apiDate: string): Promise<{
+  notes: Record<string, unknown>[];
+  processingCount: number;
+}> {
+  const folder = apiDateToDayFolder(apiDate);
+  const dayDirectory = join(RECORDINGS_ROOT, folder);
+  let entries;
+  try {
+    entries = await readdir(dayDirectory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { notes: [], processingCount: 0 };
+    }
+    throw error;
+  }
+
+  const recordingFolders = entries
+    .filter(
+      (entry) =>
+        entry.isDirectory() && /^rec-\d{2}-\d{2}(?:-\d{2})?$/.test(entry.name),
+    )
+    .map((entry) => entry.name);
+  const results = await Promise.allSettled(
+    recordingFolders.map(async (recordingFolder) => {
+      const relativeDirectory = `${folder}/${recordingFolder}`;
+      const locationLabel =
+        relativeDirectory === CONFIG.featuredRecordingRelativePath
+          ? CONFIG.featuredRecordingLocationLabel
+          : undefined;
+      return noteCard(await loadNote(relativeDirectory, locationLabel));
+    }),
+  );
+
+  const notes: Record<string, unknown>[] = [];
+  let processingCount = 0;
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      notes.push(result.value);
+      continue;
+    }
+    processingCount += 1;
+    const message =
+      result.reason instanceof Error
+        ? result.reason.message
+        : String(result.reason);
+    console.log(
+      `${new Date().toISOString()} note not ready for ${folder}: ${message}`,
+    );
+  }
+
+  notes.sort((left, right) =>
+    String(right.recordedAt).localeCompare(String(left.recordedAt)),
+  );
+  return { notes, processingCount };
+}
+
+function parseApiMonth(apiMonth: string): { year: string; month: string } {
+  const match = /^(\d{4})-(\d{2})$/.exec(apiMonth);
+  if (!match || Number(match[2]) < 1 || Number(match[2]) > 12) {
+    throw new RequestError(400, "Month must use YYYY-MM");
+  }
+  return { year: match[1], month: match[2] };
+}
+
+async function loadThoughtDaysForMonth(
+  apiMonth: string,
+): Promise<{ date: string; count: number }[]> {
+  const { year, month } = parseApiMonth(apiMonth);
+  const entries = await readdir(RECORDINGS_ROOT, { withFileTypes: true });
+  const matchingDays = entries.filter(
+    (entry) =>
+      entry.isDirectory() &&
+      new RegExp(`^\\d{2}-${month}-${year}$`).test(entry.name),
+  );
+
+  const days = await Promise.all(
+    matchingDays.map(async (entry) => {
+      const recordings = await readdir(join(RECORDINGS_ROOT, entry.name), {
+        withFileTypes: true,
+      });
+      const count = recordings.filter(
+        (recording) =>
+          recording.isDirectory() &&
+          /^rec-\d{2}-\d{2}(?:-\d{2})?$/.test(recording.name),
+      ).length;
+      const day = entry.name.slice(0, 2);
+      return { date: `${year}-${month}-${day}`, count };
+    }),
+  );
+
+  return days
+    .filter(({ count }) => count > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function recordingDirectoryFromAudioPath(relativeAudioPath: string): string {
+  if (!relativeAudioPath.endsWith(".m4a")) {
+    throw new RequestError(400, "Note path must point to an m4a file");
+  }
+  const parts = relativeAudioPath.split("/");
+  if (parts.length !== 3 || parts.some((part) => !part || part === "..")) {
+    throw new RequestError(400, "Invalid note path");
+  }
+  const [day, recordingFolder, audioFile] = parts;
+  if (
+    !/^\d{2}-\d{2}-\d{4}$/.test(day) ||
+    !/^rec-\d{2}-\d{2}(?:-\d{2})?$/.test(recordingFolder) ||
+    audioFile !== `${recordingFolder}.m4a`
+  ) {
+    throw new RequestError(400, "Invalid note path");
+  }
+  return `${day}/${recordingFolder}`;
 }
 
 function parseOptionalNumber(
@@ -121,13 +399,32 @@ function parseOptionalNumber(
   return value;
 }
 
+function parseOptionalText(
+  request: IncomingMessage,
+  headerName: string,
+): string | null {
+  const raw = request.headers[headerName];
+  if (raw === undefined || raw === "") return null;
+  const encoded = Array.isArray(raw) ? raw[0] : raw;
+  let value: string;
+  try {
+    value = decodeURIComponent(encoded).trim();
+  } catch {
+    throw new RequestError(400, `Invalid ${headerName} header`);
+  }
+  if (!value || value.length > 120 || /[\r\n]/.test(value)) {
+    throw new RequestError(400, `Invalid ${headerName} header`);
+  }
+  return value;
+}
+
 function recordingMetadata(
   request: IncomingMessage,
   receivedAt: Date,
 ): RecordingMetadata {
   const rawStatus = request.headers["x-thoughts-location-status"];
-  const locationStatus = (Array.isArray(rawStatus) ? rawStatus[0] : rawStatus) ??
-    "unavailable";
+  const locationStatus =
+    (Array.isArray(rawStatus) ? rawStatus[0] : rawStatus) ?? "unavailable";
   if (!["captured", "disabled", "unavailable"].includes(locationStatus)) {
     throw new RequestError(400, "Invalid location status");
   }
@@ -142,18 +439,14 @@ function recordingMetadata(
 
   const latitude = parseOptionalNumber(request, "x-thoughts-latitude");
   const longitude = parseOptionalNumber(request, "x-thoughts-longitude");
-  const accuracy = parseOptionalNumber(
-    request,
-    "x-thoughts-location-accuracy",
-  );
-  const altitude = parseOptionalNumber(
-    request,
-    "x-thoughts-location-altitude",
-  );
+  const accuracy = parseOptionalNumber(request, "x-thoughts-location-accuracy");
+  const altitude = parseOptionalNumber(request, "x-thoughts-location-altitude");
   const capturedAtHeader = request.headers["x-thoughts-location-captured-at"];
   const capturedAt = Array.isArray(capturedAtHeader)
     ? capturedAtHeader[0]
     : capturedAtHeader;
+  const city = parseOptionalText(request, "x-thoughts-city");
+  const suburb = parseOptionalText(request, "x-thoughts-suburb");
 
   if (latitude === null || latitude < -90 || latitude > 90) {
     throw new RequestError(400, "Invalid or missing latitude");
@@ -171,7 +464,15 @@ function recordingMetadata(
   return {
     receivedAt: receivedAt.toISOString(),
     locationStatus: "captured",
-    location: { latitude, longitude, accuracy, altitude, capturedAt },
+    location: {
+      latitude,
+      longitude,
+      accuracy,
+      altitude,
+      capturedAt,
+      city,
+      suburb,
+    },
   };
 }
 
@@ -229,7 +530,7 @@ async function triggerOpenClaw(
       `Audio path: ${recordingPath}`,
       `Metadata path: ${metadataPath}`,
       metadata.location
-        ? `Location: ${metadata.location.latitude}, ${metadata.location.longitude} (accuracy ${metadata.location.accuracy ?? "unknown"} m)`
+        ? `Location: ${formatLocationLabel(metadata.location)}`
         : `Location: ${metadata.locationStatus}`,
       "Use the transcribe-thought skill now to transcribe this exact file locally.",
       "Preserve the original audio and the generated transcript files.",
@@ -365,6 +666,45 @@ const server = createServer((request, response) => {
 
     if (request.method === "GET" && url.pathname === CONFIG.healthPath) {
       sendJson(response, 200, { ok: true, recordingsRoot: RECORDINGS_ROOT });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === CONFIG.featuredNotePath) {
+      sendJson(response, 200, { ok: true, note: await loadFeaturedNote() });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === CONFIG.notesListPath) {
+      const date = url.searchParams.get("date");
+      if (!date) throw new RequestError(400, "Missing date");
+      const result = await loadNotesForDate(date);
+      sendJson(response, 200, { ok: true, date, ...result });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === CONFIG.noteDaysPath) {
+      const month = url.searchParams.get("month");
+      if (!month) throw new RequestError(400, "Missing month");
+      const days = await loadThoughtDaysForMonth(month);
+      sendJson(response, 200, { ok: true, month, days });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === CONFIG.noteStatusPath) {
+      const relativeAudioPath = url.searchParams.get("path");
+      if (!relativeAudioPath) throw new RequestError(400, "Missing note path");
+      const recordingDirectory =
+        recordingDirectoryFromAudioPath(relativeAudioPath);
+      try {
+        const note = await loadNote(recordingDirectory);
+        sendJson(response, 200, { ok: true, status: "ready", note });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          sendJson(response, 200, { ok: true, status: "processing" });
+          return;
+        }
+        throw error;
+      }
       return;
     }
 

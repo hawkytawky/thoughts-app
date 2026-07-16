@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
+  Alert,
   Animated,
   AppState,
   Easing,
@@ -17,6 +18,16 @@ import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
+import { type Href, useRouter } from "expo-router";
+import ThoughtsFeedScreen from "./thoughts/index";
+import {
+  addPendingThought,
+  markPendingThoughtUploaded,
+} from "@/lib/pending-thoughts";
+import {
+  clearActiveRecording,
+  publishActiveRecording,
+} from "@/lib/active-recording";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, {
   Circle,
@@ -62,13 +73,14 @@ const RECORDING_UPLOAD_URL =
 
 type UploadResponse = { relativePath?: string; error?: string };
 type SyncState = "idle" | "uploading" | "uploaded" | "pending";
-type LocationState = "off" | "requesting" | "on" | "denied" | "unavailable";
 type RecordingLocation = {
   latitude: number;
   longitude: number;
   accuracy: number | null;
   altitude: number | null;
   capturedAt: string;
+  city?: string | null;
+  suburb?: string | null;
 };
 type RecordingMetadata = {
   locationStatus: "captured" | "disabled" | "unavailable";
@@ -104,6 +116,12 @@ async function uploadRecording(localUri: string): Promise<string> {
     headers["X-Thoughts-Latitude"] = String(location.latitude);
     headers["X-Thoughts-Longitude"] = String(location.longitude);
     headers["X-Thoughts-Location-Captured-At"] = location.capturedAt;
+    if (location.city) {
+      headers["X-Thoughts-City"] = encodeURIComponent(location.city);
+    }
+    if (location.suburb) {
+      headers["X-Thoughts-Suburb"] = encodeURIComponent(location.suburb);
+    }
     if (location.accuracy !== null) {
       headers["X-Thoughts-Location-Accuracy"] = String(location.accuracy);
     }
@@ -183,25 +201,14 @@ function Timer({ durationMs }: { durationMs: number }) {
   const time = formatTime(durationMs);
 
   return (
-    <View
+    <Text
       accessible
       accessibilityRole="text"
       accessibilityLabel={`Aufnahmedauer ${time}`}
-      style={styles.timerRow}
+      style={styles.timer}
     >
-      {time.split("").map((character, index) => (
-        <Text
-          accessibilityElementsHidden
-          key={`${index}-${character}`}
-          style={[
-            styles.timer,
-            character === ":" ? styles.timerSeparator : styles.timerDigit,
-          ]}
-        >
-          {character}
-        </Text>
-      ))}
-    </View>
+      {time}
+    </Text>
   );
 }
 
@@ -241,36 +248,6 @@ function OrganicBackground() {
   );
 }
 
-function PulsingDot({ reduceMotion }: { reduceMotion: boolean }) {
-  const opacity = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    opacity.setValue(1);
-    if (reduceMotion) return;
-
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.35,
-          duration: 900,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 900,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [opacity, reduceMotion]);
-
-  return <Animated.View style={[styles.dot, { opacity }]} />;
-}
-
 const WaveformBar = React.memo(function WaveformBar({
   amplitude,
   isRecording,
@@ -303,9 +280,7 @@ const WaveformBar = React.memo(function WaveformBar({
       Animated.timing(scale, {
         toValue: targetScale,
         duration,
-        easing: isRising
-          ? Easing.out(Easing.cubic)
-          : Easing.inOut(Easing.quad),
+        easing: isRising ? Easing.out(Easing.cubic) : Easing.inOut(Easing.quad),
         useNativeDriver: true,
       }),
       Animated.timing(opacity, {
@@ -369,9 +344,11 @@ function StopButton({
   );
 }
 
-type ScreenState = "requesting" | "denied" | "recording" | "stopping" | "saved";
+type ScreenState =
+  "requesting" | "denied" | "recording" | "stopping" | "discarding" | "saved";
 
-export default function RecorderScreen() {
+export function RecorderScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [screenState, setScreenState] = useState<ScreenState>("requesting");
   const [amplitudes, setAmplitudes] = useState<number[]>(INITIAL_AMPLITUDES);
@@ -380,7 +357,6 @@ export default function RecorderScreen() {
   const [noteNumber, setNoteNumber] = useState(1);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [syncState, setSyncState] = useState<SyncState>("idle");
-  const [locationState, setLocationState] = useState<LocationState>("off");
   const [remotePath, setRemotePath] = useState<string | null>(null);
   const [pendingUploadUri, setPendingUploadUri] = useState<string | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -398,7 +374,6 @@ export default function RecorderScreen() {
       if (!locationEnabledRef.current && !requestPermission) return null;
 
       try {
-        setLocationState("requesting");
         let permission = await Location.getForegroundPermissionsAsync();
         if (permission.status !== "granted" && requestPermission) {
           permission = await Location.requestForegroundPermissionsAsync();
@@ -407,7 +382,6 @@ export default function RecorderScreen() {
           locationEnabledRef.current = false;
           currentLocationRef.current = null;
           await AsyncStorage.setItem(LOCATION_ENABLED_KEY, "false");
-          setLocationState("denied");
           return null;
         }
 
@@ -416,37 +390,37 @@ export default function RecorderScreen() {
         const position = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Highest,
         });
+        let city: string | null = null;
+        let suburb: string | null = null;
+        try {
+          const [address] = await Location.reverseGeocodeAsync({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+          city = address?.city?.trim() || address?.region?.trim() || null;
+          suburb =
+            address?.district?.trim() || address?.subregion?.trim() || null;
+        } catch (error) {
+          console.warn("reverse geocoding error:", error);
+        }
         const captured: RecordingLocation = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy,
           altitude: position.coords.altitude,
           capturedAt: new Date(position.timestamp).toISOString(),
+          city,
+          suburb,
         };
         currentLocationRef.current = captured;
-        setLocationState("on");
         return captured;
       } catch (error) {
         console.error("location error:", error);
-        setLocationState("unavailable");
         return currentLocationRef.current;
       }
     },
     [],
   );
-
-  const toggleLocation = useCallback(async () => {
-    if (locationEnabledRef.current) {
-      locationEnabledRef.current = false;
-      currentLocationRef.current = null;
-      await AsyncStorage.setItem(LOCATION_ENABLED_KEY, "false");
-      setLocationState("off");
-      return;
-    }
-
-    void Haptics.selectionAsync();
-    await captureLocation(true);
-  }, [captureLocation]);
 
   const attemptUpload = useCallback(async (localUri: string) => {
     setPendingUploadUri(localUri);
@@ -458,6 +432,7 @@ export default function RecorderScreen() {
     setSyncState("uploading");
     try {
       const path = await uploadRecording(localUri);
+      await markPendingThoughtUploaded(localUri, path);
       setRemotePath(path);
       setPendingUploadUri(null);
       setSyncState("uploaded");
@@ -506,8 +481,7 @@ export default function RecorderScreen() {
           setAmplitudes(
             mirrored.map((sample, index) => {
               const distance = Math.abs(index - center) / center;
-              const envelope =
-                0.28 + 0.72 * (1 - Math.pow(distance, 1.45));
+              const envelope = 0.28 + 0.72 * (1 - Math.pow(distance, 1.45));
               return sample * envelope;
             }),
           );
@@ -564,7 +538,7 @@ export default function RecorderScreen() {
       recordingRef.current = null;
       if (uri) {
         const location = locationEnabledRef.current
-          ? (await captureLocation(false)) ?? currentLocationRef.current
+          ? ((await captureLocation(false)) ?? currentLocationRef.current)
           : null;
         await FileSystem.makeDirectoryAsync(RECORDINGS_DIR, {
           intermediates: true,
@@ -586,6 +560,15 @@ export default function RecorderScreen() {
           metadataUriFor(localUri),
           JSON.stringify(metadata),
         );
+        await addPendingThought({
+          id: localUri,
+          createdAt: new Date().toISOString(),
+          durationSeconds: durationMs / 1000,
+          locationLabel: location
+            ? [location.city, location.suburb].filter(Boolean).join(", ") ||
+              "Standort erfasst"
+            : "Ohne Standort",
+        });
         setPendingUploadUri(localUri);
         setSyncState(RECORDING_UPLOAD_URL ? "uploading" : "pending");
         void attemptUpload(localUri);
@@ -599,9 +582,67 @@ export default function RecorderScreen() {
     }
   }, [attemptUpload, captureLocation, durationMs, noteNumber]);
 
+  const discardRecording = useCallback(async () => {
+    const recording = recordingRef.current;
+    if (!recording) return;
+
+    recordingRef.current = null;
+    setScreenState("discarding");
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const uri = recording.getURI();
+    try {
+      await recording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+    } catch (error) {
+      console.error("discard error:", error);
+    } finally {
+      if (uri) {
+        await FileSystem.deleteAsync(uri, { idempotent: true }).catch((error) =>
+          console.error("discard cleanup error:", error),
+        );
+      }
+      currentLocationRef.current = null;
+      smoothedLevelRef.current = 0;
+      levelHistoryRef.current = Array.from(
+        { length: WAVE_HISTORY_POINTS },
+        () => 0,
+      );
+      setAmplitudes(INITIAL_AMPLITUDES);
+      setDurationMs(0);
+      router.replace("/thoughts" as Href);
+    }
+  }, [router]);
+
+  const confirmDiscardRecording = useCallback(() => {
+    Alert.alert(
+      "Aufnahme verwerfen?",
+      "Diese Aufnahme wird nicht gespeichert und kann nicht wiederhergestellt werden.",
+      [
+        { text: "Weiter aufnehmen", style: "cancel" },
+        {
+          text: "Verwerfen",
+          style: "destructive",
+          onPress: () => void discardRecording(),
+        },
+      ],
+    );
+  }, [discardRecording]);
+
   useEffect(() => {
     screenStateRef.current = screenState;
   }, [screenState]);
+
+  useEffect(() => {
+    if (screenState === "recording") {
+      publishActiveRecording(durationMs);
+    } else if (
+      screenState === "saved" ||
+      screenState === "discarding" ||
+      screenState === "denied"
+    ) {
+      clearActiveRecording();
+    }
+  }, [durationMs, screenState]);
 
   useEffect(() => {
     let previousState = AppState.currentState;
@@ -613,7 +654,7 @@ export default function RecorderScreen() {
           (previousState === "background" || previousState === "inactive");
         previousState = nextState;
         if (isReturning && screenStateRef.current === "saved") {
-          startNextRecording();
+          router.replace("/thoughts" as Href);
         }
       },
     );
@@ -625,7 +666,16 @@ export default function RecorderScreen() {
       appStateSubscription.remove();
       urlSubscription.remove();
     };
-  }, [startNextRecording]);
+  }, [router, startNextRecording]);
+
+  useEffect(() => {
+    if (screenState !== "saved") return;
+    const timeout = setTimeout(
+      () => router.replace("/thoughts" as Href),
+      1_000,
+    );
+    return () => clearTimeout(timeout);
+  }, [router, screenState]);
 
   useEffect(() => {
     let mounted = true;
@@ -677,13 +727,13 @@ export default function RecorderScreen() {
     })();
 
     return () => {
+      clearActiveRecording();
       void recordingRef.current?.stopAndUnloadAsync().catch(() => {});
     };
   }, [captureLocation, startRecording]);
 
   const isActive = screenState === "recording";
-  const isStopping = screenState === "stopping";
-  const paddingTop = insets.top + (Platform.OS === "web" ? 52 : 24);
+  const paddingTop = insets.top + (Platform.OS === "web" ? 52 : 5);
   const paddingBottom = insets.bottom + (Platform.OS === "web" ? 30 : 28);
 
   const shellStyle = [styles.root, { paddingTop, paddingBottom }];
@@ -712,15 +762,7 @@ export default function RecorderScreen() {
           <View style={styles.savedRing}>
             <Ionicons name="checkmark" size={34} color={C.sage} />
           </View>
-          <Text style={styles.status}>
-            {syncState === "uploaded"
-              ? "sent to Mac"
-              : syncState === "uploading"
-                ? "sending to Mac"
-                : syncState === "pending"
-                  ? "saved locally"
-                  : "saved"}
-          </Text>
+          <Text style={styles.status}>abgelegt</Text>
           <Text style={styles.savedDuration}>
             {formatTime(savedDurationMs)}
           </Text>
@@ -777,52 +819,19 @@ export default function RecorderScreen() {
     <View style={shellStyle}>
       <OrganicBackground />
 
-      <View style={styles.locationBar}>
+      <View style={styles.topBar}>
         <Pressable
-          accessibilityRole="switch"
-          accessibilityLabel="Präzisen Standort pro Voice Note mitsenden"
-          accessibilityState={{ checked: locationState === "on" }}
-          onPress={() => {
-            if (locationState === "denied") void Linking.openSettings();
-            else void toggleLocation();
-          }}
-          style={({ pressed }) => [
-            styles.locationButton,
-            locationState === "on" && styles.locationButtonActive,
-            pressed && styles.pressed,
-          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Gespeicherte Gedanken öffnen"
+          hitSlop={8}
+          onPress={() => router.push("/thoughts" as Href)}
+          style={({ pressed }) => [styles.archiveButton, pressed && styles.pressed]}
         >
-          <Ionicons
-            name={locationState === "on" ? "location" : "location-outline"}
-            size={16}
-            color={locationState === "on" ? C.ivory : C.ivory60}
-          />
-          <Text
-            style={[
-              styles.locationText,
-              locationState === "on" && styles.locationTextActive,
-            ]}
-          >
-            {locationState === "requesting"
-              ? "locating"
-              : locationState === "on"
-                ? "exact location on"
-                : locationState === "denied"
-                  ? "enable location in settings"
-                  : locationState === "unavailable"
-                    ? "location unavailable"
-                    : "add exact location"}
-          </Text>
+          <Text style={styles.brand}>thoughts</Text>
         </Pressable>
       </View>
 
       <View style={styles.center}>
-        <View style={styles.statusRow}>
-          {isActive && <PulsingDot reduceMotion={reduceMotion} />}
-          <Text style={styles.status}>
-            {isActive ? "listening" : isStopping ? "saving" : "preparing"}
-          </Text>
-        </View>
         <Timer durationMs={durationMs} />
         <Waveform
           amplitudes={amplitudes}
@@ -831,14 +840,22 @@ export default function RecorderScreen() {
         />
       </View>
 
-      <View style={styles.bottom}>
-        <StopButton
+      <View style={styles.bottomControls}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Aufnahme abbrechen und verwerfen"
           disabled={!isActive}
-          onPress={stopRecording}
-        />
-        <Text style={styles.hint}>
-          {isStopping ? "saving your thought" : "tap to stop"}
-        </Text>
+          hitSlop={12}
+          onPress={confirmDiscardRecording}
+          style={({ pressed }) => [
+            styles.trashButton,
+            !isActive && styles.disabled,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Ionicons name="trash-outline" size={21} color={C.ivory60} />
+        </Pressable>
+        <StopButton disabled={!isActive} onPress={stopRecording} />
       </View>
     </View>
   );
@@ -854,35 +871,26 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 28,
+    gap: 30,
     transform: [{ translateY: -16 }],
   },
-  locationBar: {
+  topBar: {
     minHeight: 38,
-    alignItems: "flex-end",
-  },
-  locationButton: {
-    minHeight: 36,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    borderWidth: 1,
-    borderColor: C.ivory14,
-    borderRadius: 18,
-    paddingHorizontal: 12,
   },
-  locationButtonActive: {
-    backgroundColor: "rgba(147,166,126,0.16)",
-    borderColor: "rgba(147,166,126,0.48)",
+  archiveButton: {
+    minHeight: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
   },
-  locationText: {
+  brand: {
     fontFamily: SANS,
     fontSize: 12,
+    fontWeight: "400",
     color: C.ivory60,
   },
-  locationTextActive: { color: C.ivory },
-  statusRow: { flexDirection: "row", alignItems: "center", gap: 9 },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.sage },
   status: {
     fontFamily: SERIF,
     fontStyle: "italic",
@@ -890,17 +898,16 @@ const styles = StyleSheet.create({
     color: C.ivory60,
   },
   timer: {
-    fontFamily: SERIF,
-    fontSize: 76,
-    fontWeight: "400",
+    minWidth: 235,
+    fontFamily: SANS,
+    fontSize: 72,
+    fontWeight: "300",
+    letterSpacing: 1,
     color: C.ivory,
     fontVariant: ["tabular-nums"],
     includeFontPadding: false,
     textAlign: "center",
   },
-  timerRow: { flexDirection: "row", alignItems: "baseline" },
-  timerDigit: { width: 45 },
-  timerSeparator: { width: 20 },
   waveform: {
     height: 76,
     flexDirection: "row",
@@ -921,7 +928,21 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: C.sage,
   },
-  bottom: { alignItems: "center", gap: 22 },
+  bottomControls: {
+    width: "100%",
+    minHeight: 86,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  trashButton: {
+    position: "absolute",
+    left: -2,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   stopWrap: {
     width: 86,
     height: 86,
@@ -942,12 +963,6 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 5,
     backgroundColor: C.ivory,
-  },
-  hint: {
-    fontFamily: SERIF,
-    fontStyle: "italic",
-    fontSize: 15,
-    color: C.ivory60,
   },
   disabled: { opacity: 0.42 },
   pressed: { opacity: 0.68 },
@@ -985,8 +1000,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   savedDuration: {
-    fontFamily: SERIF,
+    fontFamily: SANS,
     fontSize: 48,
+    fontWeight: "300",
     color: C.ivory,
     fontVariant: ["tabular-nums"],
     marginTop: 2,
@@ -1037,3 +1053,5 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: { height: 52 },
 });
+
+export default ThoughtsFeedScreen;
