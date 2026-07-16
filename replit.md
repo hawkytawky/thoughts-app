@@ -11,7 +11,8 @@ An organic, minimal voice recorder for capturing thoughts without friction.
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
-- Optional receiver env: `THOUGHTS_RECORDINGS_DIR` (defaults to `~/Documents/thoughts/recordings`) and `THOUGHTS_RECEIVER_PORT` (defaults to `4317`)
+- Receiver paths, limits, ports, and OpenClaw retry settings live in `scripts/src/config.py`. Set `THOUGHTS_RECEIVER_CONFIG` only when using a different config file.
+- `THOUGHTS_OPENCLAW_HOOK_TOKEN` remains an environment variable because secrets must not be stored in source-controlled config.
 - Mobile upload env: `EXPO_PUBLIC_THOUGHTS_UPLOAD_URL` — private HTTPS URL created by Tailscale Serve
 
 ## Stack

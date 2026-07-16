@@ -14,6 +14,7 @@ import {
 import { Audio, InterruptionModeIOS } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
+import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -55,14 +56,61 @@ const WAVE_POINT_COUNT = WAVE_HISTORY_POINTS * 2 - 1;
 const INITIAL_AMPLITUDES = Array.from({ length: WAVE_POINT_COUNT }, () => 0);
 const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings/`;
 const NOTE_NUMBER_KEY = "@thoughts/next-note-number";
+const LOCATION_ENABLED_KEY = "@thoughts/location-enabled";
 const RECORDING_UPLOAD_URL =
   process.env.EXPO_PUBLIC_THOUGHTS_UPLOAD_URL?.replace(/\/+$/, "");
 
 type UploadResponse = { relativePath?: string; error?: string };
 type SyncState = "idle" | "uploading" | "uploaded" | "pending";
+type LocationState = "off" | "requesting" | "on" | "denied" | "unavailable";
+type RecordingLocation = {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  altitude: number | null;
+  capturedAt: string;
+};
+type RecordingMetadata = {
+  locationStatus: "captured" | "disabled" | "unavailable";
+  location: RecordingLocation | null;
+};
+
+function metadataUriFor(localUri: string): string {
+  return localUri.replace(/\.m4a$/, ".location.json");
+}
+
+async function readRecordingMetadata(
+  localUri: string,
+): Promise<RecordingMetadata | null> {
+  try {
+    return JSON.parse(
+      await FileSystem.readAsStringAsync(metadataUriFor(localUri)),
+    ) as RecordingMetadata;
+  } catch {
+    return null;
+  }
+}
 
 async function uploadRecording(localUri: string): Promise<string> {
   if (!RECORDING_UPLOAD_URL) throw new Error("Upload URL is not configured");
+
+  const metadata = await readRecordingMetadata(localUri);
+  const location = metadata?.location;
+  const headers: Record<string, string> = {
+    "Content-Type": "audio/mp4",
+    "X-Thoughts-Location-Status": metadata?.locationStatus ?? "unavailable",
+  };
+  if (location) {
+    headers["X-Thoughts-Latitude"] = String(location.latitude);
+    headers["X-Thoughts-Longitude"] = String(location.longitude);
+    headers["X-Thoughts-Location-Captured-At"] = location.capturedAt;
+    if (location.accuracy !== null) {
+      headers["X-Thoughts-Location-Accuracy"] = String(location.accuracy);
+    }
+    if (location.altitude !== null) {
+      headers["X-Thoughts-Location-Altitude"] = String(location.altitude);
+    }
+  }
 
   const response = await FileSystem.uploadAsync(
     `${RECORDING_UPLOAD_URL}/recordings`,
@@ -70,7 +118,7 @@ async function uploadRecording(localUri: string): Promise<string> {
     {
       httpMethod: "POST",
       uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-      headers: { "Content-Type": "audio/mp4" },
+      headers,
       sessionType: FileSystem.FileSystemSessionType.BACKGROUND,
     },
   );
@@ -83,6 +131,7 @@ async function uploadRecording(localUri: string): Promise<string> {
   if (!body.relativePath) throw new Error("Receiver returned no file path");
 
   await FileSystem.deleteAsync(localUri, { idempotent: true });
+  await FileSystem.deleteAsync(metadataUriFor(localUri), { idempotent: true });
   return body.relativePath;
 }
 
@@ -331,15 +380,73 @@ export default function RecorderScreen() {
   const [noteNumber, setNoteNumber] = useState(1);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [syncState, setSyncState] = useState<SyncState>("idle");
+  const [locationState, setLocationState] = useState<LocationState>("off");
   const [remotePath, setRemotePath] = useState<string | null>(null);
   const [pendingUploadUri, setPendingUploadUri] = useState<string | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const startingRef = useRef(false);
+  const locationEnabledRef = useRef(false);
+  const currentLocationRef = useRef<RecordingLocation | null>(null);
   const screenStateRef = useRef<ScreenState>("requesting");
   const smoothedLevelRef = useRef(0);
   const levelHistoryRef = useRef<number[]>(
     Array.from({ length: WAVE_HISTORY_POINTS }, () => 0),
   );
+
+  const captureLocation = useCallback(
+    async (requestPermission: boolean): Promise<RecordingLocation | null> => {
+      if (!locationEnabledRef.current && !requestPermission) return null;
+
+      try {
+        setLocationState("requesting");
+        let permission = await Location.getForegroundPermissionsAsync();
+        if (permission.status !== "granted" && requestPermission) {
+          permission = await Location.requestForegroundPermissionsAsync();
+        }
+        if (permission.status !== "granted") {
+          locationEnabledRef.current = false;
+          currentLocationRef.current = null;
+          await AsyncStorage.setItem(LOCATION_ENABLED_KEY, "false");
+          setLocationState("denied");
+          return null;
+        }
+
+        locationEnabledRef.current = true;
+        await AsyncStorage.setItem(LOCATION_ENABLED_KEY, "true");
+        const position = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Highest,
+        });
+        const captured: RecordingLocation = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          altitude: position.coords.altitude,
+          capturedAt: new Date(position.timestamp).toISOString(),
+        };
+        currentLocationRef.current = captured;
+        setLocationState("on");
+        return captured;
+      } catch (error) {
+        console.error("location error:", error);
+        setLocationState("unavailable");
+        return currentLocationRef.current;
+      }
+    },
+    [],
+  );
+
+  const toggleLocation = useCallback(async () => {
+    if (locationEnabledRef.current) {
+      locationEnabledRef.current = false;
+      currentLocationRef.current = null;
+      await AsyncStorage.setItem(LOCATION_ENABLED_KEY, "false");
+      setLocationState("off");
+      return;
+    }
+
+    void Haptics.selectionAsync();
+    await captureLocation(true);
+  }, [captureLocation]);
 
   const attemptUpload = useCallback(async (localUri: string) => {
     setPendingUploadUri(localUri);
@@ -409,13 +516,18 @@ export default function RecorderScreen() {
       );
       recordingRef.current = recording;
       setScreenState("recording");
+      if (locationEnabledRef.current) {
+        // Never carry a coordinate from an older note into this recording.
+        currentLocationRef.current = null;
+        void captureLocation(false);
+      }
       void syncPendingRecordings();
     } catch (error) {
       console.error("start error:", error);
     } finally {
       startingRef.current = false;
     }
-  }, []);
+  }, [captureLocation]);
 
   const startNextRecording = useCallback(() => {
     if (
@@ -451,6 +563,9 @@ export default function RecorderScreen() {
       const uri = recording.getURI();
       recordingRef.current = null;
       if (uri) {
+        const location = locationEnabledRef.current
+          ? (await captureLocation(false)) ?? currentLocationRef.current
+          : null;
         await FileSystem.makeDirectoryAsync(RECORDINGS_DIR, {
           intermediates: true,
         });
@@ -459,6 +574,18 @@ export default function RecorderScreen() {
           from: uri,
           to: localUri,
         });
+        const metadata: RecordingMetadata = {
+          locationStatus: location
+            ? "captured"
+            : locationEnabledRef.current
+              ? "unavailable"
+              : "disabled",
+          location,
+        };
+        await FileSystem.writeAsStringAsync(
+          metadataUriFor(localUri),
+          JSON.stringify(metadata),
+        );
         setPendingUploadUri(localUri);
         setSyncState(RECORDING_UPLOAD_URL ? "uploading" : "pending");
         void attemptUpload(localUri);
@@ -470,7 +597,7 @@ export default function RecorderScreen() {
       console.error("stop error:", error);
       setScreenState("recording");
     }
-  }, [attemptUpload, durationMs, noteNumber]);
+  }, [attemptUpload, captureLocation, durationMs, noteNumber]);
 
   useEffect(() => {
     screenStateRef.current = screenState;
@@ -537,6 +664,13 @@ export default function RecorderScreen() {
 
       void syncPendingRecordings();
 
+      const locationWasEnabled =
+        (await AsyncStorage.getItem(LOCATION_ENABLED_KEY)) === "true";
+      if (locationWasEnabled) {
+        locationEnabledRef.current = true;
+        void captureLocation(false);
+      }
+
       const { status } = await Audio.requestPermissionsAsync();
       if (status === "granted") await startRecording();
       else setScreenState("denied");
@@ -545,7 +679,7 @@ export default function RecorderScreen() {
     return () => {
       void recordingRef.current?.stopAndUnloadAsync().catch(() => {});
     };
-  }, [startRecording]);
+  }, [captureLocation, startRecording]);
 
   const isActive = screenState === "recording";
   const isStopping = screenState === "stopping";
@@ -643,6 +777,45 @@ export default function RecorderScreen() {
     <View style={shellStyle}>
       <OrganicBackground />
 
+      <View style={styles.locationBar}>
+        <Pressable
+          accessibilityRole="switch"
+          accessibilityLabel="Präzisen Standort pro Voice Note mitsenden"
+          accessibilityState={{ checked: locationState === "on" }}
+          onPress={() => {
+            if (locationState === "denied") void Linking.openSettings();
+            else void toggleLocation();
+          }}
+          style={({ pressed }) => [
+            styles.locationButton,
+            locationState === "on" && styles.locationButtonActive,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Ionicons
+            name={locationState === "on" ? "location" : "location-outline"}
+            size={16}
+            color={locationState === "on" ? C.ivory : C.ivory60}
+          />
+          <Text
+            style={[
+              styles.locationText,
+              locationState === "on" && styles.locationTextActive,
+            ]}
+          >
+            {locationState === "requesting"
+              ? "locating"
+              : locationState === "on"
+                ? "exact location on"
+                : locationState === "denied"
+                  ? "enable location in settings"
+                  : locationState === "unavailable"
+                    ? "location unavailable"
+                    : "add exact location"}
+          </Text>
+        </Pressable>
+      </View>
+
       <View style={styles.center}>
         <View style={styles.statusRow}>
           {isActive && <PulsingDot reduceMotion={reduceMotion} />}
@@ -684,6 +857,30 @@ const styles = StyleSheet.create({
     gap: 28,
     transform: [{ translateY: -16 }],
   },
+  locationBar: {
+    minHeight: 38,
+    alignItems: "flex-end",
+  },
+  locationButton: {
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    borderWidth: 1,
+    borderColor: C.ivory14,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+  },
+  locationButtonActive: {
+    backgroundColor: "rgba(147,166,126,0.16)",
+    borderColor: "rgba(147,166,126,0.48)",
+  },
+  locationText: {
+    fontFamily: SANS,
+    fontSize: 12,
+    color: C.ivory60,
+  },
+  locationTextActive: { color: C.ivory },
   statusRow: { flexDirection: "row", alignItems: "center", gap: 9 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.sage },
   status: {

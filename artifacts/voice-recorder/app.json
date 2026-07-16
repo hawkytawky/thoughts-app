@@ -35,6 +35,12 @@
         {
           "microphonePermission": "Allow thoughts to access your microphone to record audio."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow thoughts to attach your precise location to each voice note when you turn location on."
+        }
       ]
     ],
     "experiments": {
