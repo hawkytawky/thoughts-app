@@ -28,6 +28,10 @@ import {
   clearActiveRecording,
   publishActiveRecording,
 } from "@/lib/active-recording";
+import {
+  ensureLocationPermission,
+  LOCATION_ENABLED_KEY,
+} from "@/lib/location-permission";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, {
   Circle,
@@ -67,7 +71,6 @@ const WAVE_POINT_COUNT = WAVE_HISTORY_POINTS * 2 - 1;
 const INITIAL_AMPLITUDES = Array.from({ length: WAVE_POINT_COUNT }, () => 0);
 const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings/`;
 const NOTE_NUMBER_KEY = "@thoughts/next-note-number";
-const LOCATION_ENABLED_KEY = "@thoughts/location-enabled";
 const RECORDING_UPLOAD_URL =
   process.env.EXPO_PUBLIC_THOUGHTS_UPLOAD_URL?.replace(/\/+$/, "");
 
@@ -86,6 +89,25 @@ type RecordingMetadata = {
   locationStatus: "captured" | "disabled" | "unavailable";
   location: RecordingLocation | null;
 };
+type StoppedRecording = {
+  sourceUri: string;
+  durationMs: number;
+  location: RecordingLocation | null;
+};
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutResult = new Promise<T>((resolve) => {
+    timeout = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  const result = await Promise.race([promise, timeoutResult]);
+  if (timeout) clearTimeout(timeout);
+  return result;
+}
 
 function metadataUriFor(localUri: string): string {
   return localUri.replace(/\.m4a$/, ".location.json");
@@ -153,7 +175,9 @@ async function uploadRecording(localUri: string): Promise<string> {
   return body.relativePath;
 }
 
-async function syncPendingRecordings(): Promise<void> {
+let pendingRecordingSync: Promise<void> | null = null;
+
+async function runPendingRecordingSync(): Promise<void> {
   if (!RECORDING_UPLOAD_URL) return;
 
   let fileNames: string[];
@@ -164,12 +188,23 @@ async function syncPendingRecordings(): Promise<void> {
   }
 
   for (const fileName of fileNames.filter((name) => name.endsWith(".m4a"))) {
+    const localUri = `${RECORDINGS_DIR}${fileName}`;
     try {
-      await uploadRecording(`${RECORDINGS_DIR}${fileName}`);
+      const path = await uploadRecording(localUri);
+      await markPendingThoughtUploaded(localUri, path);
     } catch {
       // Keep the local file; a later launch or recording will retry it.
     }
   }
+}
+
+function syncPendingRecordings(): Promise<void> {
+  if (!pendingRecordingSync) {
+    pendingRecordingSync = runPendingRecordingSync().finally(() => {
+      pendingRecordingSync = null;
+    });
+  }
+  return pendingRecordingSync;
 }
 
 function meteringToAmplitude(decibels: number | undefined): number {
@@ -345,7 +380,13 @@ function StopButton({
 }
 
 type ScreenState =
-  "requesting" | "denied" | "recording" | "stopping" | "discarding" | "saved";
+  | "requesting"
+  | "denied"
+  | "recording"
+  | "stopping"
+  | "discarding"
+  | "saveError"
+  | "saved";
 
 export function RecorderScreen() {
   const router = useRouter();
@@ -359,7 +400,12 @@ export function RecorderScreen() {
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [remotePath, setRemotePath] = useState<string | null>(null);
   const [pendingUploadUri, setPendingUploadUri] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveErrorTitle, setSaveErrorTitle] = useState(
+    "Aufnahme noch nicht abgelegt",
+  );
   const recordingRef = useRef<Audio.Recording | null>(null);
+  const stoppedRecordingRef = useRef<StoppedRecording | null>(null);
   const startingRef = useRef(false);
   const locationEnabledRef = useRef(false);
   const currentLocationRef = useRef<RecordingLocation | null>(null);
@@ -370,14 +416,11 @@ export function RecorderScreen() {
   );
 
   const captureLocation = useCallback(
-    async (requestPermission: boolean): Promise<RecordingLocation | null> => {
-      if (!locationEnabledRef.current && !requestPermission) return null;
+    async (): Promise<RecordingLocation | null> => {
+      if (!locationEnabledRef.current) return null;
 
       try {
         let permission = await Location.getForegroundPermissionsAsync();
-        if (permission.status !== "granted" && requestPermission) {
-          permission = await Location.requestForegroundPermissionsAsync();
-        }
         if (permission.status !== "granted") {
           locationEnabledRef.current = false;
           currentLocationRef.current = null;
@@ -493,11 +536,18 @@ export function RecorderScreen() {
       if (locationEnabledRef.current) {
         // Never carry a coordinate from an older note into this recording.
         currentLocationRef.current = null;
-        void captureLocation(false);
+        void captureLocation();
       }
       void syncPendingRecordings();
     } catch (error) {
       console.error("start error:", error);
+      setSaveErrorTitle("Aufnahme konnte nicht starten");
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "Die Aufnahme konnte nicht gestartet werden.",
+      );
+      setScreenState("saveError");
     } finally {
       startingRef.current = false;
     }
@@ -521,8 +571,86 @@ export function RecorderScreen() {
     setAmplitudes(INITIAL_AMPLITUDES);
     setRemotePath(null);
     setSyncState("idle");
+    setSaveError(null);
+    stoppedRecordingRef.current = null;
     void startRecording();
   }, [startRecording]);
+
+  const persistStoppedRecording = useCallback(
+    async (stopped: StoppedRecording) => {
+      await FileSystem.makeDirectoryAsync(RECORDINGS_DIR, {
+        intermediates: true,
+      });
+      const localUri = `${RECORDINGS_DIR}thoughts-${Date.now()}.m4a`;
+      const localMetadataUri = metadataUriFor(localUri);
+      try {
+        await FileSystem.copyAsync({
+          from: stopped.sourceUri,
+          to: localUri,
+        });
+        const metadata: RecordingMetadata = {
+          locationStatus: stopped.location
+            ? "captured"
+            : locationEnabledRef.current
+              ? "unavailable"
+              : "disabled",
+          location: stopped.location,
+        };
+        await FileSystem.writeAsStringAsync(
+          localMetadataUri,
+          JSON.stringify(metadata),
+        );
+        await addPendingThought({
+          id: localUri,
+          createdAt: new Date().toISOString(),
+          durationSeconds: stopped.durationMs / 1000,
+          locationLabel: stopped.location
+            ? [stopped.location.city, stopped.location.suburb]
+                .filter(Boolean)
+                .join(", ") || "Standort erfasst"
+            : "Ohne Standort",
+        });
+      } catch (error) {
+        await FileSystem.deleteAsync(localUri, { idempotent: true }).catch(
+          () => undefined,
+        );
+        await FileSystem.deleteAsync(localMetadataUri, {
+          idempotent: true,
+        }).catch(() => undefined);
+        throw error;
+      }
+
+      setPendingUploadUri(localUri);
+      setSyncState(RECORDING_UPLOAD_URL ? "uploading" : "pending");
+      void attemptUpload(localUri);
+    },
+    [attemptUpload],
+  );
+
+  const finishStoppedRecording = useCallback(
+    async (stopped: StoppedRecording) => {
+      setScreenState("stopping");
+      setSaveError(null);
+      setSaveErrorTitle("Aufnahme noch nicht abgelegt");
+      try {
+        await persistStoppedRecording(stopped);
+        stoppedRecordingRef.current = null;
+        await AsyncStorage.setItem(
+          NOTE_NUMBER_KEY,
+          String(noteNumber + 1),
+        ).catch(() => undefined);
+        setAmplitudes(INITIAL_AMPLITUDES);
+        setScreenState("saved");
+      } catch (error) {
+        console.error("save error:", error);
+        setSaveError(
+          error instanceof Error ? error.message : "Unbekannter Speicherfehler",
+        );
+        setScreenState("saveError");
+      }
+    },
+    [noteNumber, persistStoppedRecording],
+  );
 
   const stopRecording = useCallback(async () => {
     const recording = recordingRef.current;
@@ -530,57 +658,44 @@ export function RecorderScreen() {
 
     setScreenState("stopping");
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const sourceUri = recording.getURI();
     try {
       setSavedDurationMs(durationMs);
       await recording.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-      const uri = recording.getURI();
       recordingRef.current = null;
-      if (uri) {
-        const location = locationEnabledRef.current
-          ? ((await captureLocation(false)) ?? currentLocationRef.current)
-          : null;
-        await FileSystem.makeDirectoryAsync(RECORDINGS_DIR, {
-          intermediates: true,
-        });
-        const localUri = `${RECORDINGS_DIR}thoughts-${Date.now()}.m4a`;
-        await FileSystem.copyAsync({
-          from: uri,
-          to: localUri,
-        });
-        const metadata: RecordingMetadata = {
-          locationStatus: location
-            ? "captured"
-            : locationEnabledRef.current
-              ? "unavailable"
-              : "disabled",
-          location,
-        };
-        await FileSystem.writeAsStringAsync(
-          metadataUriFor(localUri),
-          JSON.stringify(metadata),
-        );
-        await addPendingThought({
-          id: localUri,
-          createdAt: new Date().toISOString(),
-          durationSeconds: durationMs / 1000,
-          locationLabel: location
-            ? [location.city, location.suburb].filter(Boolean).join(", ") ||
-              "Standort erfasst"
-            : "Ohne Standort",
-        });
-        setPendingUploadUri(localUri);
-        setSyncState(RECORDING_UPLOAD_URL ? "uploading" : "pending");
-        void attemptUpload(localUri);
-      }
-      await AsyncStorage.setItem(NOTE_NUMBER_KEY, String(noteNumber + 1));
-      setAmplitudes(INITIAL_AMPLITUDES);
-      setScreenState("saved");
     } catch (error) {
       console.error("stop error:", error);
-      setScreenState("recording");
+      const status = await recording.getStatusAsync().catch(() => null);
+      if (status?.isRecording) {
+        setScreenState("recording");
+        return;
+      }
+      recordingRef.current = null;
     }
-  }, [attemptUpload, captureLocation, durationMs, noteNumber]);
+    await Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(
+      () => undefined,
+    );
+
+    if (!sourceUri) {
+      setSaveErrorTitle("Aufnahme noch nicht abgelegt");
+      setSaveError("Die temporäre Audiodatei konnte nicht gefunden werden.");
+      setScreenState("saveError");
+      return;
+    }
+
+    const fallbackLocation = currentLocationRef.current;
+    const location = locationEnabledRef.current
+      ? await withTimeout(captureLocation(), 2_000, fallbackLocation)
+      : null;
+    const stopped = { sourceUri, durationMs, location };
+    stoppedRecordingRef.current = stopped;
+    await finishStoppedRecording(stopped);
+  }, [captureLocation, durationMs, finishStoppedRecording]);
+
+  const retrySavingRecording = useCallback(() => {
+    const stopped = stoppedRecordingRef.current;
+    if (stopped) void finishStoppedRecording(stopped);
+  }, [finishStoppedRecording]);
 
   const discardRecording = useCallback(async () => {
     const recording = recordingRef.current;
@@ -638,6 +753,7 @@ export function RecorderScreen() {
     } else if (
       screenState === "saved" ||
       screenState === "discarding" ||
+      screenState === "saveError" ||
       screenState === "denied"
     ) {
       clearActiveRecording();
@@ -714,11 +830,10 @@ export function RecorderScreen() {
 
       void syncPendingRecordings();
 
-      const locationWasEnabled =
-        (await AsyncStorage.getItem(LOCATION_ENABLED_KEY)) === "true";
+      const locationWasEnabled = await ensureLocationPermission();
       if (locationWasEnabled) {
         locationEnabledRef.current = true;
-        void captureLocation(false);
+        void captureLocation();
       }
 
       const { status } = await Audio.requestPermissionsAsync();
@@ -750,6 +865,48 @@ export function RecorderScreen() {
           </Text>
         </View>
         <View style={styles.bottomSpacer} />
+      </View>
+    );
+  }
+
+  if (screenState === "saveError") {
+    return (
+      <View style={shellStyle}>
+        <OrganicBackground />
+        <View style={styles.messageContent}>
+          <Ionicons name="alert-circle-outline" size={42} color={C.sage} />
+          <Text style={styles.messageTitle}>{saveErrorTitle}</Text>
+          <Text style={styles.messageBody}>
+            {saveError ??
+              "Die Aufnahme ist noch vorhanden. Versuche das Speichern erneut."}
+          </Text>
+        </View>
+        <View style={styles.savedActions}>
+          {stoppedRecordingRef.current ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={retrySavingRecording}
+              style={({ pressed }) => [
+                styles.recordAgainButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Ionicons name="refresh" size={18} color={C.ivory} />
+              <Text style={styles.recordAgainText}>erneut versuchen</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.replace("/thoughts" as Href)}
+              style={({ pressed }) => [
+                styles.recordAgainButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.recordAgainText}>zum Feed</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
     );
   }

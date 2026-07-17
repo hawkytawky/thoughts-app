@@ -64,10 +64,15 @@ export type ThoughtCard = Pick<
 
 type NoteStatusResponse = {
   ok: boolean;
-  status?: "processing" | "ready";
+  status?: "processing" | "ready" | "failed";
   note?: FeaturedNote;
   error?: string;
 };
+
+export type NoteProcessingState =
+  | { status: "processing" }
+  | { status: "failed"; error: string }
+  | { status: "ready"; note: FeaturedNote };
 
 type FeaturedNoteResponse = {
   ok: boolean;
@@ -109,9 +114,9 @@ export async function fetchFeaturedNote(
   return body.note;
 }
 
-export async function fetchNoteStatus(
+export async function fetchNoteProcessingState(
   relativePath: string,
-): Promise<FeaturedNote | null> {
+): Promise<NoteProcessingState> {
   if (!API_URL) throw new Error("Note API URL is not configured");
   const response = await fetch(
     `${API_URL}/notes/status?path=${encodeURIComponent(relativePath)}`,
@@ -123,7 +128,42 @@ export async function fetchNoteStatus(
       body.error ?? `Note status request failed (${response.status})`,
     );
   }
-  return body.status === "ready" && body.note ? body.note : null;
+  if (body.status === "ready" && body.note) {
+    return { status: "ready", note: body.note };
+  }
+  if (body.status === "failed") {
+    return {
+      status: "failed",
+      error: body.error ?? "Die Verarbeitung ist fehlgeschlagen.",
+    };
+  }
+  return { status: "processing" };
+}
+
+export async function fetchNoteStatus(
+  relativePath: string,
+): Promise<FeaturedNote | null> {
+  const state = await fetchNoteProcessingState(relativePath);
+  return state.status === "ready" ? state.note : null;
+}
+
+export async function retryNoteProcessing(
+  relativePath: string,
+): Promise<void> {
+  if (!API_URL) throw new Error("Note API URL is not configured");
+  const response = await fetch(
+    `${API_URL}/notes/retry?path=${encodeURIComponent(relativePath)}`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    },
+  );
+  const body = (await response.json()) as NoteStatusResponse;
+  if (!response.ok || !body.ok) {
+    throw new Error(
+      body.error ?? `Note retry request failed (${response.status})`,
+    );
+  }
 }
 
 export async function fetchNotesForDate(

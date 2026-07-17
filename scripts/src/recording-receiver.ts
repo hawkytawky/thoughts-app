@@ -4,6 +4,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  rename,
   rmdir,
   stat,
   unlink,
@@ -34,12 +35,14 @@ type ReceiverConfig = {
   noteDaysPath: string;
   featuredNotePath: string;
   noteStatusPath: string;
+  noteRetryPath: string;
   featuredRecordingRelativePath: string;
   featuredRecordingLocationLabel: string;
   openClawHookUrl: string;
   hookRetryDelaysMs: number[];
   hookRequestTimeoutMs: number;
   hookAgentTimeoutSeconds: number;
+  processingTimeoutMs: number;
   hookAgentId: string;
   hookName: string;
 };
@@ -73,6 +76,13 @@ type RecordingMetadata = {
   receivedAt: string;
   locationStatus: "captured" | "disabled" | "unavailable";
   location: RecordingLocation | null;
+};
+
+type ProcessingState = {
+  status: "processing" | "failed";
+  updatedAt: string;
+  error?: string;
+  attempt?: number;
 };
 
 type ThoughtAnalysis = {
@@ -155,6 +165,34 @@ function sendJson(
 
 async function readJsonFile<T>(path: string): Promise<T> {
   return JSON.parse(await readFile(path, "utf8")) as T;
+}
+
+function processingStatePath(audioPath: string): string {
+  return audioPath.replace(/\.m4a$/, ".processing.json");
+}
+
+async function writeProcessingState(
+  audioPath: string,
+  status: ProcessingState["status"],
+  error?: string,
+  attempt = 0,
+): Promise<void> {
+  const destination = processingStatePath(audioPath);
+  const temporary = `${destination}.${randomUUID()}.tmp`;
+  const state: ProcessingState = {
+    status,
+    updatedAt: new Date().toISOString(),
+    ...(error ? { error } : {}),
+    attempt,
+  };
+  await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: CONFIG.uploadFileMode,
+  });
+  await rename(temporary, destination).catch(async (renameError) => {
+    await unlink(temporary).catch(() => undefined);
+    throw renameError;
+  });
 }
 
 function formatLocationLabel(location: RecordingLocation): string {
@@ -518,9 +556,24 @@ async function triggerOpenClaw(
   relativePath: string,
   metadataPath: string,
   metadata: RecordingMetadata,
+  attempt = 0,
 ): Promise<void> {
+  await writeProcessingState(
+    recordingPath,
+    "processing",
+    undefined,
+    attempt,
+  ).catch((error) =>
+    console.error(
+      `${new Date().toISOString()} could not persist processing status for ${relativePath}: ${error instanceof Error ? error.message : String(error)}`,
+    ),
+  );
   if (!CONFIG.openClawHookUrl || !OPENCLAW_HOOK_TOKEN) {
-    console.log(`${new Date().toISOString()} OpenClaw hook is not configured`);
+    const message = "OpenClaw hook is not configured";
+    console.error(`${new Date().toISOString()} ${message}`);
+    await writeProcessingState(recordingPath, "failed", message).catch(
+      () => undefined,
+    );
     return;
   }
 
@@ -537,7 +590,7 @@ async function triggerOpenClaw(
     ].join("\n"),
     name: CONFIG.hookName,
     agentId: CONFIG.hookAgentId,
-    idempotencyKey: `thought-recording:${relativePath}`,
+    idempotencyKey: `thought-recording:${relativePath}:attempt-${attempt}`,
     wakeMode: "now",
     deliver: false,
     timeoutSeconds: CONFIG.hookAgentTimeoutSeconds,
@@ -581,6 +634,14 @@ async function triggerOpenClaw(
   console.error(
     `${new Date().toISOString()} OpenClaw processing was not queued for ${relativePath}: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
   );
+  await writeProcessingState(
+    recordingPath,
+    "failed",
+    lastError instanceof Error
+      ? lastError.message
+      : "OpenClaw processing could not be queued",
+    attempt,
+  ).catch(() => undefined);
 }
 
 async function receiveRecording(
@@ -639,7 +700,10 @@ async function receiveRecording(
         flag: "wx",
         mode: CONFIG.uploadFileMode,
       });
+      await writeProcessingState(destination, "processing");
     } catch (error) {
+      await unlink(processingStatePath(destination)).catch(() => undefined);
+      await unlink(metadataPath).catch(() => undefined);
       await unlink(destination).catch(() => undefined);
       await rmdir(recordingDirectory).catch(() => undefined);
       throw error;
@@ -695,16 +759,91 @@ const server = createServer((request, response) => {
       if (!relativeAudioPath) throw new RequestError(400, "Missing note path");
       const recordingDirectory =
         recordingDirectoryFromAudioPath(relativeAudioPath);
+      const audioPath = resolve(RECORDINGS_ROOT, relativeAudioPath);
       try {
         const note = await loadNote(recordingDirectory);
         sendJson(response, 200, { ok: true, status: "ready", note });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          sendJson(response, 200, { ok: true, status: "processing" });
+          let processingState: ProcessingState | null = null;
+          try {
+            processingState = await readJsonFile<ProcessingState>(
+              processingStatePath(audioPath),
+            );
+          } catch (stateError) {
+            if ((stateError as NodeJS.ErrnoException).code !== "ENOENT") {
+              throw stateError;
+            }
+          }
+          if (
+            processingState?.status === "processing" &&
+            Date.now() - new Date(processingState.updatedAt).getTime() >
+              CONFIG.processingTimeoutMs
+          ) {
+            const timeoutMessage =
+              "Die Verarbeitung hat das Zeitlimit überschritten.";
+            processingState = {
+              ...processingState,
+              status: "failed",
+              updatedAt: new Date().toISOString(),
+              error: timeoutMessage,
+            };
+            await writeProcessingState(
+              audioPath,
+              "failed",
+              timeoutMessage,
+              processingState.attempt,
+            );
+          }
+          sendJson(response, 200, {
+            ok: true,
+            status: processingState?.status ?? "processing",
+            ...(processingState?.error
+              ? { error: processingState.error }
+              : {}),
+          });
           return;
         }
         throw error;
       }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === CONFIG.noteRetryPath) {
+      const relativeAudioPath = url.searchParams.get("path");
+      if (!relativeAudioPath) throw new RequestError(400, "Missing note path");
+      const recordingDirectory =
+        recordingDirectoryFromAudioPath(relativeAudioPath);
+      try {
+        const note = await loadNote(recordingDirectory);
+        sendJson(response, 200, { ok: true, status: "ready", note });
+        return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+
+      const audioPath = resolve(RECORDINGS_ROOT, relativeAudioPath);
+      const metadataPath = audioPath.replace(/\.m4a$/, ".location.json");
+      await stat(audioPath);
+      const metadata = await readJsonFile<RecordingMetadata>(metadataPath);
+      const previousState = await readJsonFile<ProcessingState>(
+        processingStatePath(audioPath),
+      ).catch(() => null);
+      const nextAttempt = (previousState?.attempt ?? 0) + 1;
+      await writeProcessingState(
+        audioPath,
+        "processing",
+        undefined,
+        nextAttempt,
+      );
+      sendJson(response, 202, { ok: true, status: "processing" });
+      void triggerOpenClaw(
+        audioPath,
+        relativeAudioPath,
+        metadataPath,
+        metadata,
+        nextAttempt,
+      );
       return;
     }
 

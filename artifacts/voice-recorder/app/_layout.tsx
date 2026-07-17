@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { Alert, Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import {
@@ -10,6 +11,28 @@ import {
 } from '@expo-google-fonts/dm-sans';
 import { Stack } from 'expo-router';
 import { ActiveRecordingBar } from '@/components/ActiveRecordingBar';
+import { ensureLocationPermission } from '@/lib/location-permission';
+
+function LocationPermissionBootstrap() {
+  useEffect(() => {
+    void ensureLocationPermission().then((enabled) => {
+      if (enabled) return;
+      Alert.alert(
+        'Standort aktivieren?',
+        'Damit jede Voice Note automatisch Stadt und Stadtteil erhält, erlaube thoughts den Standortzugriff in den Einstellungen.',
+        [
+          { text: 'Später', style: 'cancel' },
+          {
+            text: 'Einstellungen',
+            onPress: () => void Linking.openSettings(),
+          },
+        ],
+      );
+    });
+  }, []);
+
+  return null;
+}
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -26,6 +49,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <>
+          <LocationPermissionBootstrap />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="record" options={{ headerShown: false }} />

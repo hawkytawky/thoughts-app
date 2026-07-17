@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { type Href, useRouter } from "expo-router";
+import { type Href, useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DayPicker } from "@/components/DayPicker";
 import { ThoughtFilterPicker } from "@/components/ThoughtFilterPicker";
@@ -17,14 +17,17 @@ import {
 import {
   type ThoughtCard,
   fetchNotesForDate,
-  fetchNoteStatus,
+  fetchNoteProcessingState,
   formatApiDate,
   formatDuration,
   formatNoteDay,
+  retryNoteProcessing,
 } from "@/lib/featured-note";
 import {
   type PendingThought,
   getPendingThoughts,
+  markPendingThoughtProcessing,
+  markPendingThoughtProcessingFailed,
   removePendingThought,
 } from "@/lib/pending-thoughts";
 import { useActiveRecording } from "@/lib/active-recording";
@@ -75,6 +78,41 @@ export default function ThoughtsFeedScreen() {
   const [pendingThoughts, setPendingThoughts] = useState<PendingThought[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  const retryProcessing = useCallback(async (thought: PendingThought) => {
+    if (!thought.remotePath) return;
+    const processingThought = {
+      ...thought,
+      processingStatus: "processing" as const,
+      processingError: undefined,
+    };
+    setPendingThoughts((current) =>
+      current.map((item) =>
+        item.id === thought.id ? processingThought : item,
+      ),
+    );
+    await markPendingThoughtProcessing(thought.id);
+    try {
+      await retryNoteProcessing(thought.remotePath);
+    } catch (retryError) {
+      const message =
+        retryError instanceof Error
+          ? retryError.message
+          : "Die Verarbeitung konnte nicht neu gestartet werden.";
+      await markPendingThoughtProcessingFailed(thought.id, message);
+      setPendingThoughts((current) =>
+        current.map((item) =>
+          item.id === thought.id
+            ? {
+                ...item,
+                processingStatus: "failed",
+                processingError: message,
+              }
+            : item,
+        ),
+      );
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -94,54 +132,104 @@ export default function ThoughtsFeedScreen() {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    let mounted = true;
-    const refreshProcessing = async () => {
-      const pending = await getPendingThoughts();
-      const stillPending: PendingThought[] = [];
-      let completedForFeed = false;
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      let refreshing = false;
 
-      for (const thought of pending) {
-        if (!thought.remotePath) {
-          stillPending.push(thought);
-          continue;
-        }
+      const refreshProcessing = async () => {
+        if (refreshing) return;
+        refreshing = true;
         try {
-          const completedNote = await fetchNoteStatus(thought.remotePath);
-          if (completedNote) {
-            await removePendingThought(thought.id);
-            if (
-              formatApiDate(new Date(completedNote.recordedAt)) ===
-              formatApiDate(feedDate)
-            ) {
-              completedForFeed = true;
+          const pending = await getPendingThoughts();
+          const stillPending: PendingThought[] = [];
+          const completedForFeed: ThoughtCard[] = [];
+          const completedIds: string[] = [];
+
+          for (const thought of pending) {
+            if (!thought.remotePath) {
+              stillPending.push(thought);
+              continue;
             }
-          } else {
-            stillPending.push(thought);
+            if (thought.processingStatus === "failed") {
+              stillPending.push(thought);
+              continue;
+            }
+            try {
+              const processingState = await fetchNoteProcessingState(
+                thought.remotePath,
+              );
+              if (processingState.status === "processing") {
+                stillPending.push(thought);
+                continue;
+              }
+              if (processingState.status === "failed") {
+                const failedThought = {
+                  ...thought,
+                  processingStatus: "failed" as const,
+                  processingError: processingState.error,
+                };
+                stillPending.push(failedThought);
+                await markPendingThoughtProcessingFailed(
+                  thought.id,
+                  processingState.error,
+                );
+                continue;
+              }
+
+              const completedNote = processingState.note;
+
+              if (
+                formatApiDate(new Date(completedNote.recordedAt)) ===
+                formatApiDate(feedDate)
+              ) {
+                completedForFeed.push(completedNote);
+              }
+              completedIds.push(thought.id);
+            } catch {
+              stillPending.push(thought);
+            }
           }
-        } catch {
-          stillPending.push(thought);
+
+          if (!active) return;
+          if (completedForFeed.length > 0) {
+            setNotes((current) => {
+              const completedPaths = new Set(
+                completedForFeed.map((note) => note.relativePath),
+              );
+              return [
+                ...completedForFeed,
+                ...current.filter(
+                  (note) => !completedPaths.has(note.relativePath),
+                ),
+              ].sort((left, right) =>
+                right.recordedAt.localeCompare(left.recordedAt),
+              );
+            });
+          }
+          setPendingThoughts(
+            stillPending.filter(
+              (thought) =>
+                formatApiDate(new Date(thought.createdAt)) ===
+              formatApiDate(feedDate),
+            ),
+          );
+          for (const completedId of completedIds) {
+            await removePendingThought(completedId);
+          }
+        } finally {
+          refreshing = false;
         }
-      }
+      };
 
-      if (!mounted) return;
-      setPendingThoughts(
-        stillPending.filter(
-          (thought) =>
-            formatApiDate(new Date(thought.createdAt)) ===
-            formatApiDate(feedDate),
-        ),
-      );
-      if (completedForFeed) await load();
-    };
-
-    void refreshProcessing();
-    const interval = setInterval(() => void refreshProcessing(), 2_500);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
-  }, [feedDate, load]);
+      void refreshProcessing();
+      const interval = setInterval(() => void refreshProcessing(), 2_500);
+      return () => {
+        active = false;
+        clearInterval(interval);
+      };
+    }, [feedDate]),
+  );
 
   if (error) {
     return (
@@ -247,15 +335,43 @@ export default function ThoughtsFeedScreen() {
                   {pending.locationLabel}
                 </Text>
               </View>
-              <Text style={styles.processingTitle}>wird verarbeitet…</Text>
+              <Text style={styles.processingTitle}>
+                {pending.processingStatus === "failed"
+                  ? "Verarbeitung fehlgeschlagen"
+                  : "wird verarbeitet…"}
+              </Text>
+              {pending.processingStatus === "failed" && (
+                <Text numberOfLines={2} style={styles.processingError}>
+                  {pending.processingError}
+                </Text>
+              )}
               <View style={styles.footer}>
                 <View style={styles.processingStatus}>
-                  <View style={styles.processingDot} />
-                  <Text style={styles.processingText}>
-                    {pending.remotePath
-                      ? "Mac mini arbeitet"
-                      : "wird übertragen"}
-                  </Text>
+                  {pending.processingStatus === "failed" ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Verarbeitung erneut versuchen"
+                      onPress={() => void retryProcessing(pending)}
+                      style={({ pressed }) => [
+                        styles.processingRetry,
+                        pressed && styles.filterPressed,
+                      ]}
+                    >
+                      <Ionicons name="refresh" size={13} color={C.plum} />
+                      <Text style={styles.processingRetryText}>
+                        Erneut versuchen
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <>
+                      <View style={styles.processingDot} />
+                      <Text style={styles.processingText}>
+                        {pending.remotePath
+                          ? "Mac mini arbeitet"
+                          : "wird übertragen"}
+                      </Text>
+                    </>
+                  )}
                 </View>
                 <Text style={styles.duration}>
                   {new Intl.DateTimeFormat("de-DE", {
@@ -540,6 +656,14 @@ const styles = StyleSheet.create({
     lineHeight: 27,
     marginBottom: 16,
   },
+  processingError: {
+    marginTop: -9,
+    marginBottom: 14,
+    fontFamily: NOTE_SANS,
+    fontSize: 11.5,
+    lineHeight: 17,
+    color: C.ink40,
+  },
   processingStatus: { flexDirection: "row", alignItems: "center", gap: 7 },
   processingDot: {
     width: 6,
@@ -552,6 +676,18 @@ const styles = StyleSheet.create({
     fontFamily: NOTE_SANS,
     fontSize: 10.5,
     color: C.ink40,
+  },
+  processingRetry: {
+    minHeight: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  processingRetryText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 10.5,
+    fontWeight: "600",
+    color: C.plum,
   },
   recordButtonOuter: {
     position: "absolute",

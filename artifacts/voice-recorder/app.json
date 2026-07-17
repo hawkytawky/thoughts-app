@@ -39,7 +39,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow thoughts to attach your precise location to each voice note when you turn location on."
+          "locationWhenInUsePermission": "Erlaube thoughts, deinen Standort zu verwenden, damit jede Voice Note automatisch Stadt und Stadtteil erhält."
         }
       ]
     ],
