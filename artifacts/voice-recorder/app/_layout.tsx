@@ -19,7 +19,7 @@ function LocationPermissionBootstrap() {
       if (enabled) return;
       Alert.alert(
         'Standort aktivieren?',
-        'Damit jede Voice Note automatisch Stadt und Stadtteil erhält, erlaube thoughts den Standortzugriff in den Einstellungen.',
+        'Damit jeder thought automatisch Stadt und Stadtteil erhält, erlaube thoughts den Standortzugriff in den Einstellungen.',
         [
           { text: 'Später', style: 'cancel' },
           {

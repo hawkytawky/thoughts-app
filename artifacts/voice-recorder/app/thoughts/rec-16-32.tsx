@@ -178,7 +178,7 @@ export default function ThoughtDetailScreen() {
     try {
       if (path) {
         const readyNote = await fetchNoteStatus(path);
-        if (!readyNote) throw new Error("Diese Note wird noch verarbeitet");
+        if (!readyNote) throw new Error("Dieser thought wird noch verarbeitet");
         setNote(readyNote);
       } else {
         setNote(await fetchFeaturedNote(forceRefresh));
@@ -229,7 +229,7 @@ export default function ThoughtDetailScreen() {
           <View style={styles.actions}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Note teilen"
+              accessibilityLabel="thought teilen"
               hitSlop={10}
               onPress={() => void shareNote()}
             >

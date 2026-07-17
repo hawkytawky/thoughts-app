@@ -49,7 +49,7 @@ export function ThoughtFilterPicker({
         style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]}
       >
         <View style={styles.handle} />
-        <Text style={styles.eyebrow}>THOUGHTS FILTERN</Text>
+        <Text style={styles.eyebrow}>thoughts filtern</Text>
         <Text style={styles.title}>Was möchtest du sehen?</Text>
 
         <View style={styles.options}>
@@ -77,7 +77,7 @@ export function ThoughtFilterPicker({
                     {option.label}
                   </Text>
                   <Text style={styles.optionCount}>
-                    {option.count} {option.count === 1 ? "Thought" : "Thoughts"}
+                    {option.count} {option.count === 1 ? "thought" : "thoughts"}
                   </Text>
                 </View>
                 <View style={[styles.check, checked && styles.checkChecked]}>

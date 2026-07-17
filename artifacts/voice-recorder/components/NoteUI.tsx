@@ -75,7 +75,7 @@ export function NoteError({
   return (
     <View style={styles.stateScreen}>
       <Ionicons name="cloud-offline-outline" size={32} color={NOTE_COLORS.ink40} />
-      <Text style={styles.stateTitle}>Note gerade nicht erreichbar</Text>
+      <Text style={styles.stateTitle}>thought gerade nicht erreichbar</Text>
       <Text style={styles.stateText}>{message}</Text>
       <Pressable onPress={onRetry} style={styles.retryButton}>
         <Text style={styles.retryText}>Noch einmal versuchen</Text>

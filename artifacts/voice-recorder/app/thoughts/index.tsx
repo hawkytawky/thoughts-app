@@ -330,7 +330,7 @@ export default function ThoughtsFeedScreen() {
           <View key={pending.id} style={[styles.card, styles.processingCard]}>
             <View style={styles.cardBody}>
               <View style={styles.kindRow}>
-                <Text style={styles.processingKind}>Neue Note</Text>
+                <Text style={styles.processingKind}>neuer thought</Text>
                 <Text numberOfLines={1} style={styles.location}>
                   {pending.locationLabel}
                 </Text>
@@ -390,10 +390,10 @@ export default function ThoughtsFeedScreen() {
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>
               {activeFilters.length
-                ? "Keine Thoughts für diese Filter"
+                ? "Keine thoughts für diese Filter"
                 : isToday(feedDate)
-                  ? "Noch keine Thoughts heute"
-                  : "Keine Thoughts an diesem Tag"}
+                  ? "Noch keine thoughts heute"
+                  : "Keine thoughts an diesem Tag"}
             </Text>
             <Text style={styles.emptyText}>
               Deine Aufnahmen dieses Tages erscheinen hier.

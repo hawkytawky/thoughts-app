@@ -101,14 +101,14 @@ export async function fetchFeaturedNote(
   forceRefresh = false,
 ): Promise<FeaturedNote> {
   if (cachedNote && !forceRefresh) return cachedNote;
-  if (!API_URL) throw new Error("Note API URL is not configured");
+  if (!API_URL) throw new Error("thought API URL is not configured");
 
   const response = await fetch(`${API_URL}/notes/rec-16-32`, {
     headers: { Accept: "application/json" },
   });
   const body = (await response.json()) as FeaturedNoteResponse;
   if (!response.ok || !body.note) {
-    throw new Error(body.error ?? `Note request failed (${response.status})`);
+    throw new Error(body.error ?? `thought request failed (${response.status})`);
   }
   cachedNote = body.note;
   return body.note;
@@ -117,7 +117,7 @@ export async function fetchFeaturedNote(
 export async function fetchNoteProcessingState(
   relativePath: string,
 ): Promise<NoteProcessingState> {
-  if (!API_URL) throw new Error("Note API URL is not configured");
+  if (!API_URL) throw new Error("thought API URL is not configured");
   const response = await fetch(
     `${API_URL}/notes/status?path=${encodeURIComponent(relativePath)}`,
     { headers: { Accept: "application/json" } },
@@ -125,7 +125,7 @@ export async function fetchNoteProcessingState(
   const body = (await response.json()) as NoteStatusResponse;
   if (!response.ok || !body.ok) {
     throw new Error(
-      body.error ?? `Note status request failed (${response.status})`,
+      body.error ?? `thought status request failed (${response.status})`,
     );
   }
   if (body.status === "ready" && body.note) {
@@ -150,7 +150,7 @@ export async function fetchNoteStatus(
 export async function retryNoteProcessing(
   relativePath: string,
 ): Promise<void> {
-  if (!API_URL) throw new Error("Note API URL is not configured");
+  if (!API_URL) throw new Error("thought API URL is not configured");
   const response = await fetch(
     `${API_URL}/notes/retry?path=${encodeURIComponent(relativePath)}`,
     {
@@ -161,7 +161,7 @@ export async function retryNoteProcessing(
   const body = (await response.json()) as NoteStatusResponse;
   if (!response.ok || !body.ok) {
     throw new Error(
-      body.error ?? `Note retry request failed (${response.status})`,
+      body.error ?? `thought retry request failed (${response.status})`,
     );
   }
 }
@@ -169,14 +169,14 @@ export async function retryNoteProcessing(
 export async function fetchNotesForDate(
   date: string,
 ): Promise<{ notes: ThoughtCard[]; processingCount: number }> {
-  if (!API_URL) throw new Error("Note API URL is not configured");
+  if (!API_URL) throw new Error("thought API URL is not configured");
   const response = await fetch(
     `${API_URL}/notes?date=${encodeURIComponent(date)}`,
     { headers: { Accept: "application/json" } },
   );
   const body = (await response.json()) as NotesForDateResponse;
   if (!response.ok || !body.ok || !body.notes) {
-    throw new Error(body.error ?? `Notes request failed (${response.status})`);
+    throw new Error(body.error ?? `thoughts request failed (${response.status})`);
   }
   return {
     notes: body.notes,
@@ -185,7 +185,7 @@ export async function fetchNotesForDate(
 }
 
 export async function fetchThoughtDays(month: string): Promise<Set<string>> {
-  if (!API_URL) throw new Error("Note API URL is not configured");
+  if (!API_URL) throw new Error("thought API URL is not configured");
   const response = await fetch(
     `${API_URL}/notes/days?month=${encodeURIComponent(month)}`,
     { headers: { Accept: "application/json" } },
@@ -193,7 +193,7 @@ export async function fetchThoughtDays(month: string): Promise<Set<string>> {
   const body = (await response.json()) as ThoughtDaysResponse;
   if (!response.ok || !body.ok || !body.days) {
     throw new Error(
-      body.error ?? `Thought days request failed (${response.status})`,
+      body.error ?? `thought days request failed (${response.status})`,
     );
   }
   return new Set(
