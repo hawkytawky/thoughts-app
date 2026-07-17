@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   Share,
@@ -9,6 +11,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   NOTE_COLORS as C,
@@ -28,6 +32,7 @@ import {
   formatTimestamp,
 } from "@/lib/featured-note";
 import { useActiveRecording } from "@/lib/active-recording";
+import { buildThoughtPdfHtml } from "@/lib/thought-share";
 
 type DetailView = "summary" | "transcript";
 
@@ -172,6 +177,7 @@ export default function ThoughtDetailScreen() {
   const [note, setNote] = useState<FeaturedNote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [detailView, setDetailView] = useState<DetailView>("summary");
+  const [sharing, setSharing] = useState(false);
 
   const load = useCallback(async (forceRefresh = false) => {
     setError(null);
@@ -195,11 +201,38 @@ export default function ThoughtDetailScreen() {
   if (error) return <NoteError message={error} onRetry={() => void load(true)} />;
   if (!note) return <NoteLoading />;
 
-  const shareNote = () =>
-    Share.share({
-      title: note.title,
-      message: `${note.title}\n\n${note.summary}`,
-    });
+  const shareNote = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const { uri } = await Print.printToFileAsync({
+        html: buildThoughtPdfHtml(note),
+        width: 390,
+        height: 700,
+      });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          UTI: "com.adobe.pdf",
+          mimeType: "application/pdf",
+          dialogTitle: "thought teilen",
+        });
+      } else {
+        await Share.share({
+          title: "thought",
+          message: note.transcript.text,
+        });
+      }
+    } catch (shareError) {
+      Alert.alert(
+        "Teilen nicht möglich",
+        shareError instanceof Error
+          ? shareError.message
+          : "Das thought-Dokument konnte nicht erstellt werden.",
+      );
+    } finally {
+      setSharing(false);
+    }
+  };
 
   return (
     <View style={styles.root}>
@@ -230,10 +263,16 @@ export default function ThoughtDetailScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="thought teilen"
+              accessibilityState={{ disabled: sharing }}
+              disabled={sharing}
               hitSlop={10}
               onPress={() => void shareNote()}
             >
-              <Ionicons name="share-outline" size={20} color={C.ink60} />
+              {sharing ? (
+                <ActivityIndicator size="small" color={C.plum} />
+              ) : (
+                <Ionicons name="share-outline" size={20} color={C.ink60} />
+              )}
             </Pressable>
             <Ionicons name="ellipsis-horizontal" size={20} color={C.ink30} />
           </View>

@@ -19,6 +19,7 @@ RECEIVER = {
     "featuredNotePath": "/notes/rec-16-32",
     "noteStatusPath": "/notes/status",
     "noteRetryPath": "/notes/retry",
+    "dailySummaryPath": "/daily",
     "featuredRecordingRelativePath": "15-07-2026/rec-16-32",
     "featuredRecordingLocationLabel": "Berlin, Hansaviertel",
     "openClawHookUrl": "http://127.0.0.1:19789/hooks/agent",

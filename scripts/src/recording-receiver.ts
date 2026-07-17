@@ -36,6 +36,7 @@ type ReceiverConfig = {
   featuredNotePath: string;
   noteStatusPath: string;
   noteRetryPath: string;
+  dailySummaryPath: string;
   featuredRecordingRelativePath: string;
   featuredRecordingLocationLabel: string;
   openClawHookUrl: string;
@@ -405,6 +406,40 @@ async function loadThoughtDaysForMonth(
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+async function loadDailySummary(
+  apiDate: string,
+): Promise<Record<string, unknown> | null> {
+  const folder = apiDateToDayFolder(apiDate);
+  const path = join(RECORDINGS_ROOT, folder, "daily", "daily.json");
+  try {
+    const daily = await readJsonFile<Record<string, unknown>>(path);
+    if (daily.date !== apiDate) {
+      throw new Error(`Daily summary date does not match ${apiDate}`);
+    }
+    return daily;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function loadDailyAnalytics(
+  apiDate: string,
+): Promise<Record<string, unknown> | null> {
+  const folder = apiDateToDayFolder(apiDate);
+  const path = join(RECORDINGS_ROOT, folder, "daily", "analytics.json");
+  try {
+    const analytics = await readJsonFile<Record<string, unknown>>(path);
+    if (analytics.date !== apiDate) {
+      throw new Error(`Daily analytics date does not match ${apiDate}`);
+    }
+    return analytics;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 function recordingDirectoryFromAudioPath(relativeAudioPath: string): string {
   if (!relativeAudioPath.endsWith(".m4a")) {
     throw new RequestError(400, "Note path must point to an m4a file");
@@ -751,6 +786,17 @@ const server = createServer((request, response) => {
       if (!month) throw new RequestError(400, "Missing month");
       const days = await loadThoughtDaysForMonth(month);
       sendJson(response, 200, { ok: true, month, days });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === CONFIG.dailySummaryPath) {
+      const date = url.searchParams.get("date");
+      if (!date) throw new RequestError(400, "Missing date");
+      const [daily, analytics] = await Promise.all([
+        loadDailySummary(date),
+        loadDailyAnalytics(date),
+      ]);
+      sendJson(response, 200, { ok: true, date, daily, analytics });
       return;
     }
 

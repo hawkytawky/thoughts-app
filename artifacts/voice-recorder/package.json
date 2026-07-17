@@ -60,6 +60,8 @@
     "expo": "~54.0.35",
     "expo-av": "^16.0.8",
     "expo-file-system": "^19.0.23",
+    "expo-print": "~15.0.8",
+    "expo-sharing": "~14.0.8",
     "react": "19.1.0",
     "react-native": "0.81.5"
   }
