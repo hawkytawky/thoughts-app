@@ -19,7 +19,7 @@ export function buildThoughtPdfHtml(note: FeaturedNote): string {
     .filter(Boolean)
     .map(escapeHtml)
     .join(" · ");
-  const transcript = note.transcript.text.trim();
+  const content = note.summary.trim();
 
   return `<!DOCTYPE html>
 <html lang="de">
@@ -61,7 +61,14 @@ export function buildThoughtPdfHtml(note: FeaturedNote): string {
         font-size: 10.5px;
         font-style: italic;
       }
-      .transcript {
+      h1 {
+        margin: 30px 0 10px;
+        color: #1C221A;
+        font-size: 27px;
+        font-weight: 400;
+        line-height: 1.2;
+      }
+      .content {
         color: rgba(28,34,26,.82);
         white-space: pre-wrap;
       }
@@ -87,10 +94,11 @@ export function buildThoughtPdfHtml(note: FeaturedNote): string {
     <div class="topline"></div>
     <header class="masthead">
       <span class="brand">thoughts</span>
-      <span class="label">transkript</span>
+      <span class="label">zusammenfassung</span>
     </header>
+    <h1>${escapeHtml(note.title)}</h1>
     <div class="meta">${metadata}</div>
-    <main class="transcript">${escapeHtml(transcript)}</main>
+    <main class="content">${escapeHtml(content)}</main>
     <footer class="signoff"><span class="dot"></span>a thought, captured with thoughts</footer>
   </body>
 </html>`;

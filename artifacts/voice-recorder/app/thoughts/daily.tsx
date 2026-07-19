@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -24,32 +24,73 @@ import {
   fetchDailyOverview,
   formatDailyDate,
 } from "@/lib/daily-summary";
+import {
+  type ThoughtCard,
+  fetchNotesForDate,
+} from "@/lib/featured-note";
 import { useActiveRecording } from "@/lib/active-recording";
+
+const TYPE_COLORS: Record<string, string> = {
+  IDEA: "#D9B44A",
+  REFLECTION: "#A97E97",
+  QUESTION: "#7E99A6",
+  DECISION: "#4E6440",
+  TASK: "#C98B6E",
+  WISH: "#93A67E",
+  PROBLEM: "#8C4F35",
+};
+
+const QUESTION_TONES: Record<string, { color: string; borderColor: string }> = {
+  decision: { color: "#4E6440", borderColor: "rgba(78,100,64,0.45)" },
+  experiment: { color: "#C98B6E", borderColor: "rgba(201,139,110,0.55)" },
+  identity: { color: "#A97E97", borderColor: "rgba(169,126,151,0.50)" },
+  research: { color: "#7E99A6", borderColor: "rgba(126,153,166,0.55)" },
+  action: { color: "#A8862F", borderColor: "rgba(217,180,74,0.60)" },
+};
+
+function capitalize(value: string): string {
+  return value ? `${value[0].toLocaleUpperCase("de-DE")}${value.slice(1)}` : value;
+}
 
 function categoryLabel(category: DailyQuestion["category"]): string {
   const labels: Record<string, string> = {
     decision: "Entscheidung",
     experiment: "Experiment",
-    research: "Recherche",
+    research: "Research",
     identity: "Identität",
     action: "Handlung",
   };
   return labels[category] ?? category;
 }
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {children}
-    </View>
-  );
+function continuationLabel(category: DailyQuestion["category"]): string {
+  const labels: Record<string, string> = {
+    decision: "Kriterien & Zeitraum festlegen",
+    experiment: "Als kleines Experiment formulieren",
+    research: "Als Research Card erkunden",
+    identity: "Gedanken dazu weiterführen",
+    action: "Kleinste Handlung festhalten",
+  };
+  return labels[category] ?? "Gedanken dazu weiterführen";
+}
+
+function timeRange(notes: ThoughtCard[]): string | null {
+  const timestamps = notes
+    .map(({ recordedAt }) => new Date(recordedAt))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+  if (!timestamps.length) return null;
+  const formatter = new Intl.DateTimeFormat("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const first = formatter.format(timestamps[0]);
+  const last = formatter.format(timestamps[timestamps.length - 1]);
+  return first === last ? first : `${first} – ${last}`;
+}
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return <Text style={styles.sectionHeading}>{children}</Text>;
 }
 
 export default function DailySummaryScreen() {
@@ -59,6 +100,8 @@ export default function DailySummaryScreen() {
   const { date } = useLocalSearchParams<{ date?: string }>();
   const [daily, setDaily] = useState<DailySummary | null>(null);
   const [analytics, setAnalytics] = useState<DailyAnalytics | null>(null);
+  const [notes, setNotes] = useState<ThoughtCard[]>([]);
+  const [questionsExpanded, setQuestionsExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -71,12 +114,16 @@ export default function DailySummaryScreen() {
     setLoading(true);
     setError(null);
     try {
-      const overview = await fetchDailyOverview(date);
+      const [overview, noteResult] = await Promise.all([
+        fetchDailyOverview(date),
+        fetchNotesForDate(date).catch(() => ({ notes: [], processingCount: 0 })),
+      ]);
       if (!overview.daily) {
         throw new Error("Für diesen Tag gibt es keinen Rückblick.");
       }
       setDaily(overview.daily);
       setAnalytics(overview.analytics);
+      setNotes(noteResult.notes);
     } catch (loadError) {
       setError(
         loadError instanceof Error ? loadError.message : "Unbekannter Fehler",
@@ -90,23 +137,44 @@ export default function DailySummaryScreen() {
     void load();
   }, [load]);
 
+  const stripTypes = useMemo(() => {
+    if (notes.length) {
+      return [...notes]
+        .sort(
+          (a, b) =>
+            new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime(),
+        )
+        .map(({ type }) => type);
+    }
+    return Object.entries(analytics?.thought_types ?? {}).flatMap(([type, count]) =>
+      Array.from({ length: count }, () => type),
+    );
+  }, [analytics?.thought_types, notes]);
+
   if (loading) return <NoteLoading />;
   if (error || !daily) {
     return <NoteError message={error ?? "Nicht gefunden"} onRetry={load} />;
   }
 
-  const shareSummary = () => {
-    const ending =
-      daily.closing_question ||
-      daily.legacy_direction ||
-      daily.legacy_continuation;
-    return Share.share({
+  const recordedRange = timeRange(notes);
+  const thoughtCount = analytics?.thought_count ?? notes.length;
+  const visibleQuestions = questionsExpanded
+    ? daily.open_questions
+    : daily.open_questions.slice(0, 3);
+  const hiddenQuestionCount = Math.max(
+    0,
+    daily.open_questions.length - visibleQuestions.length,
+  );
+  const closingQuestion = daily.closing_question || daily.legacy_continuation;
+  const reflection = daily.reflective_comment || daily.legacy_direction;
+
+  const shareSummary = () =>
+    Share.share({
       title: `Tagesrückblick · ${formatDailyDate(daily.date)}`,
-      message: [formatDailyDate(daily.date), daily.summary, ending]
+      message: [formatDailyDate(daily.date), daily.summary, closingQuestion]
         .filter(Boolean)
         .join("\n\n"),
     });
-  };
 
   return (
     <View style={styles.root}>
@@ -114,9 +182,9 @@ export default function DailySummaryScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: insets.top + 12,
+            paddingTop: insets.top + 8,
             paddingBottom:
-              insets.bottom + (activeRecording.active ? 112 : 44),
+              insets.bottom + (activeRecording.active ? 112 : 52),
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -128,100 +196,119 @@ export default function DailySummaryScreen() {
             hitSlop={12}
             onPress={() => router.back()}
           >
-            <Ionicons name="chevron-back" size={24} color={C.ink60} />
+            <Ionicons name="chevron-back" size={23} color={C.ink60} />
           </Pressable>
-          <Text style={styles.navTitle}>tagesrückblick</Text>
           <Pressable
             accessibilityLabel="Tagesrückblick teilen"
             accessibilityRole="button"
             hitSlop={12}
             onPress={() => void shareSummary()}
           >
-            <Ionicons name="share-outline" size={20} color={C.ink60} />
+            <Ionicons name="share-outline" size={19} color={C.ink60} />
           </Pressable>
         </View>
 
-        <View style={styles.hero}>
-          <View style={styles.heroMark}>
-            <Ionicons name="sparkles" size={15} color={C.plumBg} />
-          </View>
-          <Text style={styles.heroDate}>{formatDailyDate(daily.date)}</Text>
-          <Text style={styles.heroSummary}>{daily.summary}</Text>
-          <View style={styles.heroFooter}>
-            <Text style={styles.heroMeta}>
-              {analytics?.thought_count ?? 0}{" "}
-              {analytics?.thought_count === 1 ? "thought" : "thoughts"}
+        <View style={styles.dayHead}>
+          <Text style={styles.kicker}>dein tag</Text>
+          <Text style={styles.dayTitle}>
+            {capitalize(formatDailyDate(daily.date))}
+          </Text>
+          <Text style={styles.dayStats}>
+            <Text style={styles.dayStatsStrong}>
+              {thoughtCount} {thoughtCount === 1 ? "thought" : "thoughts"}
             </Text>
-            <Text style={styles.heroMeta}>{daily.clusters.length} Themen</Text>
+            {analytics ? ` · ${analytics.word_count.toLocaleString("de-DE")} Wörter` : ""}
+            {recordedRange ? ` · ${recordedRange}` : ""}
+          </Text>
+          <View style={styles.typeStrip}>
+            {stripTypes.map((type, index) => (
+              <View
+                key={`${type}-${index}`}
+                style={[
+                  styles.typeStripItem,
+                  { backgroundColor: TYPE_COLORS[type] ?? C.ink30 },
+                ]}
+              />
+            ))}
           </View>
         </View>
 
-        <Section title="Themen des Tages">
-          <View style={styles.clusters}>
-            {daily.clusters.map((cluster, index) => (
-              <View key={cluster.title} style={styles.cluster}>
-                <View style={styles.clusterNumber}>
-                  <Text style={styles.clusterNumberText}>{index + 1}</Text>
-                </View>
-                <View style={styles.clusterBody}>
-                  <Text style={styles.clusterTitle}>{cluster.title}</Text>
-                  <Text style={styles.bodyText}>{cluster.description}</Text>
-                  <Text style={styles.clusterMeta}>
-                    {cluster.thought_ids.length}{" "}
-                    {cluster.thought_ids.length === 1 ? "thought" : "thoughts"}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        </Section>
+        <Text style={styles.summary}>{daily.summary}</Text>
 
-        <Section title="Reflexion">
-          <Text style={styles.reflection}>{daily.reflective_comment}</Text>
-        </Section>
-
-        {daily.legacy_direction ? (
-          <View style={styles.directionCard}>
-            <Text style={styles.directionLabel}>mögliche richtung</Text>
-            <Text style={styles.directionText}>{daily.legacy_direction}</Text>
+        {reflection ? (
+          <View style={styles.reflectionCard}>
+            <SectionHeading>ein zweiter blick</SectionHeading>
+            <Text style={styles.reflectionText}>{reflection}</Text>
           </View>
         ) : null}
 
-        <Section title="Offene Fragen">
-          <View style={styles.questions}>
-            {daily.open_questions.map((question, index) => (
-              <View key={`${question.category}-${index}`} style={styles.question}>
-                <Text style={styles.questionIndex}>
-                  {String(index + 1).padStart(2, "0")}
-                </Text>
-                <View style={styles.questionBody}>
-                  <Text style={styles.questionText}>{question.question}</Text>
-                  <Text style={styles.questionCategory}>
+        <SectionHeading>was zusammenhängt</SectionHeading>
+        <View style={styles.clusters}>
+          {daily.clusters.map((cluster) => (
+            <View key={cluster.title} style={styles.cluster}>
+              <View style={styles.clusterTopRow}>
+                <Text style={styles.clusterTitle}>{cluster.title}</Text>
+                <View style={styles.clusterDots}>
+                  {cluster.thought_ids.map((id) => (
+                    <View key={id} style={styles.clusterDot} />
+                  ))}
+                </View>
+              </View>
+              <Text style={styles.clusterDescription}>{cluster.description}</Text>
+            </View>
+          ))}
+        </View>
+
+        <SectionHeading>offene fäden</SectionHeading>
+        <View style={styles.threads}>
+          {visibleQuestions.map((question, index) => {
+            const tone = QUESTION_TONES[question.category] ?? {
+              color: C.ink60,
+              borderColor: C.border,
+            };
+            return (
+              <View key={`${question.category}-${index}`} style={styles.thread}>
+                <View style={[styles.badge, { borderColor: tone.borderColor }]}>
+                  <Text style={[styles.badgeText, { color: tone.color }]}>
                     {categoryLabel(question.category)}
                   </Text>
                 </View>
+                <Text style={styles.threadQuestion}>{question.question}</Text>
+                <Text style={styles.continueText}>
+                  {continuationLabel(question.category)} ›
+                </Text>
               </View>
-            ))}
-          </View>
-        </Section>
+            );
+          })}
+        </View>
 
-        {daily.closing_question || daily.legacy_continuation ? (
-          <View style={styles.closingQuestionCard}>
-            <View style={styles.closingQuestionIcon}>
-              <Ionicons
-                name={daily.closing_question ? "help" : "arrow-forward"}
-                size={16}
-                color={C.plum}
-              />
-            </View>
-            <View style={styles.closingQuestionBody}>
-              <Text style={styles.closingQuestionLabel}>
-                {daily.closing_question ? "frage zum weiterdenken" : "weiterführen"}
-              </Text>
-              <Text style={styles.closingQuestionText}>
-                {daily.closing_question || daily.legacy_continuation}
-              </Text>
-            </View>
+        {hiddenQuestionCount > 0 ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: questionsExpanded }}
+            onPress={() => setQuestionsExpanded(true)}
+            style={styles.moreThreads}
+          >
+            <Text style={styles.moreThreadsText}>
+              {hiddenQuestionCount} weitere Fäden⌄
+            </Text>
+          </Pressable>
+        ) : questionsExpanded && daily.open_questions.length > 3 ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: true }}
+            onPress={() => setQuestionsExpanded(false)}
+            style={styles.moreThreads}
+          >
+            <Text style={styles.moreThreadsText}>weniger anzeigen⌃</Text>
+          </Pressable>
+        ) : null}
+
+        {closingQuestion ? (
+          <View style={styles.closing}>
+            <SectionHeading>eine frage zum mitnehmen</SectionHeading>
+            <Text style={styles.closingText}>{closingQuestion}</Text>
+            <View style={styles.closingMark} />
           </View>
         ) : null}
       </ScrollView>
@@ -231,210 +318,172 @@ export default function DailySummaryScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.paper },
-  content: { paddingHorizontal: 20 },
+  content: { paddingHorizontal: 22 },
   nav: {
-    minHeight: 42,
-    paddingHorizontal: 4,
-    marginBottom: 12,
+    minHeight: 38,
+    marginBottom: 8,
+    paddingHorizontal: 2,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  navTitle: {
+  dayHead: { paddingHorizontal: 4, paddingTop: 4 },
+  kicker: {
+    marginBottom: 10,
     fontFamily: NOTE_SANS,
     fontSize: 9.5,
     fontWeight: "600",
-    letterSpacing: 1.7,
-    color: C.plum,
+    letterSpacing: 2.25,
+    textTransform: "uppercase",
+    color: C.ink40,
   },
-  hero: {
-    marginBottom: 35,
-    paddingHorizontal: 25,
-    paddingTop: 24,
-    paddingBottom: 21,
-    borderRadius: 22,
-    backgroundColor: "#5B3C50",
-  },
-  heroMark: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "rgba(234,223,230,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 18,
-  },
-  heroDate: {
+  dayTitle: {
+    marginBottom: 10,
     fontFamily: NOTE_SERIF,
-    fontSize: 26,
-    lineHeight: 33,
-    color: C.card,
-    marginBottom: 16,
+    fontSize: 27,
+    lineHeight: 31,
+    color: C.ink,
   },
-  heroSummary: {
-    fontFamily: NOTE_SERIF,
-    fontSize: 15,
-    lineHeight: 24,
-    color: "rgba(253,252,248,0.78)",
-  },
-  heroFooter: {
-    marginTop: 21,
-    paddingTop: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(234,223,230,0.18)",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  heroMeta: {
+  dayStats: {
+    marginBottom: 12,
     fontFamily: NOTE_SANS,
-    fontSize: 10.5,
-    color: "rgba(234,223,230,0.56)",
+    fontSize: 12,
+    color: C.ink40,
   },
-  section: { paddingHorizontal: 6, marginBottom: 34 },
-  sectionTitle: {
+  dayStatsStrong: { fontWeight: "600", color: C.ink70 },
+  typeStrip: { marginBottom: 22, flexDirection: "row", gap: 3 },
+  typeStripItem: { width: 14, height: 10, borderRadius: 3 },
+  summary: {
+    marginBottom: 30,
+    paddingHorizontal: 4,
+    fontFamily: NOTE_SANS,
+    fontSize: 13.5,
+    lineHeight: 23,
+    color: C.ink70,
+  },
+  sectionHeading: {
+    marginHorizontal: 4,
+    marginBottom: 14,
     fontFamily: NOTE_SANS,
     fontSize: 9.5,
     fontWeight: "700",
-    letterSpacing: 1.8,
+    letterSpacing: 2.15,
     textTransform: "uppercase",
     color: C.ink40,
-    marginBottom: 14,
   },
-  clusters: { gap: 11 },
-  cluster: {
-    padding: 17,
+  reflectionCard: {
+    marginBottom: 32,
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    paddingBottom: 20,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.card,
-    flexDirection: "row",
-    gap: 13,
+    backgroundColor: "#F0EDE2",
   },
-  clusterNumber: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: C.plumBg,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  clusterNumberText: {
+  reflectionText: {
     fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
-    fontSize: 12,
-    color: C.plum,
-  },
-  clusterBody: { flex: 1 },
-  clusterTitle: {
-    fontFamily: NOTE_SERIF,
-    fontSize: 17,
-    lineHeight: 22,
-    color: C.ink,
-    marginBottom: 7,
-  },
-  bodyText: {
-    fontFamily: NOTE_SANS,
-    fontSize: 13,
-    lineHeight: 21,
-    color: C.ink70,
-  },
-  clusterMeta: {
-    marginTop: 9,
-    fontFamily: NOTE_SANS,
-    fontSize: 10,
-    color: C.ink30,
-  },
-  reflection: {
-    fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
-    fontSize: 16,
-    lineHeight: 26,
-    color: C.ink70,
-  },
-  directionCard: {
-    marginHorizontal: 6,
-    marginBottom: 35,
-    padding: 21,
-    borderRadius: 18,
-    backgroundColor: C.plumBg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(110,74,97,0.18)",
-  },
-  directionLabel: {
-    fontFamily: NOTE_SANS,
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 1.6,
-    color: C.plum,
-    marginBottom: 10,
-  },
-  directionText: {
-    fontFamily: NOTE_SERIF,
-    fontSize: 16,
+    fontSize: 15,
     lineHeight: 25,
     color: C.ink,
   },
-  questions: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.divider },
-  question: {
-    paddingVertical: 15,
+  clusters: { marginHorizontal: 4, marginBottom: 32 },
+  cluster: {
+    paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.divider,
+  },
+  clusterTopRow: {
+    marginBottom: 5,
     flexDirection: "row",
-    gap: 14,
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
   },
-  questionIndex: {
-    width: 22,
-    paddingTop: 2,
+  clusterTitle: {
+    flex: 1,
     fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
-    fontSize: 11,
-    color: C.ink30,
+    fontSize: 16.5,
+    lineHeight: 22,
+    color: C.ink,
   },
-  questionBody: { flex: 1 },
-  questionText: {
+  clusterDots: { paddingTop: 7, flexDirection: "row", gap: 3 },
+  clusterDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: C.ink30,
+  },
+  clusterDescription: {
+    fontFamily: NOTE_SANS,
+    fontSize: 12.5,
+    lineHeight: 20,
+    color: C.ink60,
+  },
+  threads: { marginHorizontal: 4 },
+  thread: {
+    paddingVertical: 13,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.divider,
+  },
+  badge: {
+    alignSelf: "flex-start",
+    marginBottom: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderRadius: 100,
+  },
+  badgeText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 8.5,
+    fontWeight: "700",
+    letterSpacing: 1.45,
+    textTransform: "uppercase",
+  },
+  threadQuestion: {
     fontFamily: NOTE_SANS,
     fontSize: 13.5,
     lineHeight: 21,
     color: C.ink70,
   },
-  questionCategory: {
+  continueText: {
     marginTop: 7,
     fontFamily: NOTE_SANS,
-    fontSize: 9.5,
-    color: C.plum,
+    fontSize: 11,
+    fontWeight: "600",
+    color: C.ink60,
   },
-  closingQuestionCard: {
-    marginHorizontal: 6,
-    marginBottom: 34,
-    padding: 19,
-    borderRadius: 17,
-    backgroundColor: C.card,
-    borderWidth: 1,
-    borderColor: C.border,
-    flexDirection: "row",
-    gap: 13,
+  moreThreads: {
+    alignSelf: "flex-start",
+    marginTop: 6,
+    marginLeft: 4,
+    marginBottom: 32,
+    paddingVertical: 6,
+    paddingRight: 12,
   },
-  closingQuestionIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: C.plumBg,
+  moreThreadsText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 11.5,
+    fontWeight: "500",
+    color: C.ink40,
+  },
+  closing: {
+    paddingHorizontal: 14,
+    paddingTop: 38,
+    paddingBottom: 30,
     alignItems: "center",
-    justifyContent: "center",
   },
-  closingQuestionBody: { flex: 1 },
-  closingQuestionLabel: {
-    fontFamily: NOTE_SANS,
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    color: C.plum,
-    marginBottom: 7,
+  closingText: {
+    fontFamily: NOTE_SERIF,
+    fontStyle: "italic",
+    fontSize: 19,
+    lineHeight: 29,
+    textAlign: "center",
+    color: C.ink,
   },
-  closingQuestionText: {
-    fontFamily: NOTE_SANS,
-    fontSize: 13.5,
-    lineHeight: 21,
-    color: C.ink70,
+  closingMark: {
+    width: 26,
+    height: StyleSheet.hairlineWidth,
+    marginTop: 26,
+    backgroundColor: C.ink30,
   },
 });

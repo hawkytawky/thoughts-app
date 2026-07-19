@@ -218,8 +218,8 @@ export default function ThoughtDetailScreen() {
         });
       } else {
         await Share.share({
-          title: "thought",
-          message: note.transcript.text,
+          title: note.title,
+          message: `${note.title}\n\n${note.summary}`,
         });
       }
     } catch (shareError) {
