@@ -31,12 +31,6 @@ import {
   removePendingThought,
 } from "@/lib/pending-thoughts";
 import { useActiveRecording } from "@/lib/active-recording";
-import {
-  type DailyAnalytics,
-  type DailySummary,
-  fetchDailyOverview,
-  formatDailyDate,
-} from "@/lib/daily-summary";
 
 function typeLabel(type: string): string {
   const labels: Record<string, string> = {
@@ -48,26 +42,6 @@ function typeLabel(type: string): string {
     DECISION: "Entscheidung",
   };
   return labels[type] ?? type.toLocaleLowerCase("de-DE");
-}
-
-function analyticsTypeLabel(type: string, count: number): string {
-  const singular: Record<string, string> = {
-    IDEA: "Idee",
-    REFLECTION: "Reflexion",
-    QUESTION: "Frage",
-    DECISION: "Entscheidung",
-    TASK: "Aufgabe",
-    PROBLEM: "Problem",
-  };
-  const plural: Record<string, string> = {
-    IDEA: "Ideen",
-    REFLECTION: "Reflexionen",
-    QUESTION: "Fragen",
-    DECISION: "Entscheidungen",
-    TASK: "Aufgaben",
-    PROBLEM: "Probleme",
-  };
-  return `${count} ${(count === 1 ? singular[type] : plural[type]) ?? type.toLocaleLowerCase("de-DE")}`;
 }
 
 const FILTER_OPTIONS = [
@@ -100,11 +74,6 @@ export default function ThoughtsFeedScreen() {
   const [filterPickerOpen, setFilterPickerOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [notes, setNotes] = useState<ThoughtCard[]>([]);
-  const [dailySummary, setDailySummary] = useState<DailySummary | null>(null);
-  const [dailyAnalytics, setDailyAnalytics] = useState<DailyAnalytics | null>(
-    null,
-  );
-  const [dailyThoughtsOpen, setDailyThoughtsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pendingThoughts, setPendingThoughts] = useState<PendingThought[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -149,13 +118,8 @@ export default function ThoughtsFeedScreen() {
     setError(null);
     try {
       const date = formatApiDate(feedDate);
-      const [result, overview] = await Promise.all([
-        fetchNotesForDate(date),
-        fetchDailyOverview(date),
-      ]);
+      const result = await fetchNotesForDate(date);
       setNotes(result.notes);
-      setDailySummary(overview.daily);
-      setDailyAnalytics(overview.analytics);
     } catch (loadError) {
       setError(
         loadError instanceof Error ? loadError.message : "Unbekannter Fehler",
@@ -168,10 +132,6 @@ export default function ThoughtsFeedScreen() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    setDailyThoughtsOpen(false);
-  }, [feedDate]);
 
   useFocusEffect(
     useCallback(() => {
@@ -292,9 +252,7 @@ export default function ThoughtsFeedScreen() {
     : notes;
   const visiblePendingThoughts = activeFilters.length ? [] : pendingThoughts;
   const empty =
-    !dailySummary &&
-    filteredNotes.length === 0 &&
-    visiblePendingThoughts.length === 0;
+    filteredNotes.length === 0 && visiblePendingThoughts.length === 0;
 
   return (
     <View style={styles.root}>
@@ -321,9 +279,8 @@ export default function ThoughtsFeedScreen() {
           </Pressable>
         </View>
 
-        {!dailySummary && (
-          <View style={styles.filters} accessibilityRole="tablist">
-            <Pressable
+        <View style={styles.filters} accessibilityRole="tablist">
+          <Pressable
             accessibilityRole="tab"
             accessibilityState={{ selected: activeFilters.length === 0 }}
             onPress={() => setActiveFilters([])}
@@ -367,9 +324,8 @@ export default function ThoughtsFeedScreen() {
                 </Text>
               </View>
             )}
-            </Pressable>
-          </View>
-        )}
+          </Pressable>
+        </View>
 
         {visiblePendingThoughts.map((pending) => (
           <View key={pending.id} style={[styles.card, styles.processingCard]}>
@@ -431,151 +387,6 @@ export default function ThoughtsFeedScreen() {
           </View>
         ))}
 
-        {dailySummary && (
-          <View style={styles.dailyGroup}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Tagesrückblick für ${formatDailyDate(dailySummary.date)} öffnen`}
-              onPress={() =>
-                router.push(
-                  `/thoughts/daily?date=${encodeURIComponent(dailySummary.date)}` as Href,
-                )
-              }
-              style={({ pressed }) => [
-                styles.dailyCard,
-                pressed && styles.dailyCardPressed,
-              ]}
-            >
-              <View style={styles.dailyTopRow}>
-                <View style={styles.dailyMark}>
-                  <Ionicons name="sparkles" size={13} color={C.plum} />
-                </View>
-                <Text style={styles.dailyEyebrow}>tagesrückblick</Text>
-              </View>
-              <Text style={styles.dailyDate}>
-                {formatDailyDate(dailySummary.date)}
-              </Text>
-              <View style={styles.dailyMetrics}>
-                <View style={styles.dailyMetric}>
-                  <Text style={styles.dailyMetricValue}>
-                    {dailyAnalytics?.thought_count ?? notes.length}
-                  </Text>
-                  <Text style={styles.dailyMetricLabel}>thoughts</Text>
-                </View>
-                <View style={styles.dailyMetricDivider} />
-                <View style={styles.dailyMetric}>
-                  <Text style={styles.dailyMetricValue}>
-                    {(dailyAnalytics?.word_count ?? 0).toLocaleString("de-DE")}
-                  </Text>
-                  <Text style={styles.dailyMetricLabel}>Wörter</Text>
-                </View>
-              </View>
-
-              {dailyAnalytics && (
-                <>
-                  <View style={styles.dailyTypes}>
-                    {Object.entries(dailyAnalytics.thought_types).map(
-                      ([type, count]) => (
-                        <Text key={type} style={styles.dailyType}>
-                          {analyticsTypeLabel(type, count)}
-                        </Text>
-                      ),
-                    )}
-                  </View>
-                  <View style={styles.dailyTags}>
-                    {dailyAnalytics.top_tags.slice(0, 3).map(({ tag }) => (
-                      <View key={tag} style={styles.dailyTag}>
-                        <Text style={styles.dailyTagText}>{tag}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </>
-              )}
-              <View style={styles.dailyFooter}>
-                <View style={styles.dailyOpen}>
-                  <Text style={styles.dailyOpenText}>gesamtansicht</Text>
-                  <Ionicons name="arrow-forward" size={15} color={C.plum} />
-                </View>
-              </View>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ expanded: dailyThoughtsOpen }}
-              onPress={() => setDailyThoughtsOpen((open) => !open)}
-              style={({ pressed }) => [
-                styles.dailyThoughtsToggle,
-                pressed && styles.filterPressed,
-              ]}
-            >
-              <View style={styles.dailyThoughtsToggleText}>
-                <Text style={styles.dailyThoughtsLabel}>
-                  {notes.length} {notes.length === 1 ? "thought" : "thoughts"}
-                </Text>
-                <Text style={styles.dailyThoughtsHint}>
-                  {dailyThoughtsOpen ? "einklappen" : "dieses Tages anzeigen"}
-                </Text>
-              </View>
-              <Ionicons
-                name={dailyThoughtsOpen ? "chevron-up" : "chevron-down"}
-                size={17}
-                color={C.ink30}
-              />
-            </Pressable>
-
-            {dailyThoughtsOpen && (
-              <View style={styles.dailyThoughtList}>
-                {notes.map((cardNote) => (
-                  <Pressable
-                    key={cardNote.relativePath}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${typeLabel(cardNote.type)}: ${cardNote.title}`}
-                    onPress={() =>
-                      router.push(
-                        `/thoughts/rec-16-32?path=${encodeURIComponent(
-                          cardNote.relativePath,
-                        )}` as Href,
-                      )
-                    }
-                    style={({ pressed }) => [
-                      styles.card,
-                      styles.dailyThoughtCard,
-                      pressed && styles.cardPressed,
-                    ]}
-                  >
-                    <View style={styles.cardBody}>
-                      <View style={styles.kindRow}>
-                        <Text style={styles.kind}>
-                          {typeLabel(cardNote.type)}
-                        </Text>
-                        <Text numberOfLines={1} style={styles.location}>
-                          {cardNote.locationLabel}
-                        </Text>
-                      </View>
-                      <Text style={styles.title}>{cardNote.title}</Text>
-                      <View style={styles.footer}>
-                        <View style={[noteUiStyles.tags, styles.cardTags]}>
-                          {cardNote.tags.map((tag, index) => (
-                            <NoteTag key={tag} label={tag} index={index} />
-                          ))}
-                        </View>
-                        <Text style={styles.duration}>
-                          {new Intl.DateTimeFormat("de-DE", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }).format(new Date(cardNote.recordedAt))}
-                          {" · "}
-                          {formatDuration(cardNote.durationSeconds)}
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
-
         {empty && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>
@@ -591,8 +402,7 @@ export default function ThoughtsFeedScreen() {
           </View>
         )}
 
-        {!dailySummary &&
-          filteredNotes.map((cardNote) => (
+        {filteredNotes.map((cardNote) => (
             <Pressable
             key={cardNote.relativePath}
             accessibilityRole="button"
@@ -634,7 +444,7 @@ export default function ThoughtsFeedScreen() {
               </View>
             </View>
             </Pressable>
-          ))}
+        ))}
       </ScrollView>
       {!activeRecording.active && (
         <Pressable
@@ -752,139 +562,6 @@ const styles = StyleSheet.create({
     color: C.card,
   },
   filterPressed: { opacity: 0.5 },
-  dailyGroup: { marginBottom: 18 },
-  dailyCard: {
-    minHeight: 236,
-    marginBottom: 0,
-    paddingHorizontal: 25,
-    paddingTop: 23,
-    paddingBottom: 20,
-    borderRadius: 22,
-    backgroundColor: "#E9E0E6",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#D8C8D2",
-    justifyContent: "space-between",
-  },
-  dailyCardPressed: { opacity: 0.88, transform: [{ scale: 0.995 }] },
-  dailyTopRow: { flexDirection: "row", alignItems: "center", gap: 9 },
-  dailyMark: {
-    width: 27,
-    height: 27,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(110,74,97,0.10)",
-  },
-  dailyEyebrow: {
-    fontFamily: NOTE_SANS,
-    fontSize: 9.5,
-    fontWeight: "600",
-    letterSpacing: 1.8,
-    color: C.plum,
-  },
-  dailyDate: {
-    marginTop: 21,
-    marginBottom: 13,
-    fontFamily: NOTE_SERIF,
-    fontSize: 25,
-    lineHeight: 31,
-    color: C.ink,
-  },
-  dailyMetrics: {
-    marginTop: 2,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  dailyMetric: { minWidth: 86 },
-  dailyMetricValue: {
-    fontFamily: NOTE_SERIF,
-    fontSize: 25,
-    color: C.ink,
-  },
-  dailyMetricLabel: {
-    marginTop: 2,
-    fontFamily: NOTE_SANS,
-    fontSize: 9.5,
-    color: C.ink40,
-  },
-  dailyMetricDivider: {
-    width: StyleSheet.hairlineWidth,
-    height: 35,
-    marginHorizontal: 18,
-    backgroundColor: "rgba(110,74,97,0.20)",
-  },
-  dailyTypes: {
-    marginTop: 17,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 9,
-  },
-  dailyType: {
-    fontFamily: NOTE_SANS,
-    fontSize: 10.5,
-    color: C.ink60,
-  },
-  dailyTags: {
-    marginTop: 12,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  dailyTag: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 100,
-    backgroundColor: "rgba(110,74,97,0.09)",
-  },
-  dailyTagText: {
-    fontFamily: NOTE_SANS,
-    fontSize: 9.5,
-    color: C.plum,
-  },
-  dailyFooter: {
-    marginTop: 23,
-    paddingTop: 15,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(110,74,97,0.16)",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-  },
-  dailyOpen: { flexDirection: "row", alignItems: "center", gap: 7 },
-  dailyOpenText: {
-    fontFamily: NOTE_SANS,
-    fontSize: 10.5,
-    fontWeight: "600",
-    color: C.plum,
-  },
-  dailyThoughtsToggle: {
-    minHeight: 62,
-    marginTop: 14,
-    marginHorizontal: 7,
-    paddingHorizontal: 11,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  dailyThoughtsToggleText: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 7,
-  },
-  dailyThoughtsLabel: {
-    fontFamily: NOTE_SERIF,
-    fontSize: 14.5,
-    color: C.ink60,
-  },
-  dailyThoughtsHint: {
-    fontFamily: NOTE_SANS,
-    fontSize: 10.5,
-    color: C.ink30,
-  },
-  dailyThoughtList: { paddingTop: 12 },
-  dailyThoughtCard: { marginBottom: 11 },
   card: {
     backgroundColor: C.card,
     borderWidth: 1,
