@@ -74,12 +74,6 @@ export type NoteProcessingState =
   | { status: "failed"; error: string }
   | { status: "ready"; note: FeaturedNote };
 
-type FeaturedNoteResponse = {
-  ok: boolean;
-  note?: FeaturedNote;
-  error?: string;
-};
-
 type NotesForDateResponse = {
   ok: boolean;
   date?: string;
@@ -94,25 +88,6 @@ type ThoughtDaysResponse = {
   days?: { date: string; count: number }[];
   error?: string;
 };
-
-let cachedNote: FeaturedNote | null = null;
-
-export async function fetchFeaturedNote(
-  forceRefresh = false,
-): Promise<FeaturedNote> {
-  if (cachedNote && !forceRefresh) return cachedNote;
-  if (!API_URL) throw new Error("thought API URL is not configured");
-
-  const response = await fetch(`${API_URL}/notes/rec-16-32`, {
-    headers: { Accept: "application/json" },
-  });
-  const body = (await response.json()) as FeaturedNoteResponse;
-  if (!response.ok || !body.note) {
-    throw new Error(body.error ?? `thought request failed (${response.status})`);
-  }
-  cachedNote = body.note;
-  return body.note;
-}
 
 export async function fetchNoteProcessingState(
   relativePath: string,

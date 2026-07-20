@@ -33,7 +33,6 @@ type ReceiverConfig = {
   recordingsPath: string;
   notesListPath: string;
   noteDaysPath: string;
-  featuredNotePath: string;
   noteStatusPath: string;
   noteRetryPath: string;
   dailySummaryPath: string;
@@ -269,13 +268,6 @@ async function loadNote(
       })),
     },
   };
-}
-
-async function loadFeaturedNote(): Promise<Record<string, unknown>> {
-  return loadNote(
-    CONFIG.featuredRecordingRelativePath,
-    CONFIG.featuredRecordingLocationLabel,
-  );
 }
 
 function apiDateToDayFolder(apiDate: string): string {
@@ -765,11 +757,6 @@ const server = createServer((request, response) => {
 
     if (request.method === "GET" && url.pathname === CONFIG.healthPath) {
       sendJson(response, 200, { ok: true, recordingsRoot: RECORDINGS_ROOT });
-      return;
-    }
-
-    if (request.method === "GET" && url.pathname === CONFIG.featuredNotePath) {
-      sendJson(response, 200, { ok: true, note: await loadFeaturedNote() });
       return;
     }
 

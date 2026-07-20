@@ -31,7 +31,6 @@ import {
 } from "@/components/NoteUI";
 import {
   type FeaturedNote,
-  fetchFeaturedNote,
   fetchNoteStatus,
   formatDuration,
   formatNoteDate,
@@ -248,16 +247,16 @@ export default function ThoughtDetailScreen() {
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [sharing, setSharing] = useState(false);
 
-  const load = useCallback(async (forceRefresh = false) => {
+  const load = useCallback(async () => {
     setError(null);
+    if (!path) {
+      setError("Kein thought ausgewählt");
+      return;
+    }
     try {
-      if (path) {
-        const readyNote = await fetchNoteStatus(path);
-        if (!readyNote) throw new Error("Dieser thought wird noch verarbeitet");
-        setNote(readyNote);
-      } else {
-        setNote(await fetchFeaturedNote(forceRefresh));
-      }
+      const readyNote = await fetchNoteStatus(path);
+      if (!readyNote) throw new Error("Dieser thought wird noch verarbeitet");
+      setNote(readyNote);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unbekannter Fehler");
     }
@@ -267,7 +266,7 @@ export default function ThoughtDetailScreen() {
     void load();
   }, [load]);
 
-  if (error) return <NoteError message={error} onRetry={() => void load(true)} />;
+  if (error) return <NoteError message={error} onRetry={() => void load()} />;
   if (!note) return <NoteLoading />;
 
   const shareNote = async () => {

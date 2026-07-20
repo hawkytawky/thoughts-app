@@ -566,7 +566,7 @@ export default function ThoughtsFeedScreen() {
             accessibilityLabel={`${typeLabel(cardNote.type)}: ${cardNote.title}`}
             onPress={() =>
               router.push(
-                `/thoughts/rec-16-32?path=${encodeURIComponent(
+                `/thoughts/detail?path=${encodeURIComponent(
                   cardNote.relativePath,
                 )}` as Href,
               )

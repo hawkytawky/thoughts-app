@@ -16,10 +16,11 @@ RECEIVER = {
     "recordingsPath": "/recordings",
     "notesListPath": "/notes",
     "noteDaysPath": "/notes/days",
-    "featuredNotePath": "/notes/rec-16-32",
     "noteStatusPath": "/notes/status",
     "noteRetryPath": "/notes/retry",
     "dailySummaryPath": "/daily",
+    # Seed recording used only to give the demo note a friendly location label
+    # when it has no GPS metadata (see loadNotesForDate).
     "featuredRecordingRelativePath": "15-07-2026/rec-16-32",
     "featuredRecordingLocationLabel": "Berlin, Hansaviertel",
     "openClawHookUrl": "http://127.0.0.1:19789/hooks/agent",
