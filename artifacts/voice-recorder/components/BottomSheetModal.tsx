@@ -87,6 +87,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: "flex-end" },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(28,34,26,0.24)",
+    backgroundColor: "rgba(46,94,140,0.16)",
   },
 });

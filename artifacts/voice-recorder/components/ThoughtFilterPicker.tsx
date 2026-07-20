@@ -3,7 +3,13 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheetModal } from "@/components/BottomSheetModal";
-import { NOTE_COLORS as C, NOTE_SANS, NOTE_SERIF } from "@/components/NoteUI";
+import {
+  NOTE_COLORS as C,
+  NOTE_CATEGORY_TEXT_OPACITY,
+  NOTE_SANS,
+  NOTE_SERIF,
+  noteCategoryColor,
+} from "@/components/NoteUI";
 
 export type ThoughtFilterOption = {
   type: string;
@@ -71,6 +77,7 @@ export function ThoughtFilterPicker({
                   <Text
                     style={[
                       styles.optionLabel,
+                      { color: noteCategoryColor(option.type) },
                       checked && styles.optionLabelChecked,
                     ]}
                   >
@@ -168,14 +175,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 4,
   },
-  optionChecked: { backgroundColor: "rgba(110,74,97,0.045)" },
+  optionChecked: { backgroundColor: C.skyLight },
   optionCopy: { gap: 3 },
   optionLabel: {
     fontFamily: NOTE_SERIF,
     fontSize: 17,
     color: C.ink70,
+    opacity: NOTE_CATEGORY_TEXT_OPACITY,
   },
-  optionLabelChecked: { color: C.plum },
+  optionLabelChecked: { fontWeight: "600" },
   optionCount: { fontFamily: NOTE_SANS, fontSize: 10, color: C.ink30 },
   check: {
     width: 24,

@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
@@ -21,6 +22,8 @@ import {
   NoteError,
   NoteLoading,
   NoteTag,
+  NOTE_CATEGORY_TEXT_OPACITY,
+  noteCategoryColor,
   noteUiStyles,
 } from "@/components/NoteUI";
 import {
@@ -35,6 +38,26 @@ import { useActiveRecording } from "@/lib/active-recording";
 import { buildThoughtPdfHtml } from "@/lib/thought-share";
 
 type DetailView = "summary" | "transcript";
+
+function categoryLabel(type: string): string {
+  const labels: Record<string, string> = {
+    IDEA: "Idee",
+    REFLECTION: "Reflexion",
+    DECISION: "Entscheidung",
+    QUESTION: "Frage",
+    TASK: "Aufgabe",
+    PROBLEM: "Problem",
+    OBSERVATION: "Beobachtung",
+  };
+  return labels[type] ?? type.toLocaleLowerCase("de-DE");
+}
+
+function noteTime(isoDate: string): string {
+  return new Intl.DateTimeFormat("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(isoDate));
+}
 
 function Section({
   title,
@@ -130,10 +153,8 @@ function SummaryView({ note }: { note: FeaturedNote }) {
             <>
               <Text style={styles.subtleLabel}>Personen</Text>
               <View style={styles.chips}>
-                {note.people.map((person) => (
-                  <View key={person} style={styles.chip}>
-                    <Text style={styles.chipText}>{person}</Text>
-                  </View>
+                {note.people.map((person, index) => (
+                  <NoteTag key={person} label={person} index={index} />
                 ))}
               </View>
             </>
@@ -142,10 +163,12 @@ function SummaryView({ note }: { note: FeaturedNote }) {
             <>
               <Text style={styles.subtleLabel}>Bereiche</Text>
               <View style={styles.chips}>
-                {note.projects.map((project) => (
-                  <View key={project} style={styles.chip}>
-                    <Text style={styles.chipText}>{project}</Text>
-                  </View>
+                {note.projects.map((project, index) => (
+                  <NoteTag
+                    key={project}
+                    label={project}
+                    index={note.people.length + index}
+                  />
                 ))}
               </View>
             </>
@@ -236,53 +259,62 @@ export default function ThoughtDetailScreen() {
 
   return (
     <View style={styles.root}>
+      <View style={[styles.stickyHeader, { paddingTop: insets.top + 10 }]}>
+        <View style={styles.nav}>
+          <View style={styles.navLeft}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Zurück"
+              hitSlop={12}
+              onPress={() => router.back()}
+            >
+              <Ionicons name="chevron-back" size={24} color={C.ink60} />
+            </Pressable>
+            <Text
+              style={[styles.kind, { color: noteCategoryColor(note.type) }]}
+            >
+              {categoryLabel(note.type)}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="thought teilen"
+            accessibilityState={{ disabled: sharing }}
+            disabled={sharing}
+            hitSlop={10}
+            onPress={() => void shareNote()}
+          >
+            {sharing ? (
+              <ActivityIndicator size="small" color={C.skyDeep} />
+            ) : (
+              <Ionicons name="share-outline" size={20} color={C.ink60} />
+            )}
+          </Pressable>
+        </View>
+        <LinearGradient
+          colors={["rgba(249,249,248,0.96)", "rgba(249,249,248,0)"]}
+          locations={[0, 1]}
+          pointerEvents="none"
+          style={styles.headerFade}
+        />
+      </View>
       <ScrollView
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: insets.top + 18,
+            paddingTop: 10,
             paddingBottom:
               insets.bottom + (activeRecording.active ? 112 : 40),
           },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.nav}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Zurück"
-            hitSlop={12}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="chevron-back" size={24} color={C.ink60} />
-          </Pressable>
-          <Text style={styles.kind}>
-            {note.type === "PROBLEM" ? "Problem" : note.type.toLocaleLowerCase("de-DE")}
-          </Text>
-          <View style={styles.actions}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="thought teilen"
-              accessibilityState={{ disabled: sharing }}
-              disabled={sharing}
-              hitSlop={10}
-              onPress={() => void shareNote()}
-            >
-              {sharing ? (
-                <ActivityIndicator size="small" color={C.plum} />
-              ) : (
-                <Ionicons name="share-outline" size={20} color={C.ink60} />
-              )}
-            </Pressable>
-            <Ionicons name="ellipsis-horizontal" size={20} color={C.ink30} />
-          </View>
-        </View>
-
-        <Text style={styles.title}>{note.title}</Text>
         <Text style={styles.metaLine}>
-          {formatNoteDate(note.recordedAt, true)} · {note.locationLabel} ·{" "}
-          {formatDuration(note.durationSeconds)} · {note.wordCount} Wörter
+          {formatNoteDate(note.recordedAt, true)}, {noteTime(note.recordedAt)} ·{" "}
+          {note.locationLabel} · {formatDuration(note.durationSeconds)} min ·{" "}
+          {note.wordCount} Wörter
         </Text>
+        <Text style={styles.title}>{note.title}</Text>
         <View style={[noteUiStyles.tags, styles.headerTags]}>
           {note.tags.map((tag, index) => (
             <NoteTag key={tag} label={tag} index={index} />
@@ -298,7 +330,7 @@ export default function ThoughtDetailScreen() {
                 accessibilityRole="tab"
                 accessibilityState={{ selected: active }}
                 onPress={() => setDetailView(view)}
-                style={[styles.segment, active && styles.segmentActive]}
+                style={styles.segment}
               >
                 <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
                   {view === "summary" ? "Summary" : "Transkript"}
@@ -313,6 +345,7 @@ export default function ThoughtDetailScreen() {
         ) : (
           <TranscriptView note={note} />
         )}
+
       </ScrollView>
     </View>
   );
@@ -321,157 +354,141 @@ export default function ThoughtDetailScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.paper },
   content: { paddingHorizontal: 20 },
+  stickyHeader: {
+    paddingHorizontal: 20,
+    backgroundColor: C.paper,
+    zIndex: 2,
+  },
+  headerFade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: -14,
+    height: 14,
+  },
   nav: {
     minHeight: 38,
     paddingHorizontal: 4,
-    marginBottom: 12,
+    paddingBottom: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
+  navLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   kind: {
     fontFamily: NOTE_SANS,
-    color: C.plum,
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 2.25,
-    textTransform: "uppercase",
+    fontSize: 13,
+    fontWeight: "500",
+    opacity: NOTE_CATEGORY_TEXT_OPACITY,
   },
-  actions: { flexDirection: "row", alignItems: "center", gap: 16 },
   title: {
     paddingHorizontal: 6,
     fontFamily: NOTE_SERIF,
     fontSize: 28,
     lineHeight: 35,
     color: C.ink,
-    marginBottom: 12,
+    marginBottom: 13,
   },
   metaLine: {
     paddingHorizontal: 6,
-    fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
-    fontSize: 12.5,
-    lineHeight: 18,
-    color: C.ink30,
-    marginBottom: 14,
+    fontFamily: NOTE_SANS,
+    fontSize: 11,
+    lineHeight: 17,
+    color: C.ink40,
+    marginBottom: 8,
   },
-  headerTags: { paddingHorizontal: 6, marginBottom: 10 },
+  headerTags: { paddingHorizontal: 6, marginBottom: 4 },
   segmentedControl: {
     marginHorizontal: 6,
-    marginTop: 16,
-    marginBottom: 26,
-    padding: 3,
-    borderRadius: 100,
+    marginBottom: 18,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.divider,
     flexDirection: "row",
-    backgroundColor: C.divider,
   },
-  segment: { flex: 1, borderRadius: 100, paddingVertical: 9, alignItems: "center" },
-  segmentActive: {
-    backgroundColor: C.card,
-    shadowColor: C.ink,
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-  },
+  segment: { flex: 1, paddingVertical: 10, alignItems: "center" },
   segmentText: {
     fontFamily: NOTE_SANS,
     fontSize: 10.5,
     letterSpacing: 1.35,
     textTransform: "uppercase",
     fontWeight: "600",
-    color: C.ink40,
+    color: C.inactive,
   },
-  segmentTextActive: { color: C.ink },
-  section: { paddingHorizontal: 6, marginBottom: 27 },
+  segmentTextActive: { color: C.ink60 },
+  section: { paddingHorizontal: 6, marginBottom: 14 },
   sectionHeading: {
     fontFamily: NOTE_SANS,
-    fontSize: 9.5,
-    letterSpacing: 2.2,
+    fontSize: 11,
+    letterSpacing: 1.2,
     textTransform: "uppercase",
-    fontWeight: "700",
+    fontWeight: "500",
     color: C.ink40,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   paragraph: {
     fontFamily: NOTE_SANS,
-    fontSize: 13.5,
-    lineHeight: 23,
+    fontSize: 13,
+    lineHeight: 21,
     color: C.ink70,
   },
-  paragraphGap: { marginTop: 10 },
+  paragraphGap: { marginTop: 8 },
   pointRow: {
-    minHeight: 44,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.divider,
-    paddingVertical: 9,
-    paddingLeft: 18,
+    paddingVertical: 4,
+    paddingLeft: 15,
     position: "relative",
   },
-  lastRow: { borderBottomWidth: 0 },
+  lastRow: {},
   bullet: {
     position: "absolute",
     left: 2,
-    top: 17,
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: C.plum,
-    opacity: 0.6,
+    top: 12,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: C.sky,
   },
   pointText: {
     flex: 1,
     fontFamily: NOTE_SANS,
-    fontSize: 13.5,
-    lineHeight: 22,
+    fontSize: 13,
+    lineHeight: 21,
     color: C.ink70,
   },
   stepRow: {
-    minHeight: 44,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.divider,
-    paddingVertical: 9,
+    paddingVertical: 4,
     flexDirection: "row",
-    gap: 18,
+    gap: 12,
   },
   stepNumber: {
     width: 16,
     fontFamily: NOTE_SERIF,
     fontStyle: "italic",
     fontSize: 14,
-    color: C.ink30,
+    color: C.ink40,
   },
   subtleLabel: {
     fontFamily: NOTE_SANS,
-    fontSize: 9,
-    letterSpacing: 1.8,
+    fontSize: 10,
+    letterSpacing: 1.2,
     textTransform: "uppercase",
     fontWeight: "600",
-    color: C.ink30,
+    color: C.ink40,
     marginTop: 2,
     marginBottom: 8,
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
-  chip: {
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.card,
-    borderRadius: 100,
-    paddingHorizontal: 13,
-    paddingVertical: 7,
-  },
-  chipText: { fontFamily: NOTE_SANS, fontSize: 11.5, color: C.ink70 },
   transcriptBlock: { marginBottom: 16 },
   timestamp: {
-    fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
+    fontFamily: NOTE_SANS,
     fontSize: 11,
-    color: C.ink30,
+    color: C.ink40,
     marginBottom: 4,
   },
   transcriptText: {
     fontFamily: NOTE_SANS,
-    fontSize: 14,
-    lineHeight: 24,
+    fontSize: 13,
+    lineHeight: 21,
     color: C.ink70,
   },
 });

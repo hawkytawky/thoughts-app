@@ -1,6 +1,21 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Animated,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { type Href, useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DayPicker } from "@/components/DayPicker";
@@ -11,8 +26,8 @@ import {
   NOTE_SERIF,
   NoteError,
   NoteLoading,
-  NoteTag,
-  noteUiStyles,
+  NOTE_CATEGORY_TEXT_OPACITY,
+  noteCategoryColor,
 } from "@/components/NoteUI";
 import {
   type ThoughtCard,
@@ -40,6 +55,7 @@ function typeLabel(type: string): string {
     IDEA: "Idee",
     TASK: "Aufgabe",
     DECISION: "Entscheidung",
+    OBSERVATION: "Beobachtung",
   };
   return labels[type] ?? type.toLocaleLowerCase("de-DE");
 }
@@ -65,6 +81,22 @@ function feedDateLabel(date: Date): string {
     : formatNoteDay(date.toISOString());
 }
 
+function cardTimeLabel(isoDate: string): string {
+  return new Intl.DateTimeFormat("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(isoDate));
+}
+
+function shiftDay(date: Date, offset: number): Date {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate() + offset,
+    12,
+  );
+}
+
 export default function ThoughtsFeedScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -77,6 +109,112 @@ export default function ThoughtsFeedScreen() {
   const [loading, setLoading] = useState(true);
   const [pendingThoughts, setPendingThoughts] = useState<PendingThought[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const lastDaySwipeAt = useRef(0);
+  const dayTransitionActiveRef = useRef(false);
+  const dayOpacity = useRef(new Animated.Value(1)).current;
+  const notesByDateRef = useRef(new Map<string, ThoughtCard[]>());
+  const feedScrollRef = useRef<ScrollView>(null);
+  const activeDateKeyRef = useRef(formatApiDate(feedDate));
+  activeDateKeyRef.current = formatApiDate(feedDate);
+
+  const prefetchAdjacentDays = useCallback((date: Date) => {
+    for (const offset of [-1, 1]) {
+      const adjacent = shiftDay(date, offset);
+      const key = formatApiDate(adjacent);
+      if (
+        key > formatApiDate(new Date()) ||
+        notesByDateRef.current.has(key)
+      ) {
+        continue;
+      }
+      void fetchNotesForDate(key)
+        .then(({ notes: prefetchedNotes }) => {
+          notesByDateRef.current.set(key, prefetchedNotes);
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  const moveFeedDay = useCallback(
+    async (direction: -1 | 1) => {
+      if (dayTransitionActiveRef.current) return;
+      const next = shiftDay(feedDate, direction);
+      const nextKey = formatApiDate(next);
+      if (nextKey > formatApiDate(new Date())) return;
+
+      dayTransitionActiveRef.current = true;
+      void Haptics.selectionAsync();
+
+      try {
+        await new Promise<void>((resolve) => {
+          Animated.timing(dayOpacity, {
+            toValue: 0.42,
+            duration: 110,
+            useNativeDriver: true,
+          }).start(() => resolve());
+        });
+
+        let nextNotes = notesByDateRef.current.get(nextKey);
+        if (!nextNotes) {
+          const result = await fetchNotesForDate(nextKey);
+          nextNotes = result.notes;
+          notesByDateRef.current.set(nextKey, nextNotes);
+        }
+
+        setNotes(nextNotes);
+        setPendingThoughts([]);
+        setFeedDate(next);
+        feedScrollRef.current?.scrollTo({ y: 0, animated: false });
+        prefetchAdjacentDays(next);
+        dayOpacity.setValue(0.72);
+        Animated.timing(dayOpacity, {
+          toValue: 1,
+          duration: 190,
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (finished) dayTransitionActiveRef.current = false;
+        });
+      } catch {
+        Animated.timing(dayOpacity, {
+          toValue: 1,
+          duration: 160,
+          useNativeDriver: true,
+        }).start(() => {
+          dayTransitionActiveRef.current = false;
+        });
+      }
+    },
+    [dayOpacity, feedDate, prefetchAdjacentDays],
+  );
+
+  const canGoToNextDay = !isToday(feedDate);
+  const daySwipeResponder = useMemo(
+    () =>
+      PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_, gesture) =>
+        !datePickerOpen &&
+        !filterPickerOpen &&
+        Math.abs(gesture.dx) > 18 &&
+        Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.6,
+      onPanResponderRelease: (_, gesture) => {
+        const direction: -1 | 1 = gesture.dx < 0 ? 1 : -1;
+        const hasIntent =
+          Math.abs(gesture.dx) > 70 || Math.abs(gesture.vx) > 0.65;
+        const allowed = direction === -1 || canGoToNextDay;
+        const now = Date.now();
+
+        if (!hasIntent || !allowed || now - lastDaySwipeAt.current < 420) return;
+        lastDaySwipeAt.current = now;
+        void moveFeedDay(direction);
+      },
+    }),
+    [
+      canGoToNextDay,
+      datePickerOpen,
+      filterPickerOpen,
+      moveFeedDay,
+    ],
+  );
 
   const retryProcessing = useCallback(async (thought: PendingThought) => {
     if (!thought.remotePath) return;
@@ -118,8 +256,23 @@ export default function ThoughtsFeedScreen() {
     setError(null);
     try {
       const date = formatApiDate(feedDate);
+      const cachedNotes = notesByDateRef.current.get(date);
+      if (cachedNotes) {
+        setNotes(cachedNotes);
+        setLoading(false);
+        prefetchAdjacentDays(feedDate);
+        void fetchNotesForDate(date)
+          .then(({ notes: refreshedNotes }) => {
+            notesByDateRef.current.set(date, refreshedNotes);
+            if (activeDateKeyRef.current === date) setNotes(refreshedNotes);
+          })
+          .catch(() => {});
+        return;
+      }
       const result = await fetchNotesForDate(date);
+      notesByDateRef.current.set(date, result.notes);
       setNotes(result.notes);
+      prefetchAdjacentDays(feedDate);
     } catch (loadError) {
       setError(
         loadError instanceof Error ? loadError.message : "Unbekannter Fehler",
@@ -127,7 +280,7 @@ export default function ThoughtsFeedScreen() {
     } finally {
       setLoading(false);
     }
-  }, [feedDate]);
+  }, [feedDate, prefetchAdjacentDays]);
 
   useEffect(() => {
     void load();
@@ -256,7 +409,10 @@ export default function ThoughtsFeedScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView
+      <View style={styles.pager} {...daySwipeResponder.panHandlers}>
+        <Animated.View style={[styles.dayContent, { opacity: dayOpacity }]}>
+          <ScrollView
+        ref={feedScrollRef}
         contentContainerStyle={[
           styles.content,
           { paddingTop: insets.top + 7, paddingBottom: insets.bottom + 120 },
@@ -333,7 +489,7 @@ export default function ThoughtsFeedScreen() {
               <View style={styles.kindRow}>
                 <Text style={styles.processingKind}>neuer thought</Text>
                 <Text numberOfLines={1} style={styles.location}>
-                  {pending.locationLabel}
+                  {cardTimeLabel(pending.createdAt)} · {pending.locationLabel}
                 </Text>
               </View>
               <Text style={styles.processingTitle}>
@@ -421,31 +577,27 @@ export default function ThoughtsFeedScreen() {
           >
             <View style={styles.cardBody}>
               <View style={styles.kindRow}>
-                <Text style={styles.kind}>{typeLabel(cardNote.type)}</Text>
-                <Text numberOfLines={1} style={styles.location}>
-                  {cardNote.locationLabel}
+                <Text
+                  style={[
+                    styles.kind,
+                    { color: noteCategoryColor(cardNote.type) },
+                  ]}
+                >
+                  {typeLabel(cardNote.type)}
+                </Text>
+                <Text style={styles.compactDuration}>
+                  {formatDuration(cardNote.durationSeconds)} min
                 </Text>
               </View>
-              <Text style={styles.title}>{cardNote.title}</Text>
-              <View style={styles.footer}>
-                <View style={[noteUiStyles.tags, styles.cardTags]}>
-                  {cardNote.tags.map((tag, index) => (
-                    <NoteTag key={tag} label={tag} index={index} />
-                  ))}
-                </View>
-                <Text style={styles.duration}>
-                  {new Intl.DateTimeFormat("de-DE", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }).format(new Date(cardNote.recordedAt))}
-                  {" · "}
-                  {formatDuration(cardNote.durationSeconds)}
-                </Text>
-              </View>
+              <Text numberOfLines={2} style={styles.title}>
+                {cardNote.title}
+              </Text>
             </View>
             </Pressable>
         ))}
-      </ScrollView>
+          </ScrollView>
+        </Animated.View>
+      </View>
       {!activeRecording.active && (
         <Pressable
           accessibilityRole="button"
@@ -490,6 +642,8 @@ export default function ThoughtsFeedScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.paper },
+  pager: { flex: 1 },
+  dayContent: { flex: 1 },
   content: { paddingHorizontal: 20, paddingBottom: 130 },
   appBar: {
     minHeight: 38,
@@ -566,13 +720,9 @@ const styles = StyleSheet.create({
     backgroundColor: C.card,
     borderWidth: 1,
     borderColor: C.border,
-    borderRadius: 18,
+    borderRadius: 12,
     overflow: "hidden",
-    shadowColor: C.ink,
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    marginBottom: 16,
+    marginBottom: 11,
   },
   cardPressed: { opacity: 0.72, transform: [{ scale: 0.995 }] },
   emptyState: {
@@ -593,35 +743,33 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: C.ink30,
   },
-  cardBody: { paddingHorizontal: 22, paddingTop: 19, paddingBottom: 15 },
+  cardBody: { paddingHorizontal: 18, paddingVertical: 14 },
   kindRow: {
     flexDirection: "row",
     alignItems: "baseline",
     justifyContent: "space-between",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   kind: {
     fontFamily: NOTE_SANS,
-    color: C.plum,
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 2.1,
-    textTransform: "uppercase",
+    fontSize: 12,
+    fontWeight: "500",
+    opacity: NOTE_CATEGORY_TEXT_OPACITY,
   },
   location: {
     fontFamily: NOTE_SERIF,
     fontStyle: "italic",
     color: C.ink30,
-    fontSize: 11.5,
+    fontSize: 11,
     flexShrink: 1,
     marginLeft: 16,
   },
   title: {
-    fontFamily: NOTE_SERIF,
+    fontFamily: NOTE_SANS,
+    fontWeight: "500",
     color: C.ink,
-    fontSize: 20,
-    lineHeight: 27,
-    marginBottom: 16,
+    fontSize: 16,
+    lineHeight: 22,
   },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -632,11 +780,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  cardTags: { flex: 1 },
+  compactDuration: {
+    fontFamily: NOTE_SERIF,
+    fontStyle: "italic",
+    fontSize: 11,
+    color: C.ink30,
+  },
   duration: {
     fontFamily: NOTE_SERIF,
     fontStyle: "italic",
-    fontSize: 11.5,
+    fontSize: 11,
     color: C.ink30,
     paddingBottom: 2,
   },

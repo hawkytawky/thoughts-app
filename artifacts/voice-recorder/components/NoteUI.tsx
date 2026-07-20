@@ -3,28 +3,75 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "
 import { Ionicons } from "@expo/vector-icons";
 
 export const NOTE_COLORS = {
-  paper: "#F4F1E9",
-  card: "#FDFCF8",
-  border: "#DCD7C9",
-  ink: "#1C221A",
-  ink70: "rgba(28,34,26,0.70)",
-  ink60: "rgba(28,34,26,0.62)",
-  ink40: "rgba(28,34,26,0.42)",
-  ink30: "rgba(28,34,26,0.32)",
-  divider: "#ECE8DC",
-  plum: "#6E4A61",
-  plumBg: "#EADFE6",
-  sage: "#4E6440",
-  sageBg: "#E3E9DA",
-  slate: "#43616F",
-  slateBg: "#DFE6EA",
-  terra: "#8C4F35",
-  terraBg: "#F0E0D6",
-  ochre: "#8A6B2B",
-  ochreBg: "#F1E7CF",
-  clay: "#6B584A",
-  clayBg: "#EAE2DA",
+  warmWhite: "#FBFAF7",
+  paper: "#F9F9F8",
+  card: "#FFFFFF",
+  skyLight: "#EAF2F8",
+  border: "#BFD9EC",
+  sky: "#7FB0D6",
+  skyDeep: "#2E5E8C",
+  ink: "#24455F",
+  ink70: "#3D5A73",
+  ink60: "#5F7E96",
+  ink40: "#8AA3B8",
+  ink30: "#8AA3B8",
+  inactive: "#AFC5D6",
+  divider: "#E2EDF6",
+  plum: "#2E5E8C",
+  plumBg: "#EAF2F8",
+  sage: "#3E5546",
+  sageBg: "#C0CBC3",
+  slate: "#7FB0D6",
+  slateBg: "#EAF2F8",
+  terra: "#6F4235",
+  terraBg: "#E2C2B8",
+  ochre: "#655724",
+  ochreBg: "#EBDFB8",
+  clay: "#48415F",
+  clayBg: "#CBC6DA",
 } as const;
+
+export const NOTE_CATEGORY_COLORS = {
+  IDEA: {
+    text: "#9A824F",
+    level1: "#C2A25A",
+    level2: "#D2B476",
+    surface: "#EBDFB8",
+  },
+  REFLECTION: {
+    text: "#777191",
+    level1: "#948DB8",
+    level2: "#A9A3C6",
+    surface: "#CBC6DA",
+  },
+  DECISION: {
+    text: "#A97465",
+    level1: "#C68F7E",
+    level2: "#D3A392",
+    surface: "#E2C2B8",
+  },
+  QUESTION: {
+    text: "#708B75",
+    level1: "#8AA98F",
+    level2: "#9FB8A4",
+    surface: "#C0CBC3",
+  },
+  OBSERVATION: {
+    text: "#6F8FA8",
+    level1: "#89AFC6",
+    level2: "#A3BED0",
+    surface: "#C8DCE8",
+  },
+} as const;
+
+export const NOTE_CATEGORY_TEXT_OPACITY = 1;
+
+export function noteCategoryColor(type: string): string {
+  return (
+    NOTE_CATEGORY_COLORS[type as keyof typeof NOTE_CATEGORY_COLORS]?.text ??
+    NOTE_COLORS.skyDeep
+  );
+}
 
 export const NOTE_SERIF = Platform.select({
   ios: "Georgia",
@@ -39,10 +86,10 @@ export const NOTE_SANS = Platform.select({
 });
 
 const TAG_PALETTES = [
-  [NOTE_COLORS.plumBg, NOTE_COLORS.plum],
-  [NOTE_COLORS.ochreBg, NOTE_COLORS.ochre],
-  [NOTE_COLORS.sageBg, NOTE_COLORS.sage],
-  [NOTE_COLORS.clayBg, NOTE_COLORS.clay],
+  ["rgba(203,198,218,0.45)", NOTE_COLORS.clay],
+  ["rgba(192,203,195,0.45)", NOTE_COLORS.sage],
+  ["rgba(226,194,184,0.45)", NOTE_COLORS.terra],
+  ["rgba(235,223,184,0.45)", NOTE_COLORS.ochre],
 ] as const;
 
 export function NoteTag({ label, index }: { label: string; index: number }) {
@@ -95,12 +142,12 @@ export const noteUiStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  tag: { borderRadius: 100, paddingHorizontal: 9, paddingVertical: 5 },
+  tag: { borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
   tagText: {
     fontFamily: NOTE_SANS,
-    fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 0.35,
+    fontSize: 11,
+    fontWeight: "500",
+    opacity: 0.78,
   },
   stateScreen: {
     flex: 1,
