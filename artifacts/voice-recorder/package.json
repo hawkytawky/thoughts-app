@@ -13,7 +13,6 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
-    "@expo-google-fonts/inter": "^0.4.0",
     "@expo/cli": "54.0.23",
     "@expo/ngrok": "^4.1.0",
     "@expo/vector-icons": "^15.0.3",
@@ -56,7 +55,8 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
-    "@expo-google-fonts/dm-sans": "^0.4.2",
+    "@expo-google-fonts/instrument-sans": "^0.4.2",
+    "@expo-google-fonts/newsreader": "^0.4.1",
     "expo": "~54.0.35",
     "expo-av": "^16.0.8",
     "expo-file-system": "^19.0.23",

@@ -1,5 +1,5 @@
 import React from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 export const NOTE_COLORS = {
@@ -73,17 +73,13 @@ export function noteCategoryColor(type: string): string {
   );
 }
 
-export const NOTE_SERIF = Platform.select({
-  ios: "Georgia",
-  android: "serif",
-  default: "Georgia, serif",
-});
+export const NOTE_SERIF = "Newsreader_400Regular";
+export const NOTE_SERIF_ITALIC = "Newsreader_400Regular_Italic";
 
-export const NOTE_SANS = Platform.select({
-  ios: "System",
-  android: "sans-serif",
-  default: "sans-serif",
-});
+export const NOTE_SANS = "InstrumentSans_400Regular";
+export const NOTE_SANS_ITALIC = "InstrumentSans_400Regular_Italic";
+export const NOTE_SANS_MEDIUM = "InstrumentSans_500Medium";
+export const NOTE_SANS_SEMIBOLD = "InstrumentSans_600SemiBold";
 
 const TAG_PALETTES = [
   ["rgba(203,198,218,0.45)", NOTE_COLORS.clay],
@@ -144,9 +140,8 @@ export const noteUiStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   tag: { borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
   tagText: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 11,
-    fontWeight: "500",
     opacity: 0.78,
   },
   stateScreen: {

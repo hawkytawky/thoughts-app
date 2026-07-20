@@ -7,6 +7,7 @@ import {
   NOTE_COLORS as C,
   NOTE_CATEGORY_TEXT_OPACITY,
   NOTE_SANS,
+  NOTE_SANS_SEMIBOLD,
   NOTE_SERIF,
   noteCategoryColor,
 } from "@/components/NoteUI";
@@ -149,9 +150,8 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   eyebrow: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     fontSize: 9,
-    fontWeight: "700",
     letterSpacing: 1.8,
     color: C.ink30,
     marginBottom: 6,
@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
     color: C.ink70,
     opacity: NOTE_CATEGORY_TEXT_OPACITY,
   },
-  optionLabelChecked: { fontWeight: "600" },
+  optionLabelChecked: { color: C.ink },
   optionCount: { fontFamily: NOTE_SANS, fontSize: 10, color: C.ink30 },
   check: {
     width: 24,
@@ -218,9 +218,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   applyText: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     fontSize: 12,
-    fontWeight: "600",
     color: C.card,
   },
   pressed: { opacity: 0.58 },

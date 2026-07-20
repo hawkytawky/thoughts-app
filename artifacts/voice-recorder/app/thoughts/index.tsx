@@ -23,7 +23,11 @@ import { ThoughtFilterPicker } from "@/components/ThoughtFilterPicker";
 import {
   NOTE_COLORS as C,
   NOTE_SANS,
+  NOTE_SANS_ITALIC,
+  NOTE_SANS_MEDIUM,
+  NOTE_SANS_SEMIBOLD,
   NOTE_SERIF,
+  NOTE_SERIF_ITALIC,
   NoteError,
   NoteLoading,
   NOTE_CATEGORY_TEXT_OPACITY,
@@ -552,9 +556,6 @@ export default function ThoughtsFeedScreen() {
                   ? "Noch keine thoughts heute"
                   : "Keine thoughts an diesem Tag"}
             </Text>
-            <Text style={styles.emptyText}>
-              Deine Aufnahmen dieses Tages erscheinen hier.
-            </Text>
           </View>
         )}
 
@@ -654,14 +655,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   brand: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SERIF,
     fontSize: 12,
-    fontWeight: "400",
     color: C.ink40,
   },
   day: {
-    fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
+    fontFamily: NOTE_SANS_ITALIC,
     fontSize: 13,
     color: C.ink30,
   },
@@ -680,9 +679,8 @@ const styles = StyleSheet.create({
     gap: 20,
   },
   filter: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     fontSize: 10,
-    fontWeight: "600",
     letterSpacing: 1.25,
     textTransform: "uppercase",
     color: C.ink30,
@@ -710,15 +708,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   filterBadgeText: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     fontSize: 9,
-    fontWeight: "700",
     color: C.card,
   },
   filterPressed: { opacity: 0.5 },
   card: {
     backgroundColor: C.card,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: C.border,
     borderRadius: 12,
     overflow: "hidden",
@@ -734,14 +731,7 @@ const styles = StyleSheet.create({
     fontFamily: NOTE_SERIF,
     fontSize: 20,
     color: C.ink60,
-    marginBottom: 7,
-  },
-  emptyText: {
-    fontFamily: NOTE_SANS,
-    fontSize: 13,
-    lineHeight: 19,
     textAlign: "center",
-    color: C.ink30,
   },
   cardBody: { paddingHorizontal: 18, paddingVertical: 14 },
   kindRow: {
@@ -751,14 +741,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   kind: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 12,
-    fontWeight: "500",
     opacity: NOTE_CATEGORY_TEXT_OPACITY,
   },
   location: {
-    fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
+    fontFamily: NOTE_SANS_ITALIC,
     color: C.ink30,
     fontSize: 11,
     flexShrink: 1,
@@ -766,7 +754,6 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: NOTE_SANS,
-    fontWeight: "500",
     color: C.ink,
     fontSize: 16,
     lineHeight: 22,
@@ -781,30 +768,26 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   compactDuration: {
-    fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
+    fontFamily: NOTE_SANS_ITALIC,
     fontSize: 11,
     color: C.ink30,
   },
   duration: {
-    fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
+    fontFamily: NOTE_SANS_ITALIC,
     fontSize: 11,
     color: C.ink30,
     paddingBottom: 2,
   },
   processingCard: { opacity: 0.82 },
   processingKind: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     color: C.slate,
     fontSize: 10,
-    fontWeight: "700",
     letterSpacing: 2.1,
     textTransform: "uppercase",
   },
   processingTitle: {
-    fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
+    fontFamily: NOTE_SERIF_ITALIC,
     color: C.ink60,
     fontSize: 20,
     lineHeight: 27,
@@ -838,9 +821,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   processingRetryText: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     fontSize: 10.5,
-    fontWeight: "600",
     color: C.plum,
   },
   recordButtonOuter: {

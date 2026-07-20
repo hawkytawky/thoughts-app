@@ -3,7 +3,12 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheetModal } from "@/components/BottomSheetModal";
-import { NOTE_COLORS as C, NOTE_SANS, NOTE_SERIF } from "@/components/NoteUI";
+import {
+  NOTE_COLORS as C,
+  NOTE_SANS,
+  NOTE_SANS_SEMIBOLD,
+  NOTE_SERIF,
+} from "@/components/NoteUI";
 import { fetchThoughtDays, formatApiDate } from "@/lib/featured-note";
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -235,9 +240,8 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   eyebrow: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     fontSize: 9,
-    fontWeight: "700",
     letterSpacing: 1.8,
     color: C.ink30,
     marginBottom: 5,
@@ -252,9 +256,8 @@ const styles = StyleSheet.create({
     backgroundColor: C.card,
   },
   todayText: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     fontSize: 11,
-    fontWeight: "600",
     color: C.plum,
   },
   monthHeader: {
@@ -270,18 +273,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   monthTitle: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     fontSize: 12,
-    fontWeight: "600",
     color: C.ink70,
   },
   weekRow: { flexDirection: "row", marginBottom: 6 },
   weekday: {
     width: "14.2857%",
     textAlign: "center",
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     fontSize: 9,
-    fontWeight: "600",
     color: C.ink30,
   },
   daysGrid: { flexDirection: "row", flexWrap: "wrap" },
@@ -302,7 +303,7 @@ const styles = StyleSheet.create({
   dayToday: { borderWidth: 1, borderColor: C.plum },
   dayText: { fontFamily: NOTE_SANS, fontSize: 12, color: C.ink70 },
   dayOutside: { color: C.ink30 },
-  dayTextSelected: { color: C.card, fontWeight: "700" },
+  dayTextSelected: { fontFamily: NOTE_SANS_SEMIBOLD, color: C.card },
   thoughtDot: {
     position: "absolute",
     bottom: 3,

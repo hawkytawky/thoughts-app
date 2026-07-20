@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  LayoutAnimation,
   Pressable,
   ScrollView,
   Share,
@@ -18,13 +19,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   NOTE_COLORS as C,
   NOTE_SANS,
+  NOTE_SANS_MEDIUM,
+  NOTE_SANS_SEMIBOLD,
   NOTE_SERIF,
+  NOTE_SERIF_ITALIC,
   NoteError,
   NoteLoading,
   NoteTag,
   NOTE_CATEGORY_TEXT_OPACITY,
   noteCategoryColor,
-  noteUiStyles,
 } from "@/components/NoteUI";
 import {
   type FeaturedNote,
@@ -50,13 +53,6 @@ function categoryLabel(type: string): string {
     OBSERVATION: "Beobachtung",
   };
   return labels[type] ?? type.toLocaleLowerCase("de-DE");
-}
-
-function noteTime(isoDate: string): string {
-  return new Intl.DateTimeFormat("de-DE", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(isoDate));
 }
 
 function Section({
@@ -117,7 +113,23 @@ function StepList({ items }: { items: string[] }) {
   );
 }
 
-function SummaryView({ note }: { note: FeaturedNote }) {
+function SummaryView({
+  note,
+  detailsExpanded,
+  onToggleDetails,
+}: {
+  note: FeaturedNote;
+  detailsExpanded: boolean;
+  onToggleDetails: () => void;
+}) {
+  const detailCount = [
+    note.openQuestions.length > 0,
+    note.decisions.length > 0,
+    note.nextSteps.length > 0,
+    note.people.length > 0 || note.projects.length > 0,
+    note.tags.length > 0,
+  ].filter(Boolean).length;
+
   return (
     <>
       <Section title="Zusammenfassung">
@@ -132,48 +144,81 @@ function SummaryView({ note }: { note: FeaturedNote }) {
           <PointList items={note.keyPoints} />
         </Section>
       )}
-      {note.openQuestions.length > 0 && (
-        <Section title="Offene Fragen">
-          <PointList items={note.openQuestions} tone="slate" />
-        </Section>
+      {detailCount > 0 && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: detailsExpanded }}
+          onPress={onToggleDetails}
+          style={({ pressed }) => [
+            styles.detailsToggle,
+            pressed && styles.detailsTogglePressed,
+          ]}
+        >
+          <Text style={styles.detailsToggleText}>
+            Weitere Details · {detailCount}
+          </Text>
+          <Ionicons
+            name={detailsExpanded ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={C.ink40}
+          />
+        </Pressable>
       )}
-      {note.decisions.length > 0 && (
-        <Section title="Entscheidungen">
-          <PointList items={note.decisions} />
-        </Section>
-      )}
-      {note.nextSteps.length > 0 && (
-        <Section title="Mögliche nächste Schritte">
-          <StepList items={note.nextSteps} />
-        </Section>
-      )}
-      {(note.people.length > 0 || note.projects.length > 0) && (
-        <Section title="Personen & Bereiche">
-          {note.people.length > 0 && (
-            <>
-              <Text style={styles.subtleLabel}>Personen</Text>
+      {detailsExpanded && (
+        <View style={styles.detailsContent}>
+          {note.openQuestions.length > 0 && (
+            <Section title="Offene Fragen">
+              <PointList items={note.openQuestions} tone="slate" />
+            </Section>
+          )}
+          {note.decisions.length > 0 && (
+            <Section title="Entscheidungen">
+              <PointList items={note.decisions} />
+            </Section>
+          )}
+          {note.nextSteps.length > 0 && (
+            <Section title="Mögliche nächste Schritte">
+              <StepList items={note.nextSteps} />
+            </Section>
+          )}
+          {(note.people.length > 0 || note.projects.length > 0) && (
+            <Section title="Personen & Bereiche">
+              {note.people.length > 0 && (
+                <>
+                  <Text style={styles.subtleLabel}>Personen</Text>
+                  <View style={styles.chips}>
+                    {note.people.map((person, index) => (
+                      <NoteTag key={person} label={person} index={index} />
+                    ))}
+                  </View>
+                </>
+              )}
+              {note.projects.length > 0 && (
+                <>
+                  <Text style={styles.subtleLabel}>Bereiche</Text>
+                  <View style={styles.chips}>
+                    {note.projects.map((project, index) => (
+                      <NoteTag
+                        key={project}
+                        label={project}
+                        index={note.people.length + index}
+                      />
+                    ))}
+                  </View>
+                </>
+              )}
+            </Section>
+          )}
+          {note.tags.length > 0 && (
+            <Section title="Tags">
               <View style={styles.chips}>
-                {note.people.map((person, index) => (
-                  <NoteTag key={person} label={person} index={index} />
+                {note.tags.map((tag, index) => (
+                  <NoteTag key={tag} label={tag} index={index} />
                 ))}
               </View>
-            </>
+            </Section>
           )}
-          {note.projects.length > 0 && (
-            <>
-              <Text style={styles.subtleLabel}>Bereiche</Text>
-              <View style={styles.chips}>
-                {note.projects.map((project, index) => (
-                  <NoteTag
-                    key={project}
-                    label={project}
-                    index={note.people.length + index}
-                  />
-                ))}
-              </View>
-            </>
-          )}
-        </Section>
+        </View>
       )}
     </>
   );
@@ -200,6 +245,7 @@ export default function ThoughtDetailScreen() {
   const [note, setNote] = useState<FeaturedNote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [detailView, setDetailView] = useState<DetailView>("summary");
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [sharing, setSharing] = useState(false);
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -309,17 +355,10 @@ export default function ThoughtDetailScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.metaLine}>
-          {formatNoteDate(note.recordedAt, true)}, {noteTime(note.recordedAt)} ·{" "}
-          {note.locationLabel} · {formatDuration(note.durationSeconds)} min ·{" "}
-          {note.wordCount} Wörter
-        </Text>
         <Text style={styles.title}>{note.title}</Text>
-        <View style={[noteUiStyles.tags, styles.headerTags]}>
-          {note.tags.map((tag, index) => (
-            <NoteTag key={tag} label={tag} index={index} />
-          ))}
-        </View>
+        <Text style={styles.metaLine}>
+          {formatNoteDate(note.recordedAt)} · {formatDuration(note.durationSeconds)} min
+        </Text>
 
         <View style={styles.segmentedControl}>
           {(["summary", "transcript"] as const).map((view) => {
@@ -330,7 +369,7 @@ export default function ThoughtDetailScreen() {
                 accessibilityRole="tab"
                 accessibilityState={{ selected: active }}
                 onPress={() => setDetailView(view)}
-                style={styles.segment}
+                style={[styles.segment, active && styles.segmentActive]}
               >
                 <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
                   {view === "summary" ? "Summary" : "Transkript"}
@@ -341,7 +380,16 @@ export default function ThoughtDetailScreen() {
         </View>
 
         {detailView === "summary" ? (
-          <SummaryView note={note} />
+          <SummaryView
+            detailsExpanded={detailsExpanded}
+            note={note}
+            onToggleDetails={() => {
+              LayoutAnimation.configureNext(
+                LayoutAnimation.Presets.easeInEaseOut,
+              );
+              setDetailsExpanded((expanded) => !expanded);
+            }}
+          />
         ) : (
           <TranscriptView note={note} />
         )}
@@ -376,18 +424,17 @@ const styles = StyleSheet.create({
   },
   navLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   kind: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 13,
-    fontWeight: "500",
     opacity: NOTE_CATEGORY_TEXT_OPACITY,
   },
   title: {
     paddingHorizontal: 6,
     fontFamily: NOTE_SERIF,
-    fontSize: 28,
-    lineHeight: 35,
+    fontSize: 26,
+    lineHeight: 33,
     color: C.ink,
-    marginBottom: 13,
+    marginBottom: 8,
   },
   metaLine: {
     paddingHorizontal: 6,
@@ -397,32 +444,59 @@ const styles = StyleSheet.create({
     color: C.ink40,
     marginBottom: 8,
   },
-  headerTags: { paddingHorizontal: 6, marginBottom: 4 },
   segmentedControl: {
     marginHorizontal: 6,
-    marginBottom: 18,
-    paddingTop: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: C.divider,
+    marginTop: 7,
+    marginBottom: 20,
+    padding: 3,
+    borderRadius: 99,
+    backgroundColor: C.skyLight,
     flexDirection: "row",
   },
-  segment: { flex: 1, paddingVertical: 10, alignItems: "center" },
+  segment: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 99,
+    alignItems: "center",
+  },
+  segmentActive: {
+    backgroundColor: C.card,
+    shadowColor: C.skyDeep,
+    shadowOpacity: 0.07,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
   segmentText: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     fontSize: 10.5,
     letterSpacing: 1.35,
     textTransform: "uppercase",
-    fontWeight: "600",
     color: C.inactive,
   },
   segmentTextActive: { color: C.ink60 },
+  detailsToggle: {
+    minHeight: 48,
+    marginHorizontal: 6,
+    marginBottom: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.divider,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  detailsTogglePressed: { opacity: 0.55 },
+  detailsToggleText: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 12,
+    color: C.ink60,
+  },
+  detailsContent: { paddingTop: 2 },
   section: { paddingHorizontal: 6, marginBottom: 14 },
   sectionHeading: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 11,
     letterSpacing: 1.2,
     textTransform: "uppercase",
-    fontWeight: "500",
     color: C.ink40,
     marginBottom: 8,
   },
@@ -462,17 +536,15 @@ const styles = StyleSheet.create({
   },
   stepNumber: {
     width: 16,
-    fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
+    fontFamily: NOTE_SERIF_ITALIC,
     fontSize: 14,
     color: C.ink40,
   },
   subtleLabel: {
-    fontFamily: NOTE_SANS,
+    fontFamily: NOTE_SANS_SEMIBOLD,
     fontSize: 10,
     letterSpacing: 1.2,
     textTransform: "uppercase",
-    fontWeight: "600",
     color: C.ink40,
     marginTop: 2,
     marginBottom: 8,

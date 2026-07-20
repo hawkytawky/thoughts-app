@@ -41,6 +41,10 @@ import Svg, {
   Rect,
   Stop,
 } from "react-native-svg";
+import {
+  NOTE_SERIF as SERIF,
+  NOTE_SERIF_ITALIC as SERIF_ITALIC,
+} from "@/components/NoteUI";
 
 const C = {
   ink: "#10180F",
@@ -56,11 +60,6 @@ const C = {
   ivory12: "rgba(235,231,218,0.12)",
 } as const;
 
-const SERIF = Platform.select({
-  ios: "Georgia",
-  android: "serif",
-  default: "Georgia, serif",
-});
 const SANS = Platform.select({
   ios: "System",
   android: "sans-serif",
@@ -1043,14 +1042,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   brand: {
-    fontFamily: SANS,
+    fontFamily: SERIF,
     fontSize: 12,
-    fontWeight: "400",
     color: C.ivory60,
   },
   status: {
-    fontFamily: SERIF,
-    fontStyle: "italic",
+    fontFamily: SERIF_ITALIC,
     fontSize: 17,
     color: C.ivory60,
   },
@@ -1132,8 +1129,7 @@ const styles = StyleSheet.create({
   },
   messageTitle: {
     marginTop: 10,
-    fontFamily: SERIF,
-    fontStyle: "italic",
+    fontFamily: SERIF_ITALIC,
     fontSize: 22,
     color: C.ivory,
     textAlign: "center",
@@ -1203,8 +1199,7 @@ const styles = StyleSheet.create({
     borderColor: C.ivory30,
   },
   recordAgainText: {
-    fontFamily: SERIF,
-    fontStyle: "italic",
+    fontFamily: SERIF_ITALIC,
     fontSize: 16,
     color: C.ivory,
   },
