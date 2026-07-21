@@ -9,13 +9,12 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/images/icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#10180F"
+      "backgroundColor": "#EAF2F8"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.otto.thoughts"
+      "bundleIdentifier": "com.otto.thoughts",
+      "buildNumber": "3"
     },
     "android": {},
     "web": {

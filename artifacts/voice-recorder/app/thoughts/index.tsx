@@ -18,6 +18,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { GlassView } from "expo-glass-effect";
 import * as Haptics from "expo-haptics";
 import { type Href, useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -665,9 +666,15 @@ export default function ThoughtsFeedScreen() {
             pressed && styles.recordButtonPressed,
           ]}
         >
-          <View style={styles.recordButtonInner}>
-            <Ionicons name="mic" size={25} color={C.card} />
-          </View>
+          <GlassView
+            colorScheme="light"
+            glassEffectStyle="regular"
+            isInteractive
+            style={styles.recordButtonGlass}
+            tintColor="rgba(127,176,214,0.22)"
+          >
+            <Ionicons name="mic" size={24} color={C.skyDeep} />
+          </GlassView>
         </Pressable>
       )}
 
@@ -845,26 +852,20 @@ const styles = StyleSheet.create({
   recordButtonOuter: {
     position: "absolute",
     left: "50%",
-    marginLeft: -39,
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-    backgroundColor: C.card,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: C.border,
-    shadowColor: C.ink,
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 7 },
-    elevation: 8,
+    marginLeft: -37,
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    shadowColor: C.skyDeep,
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
-  recordButtonInner: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: C.ink,
+  recordButtonGlass: {
+    flex: 1,
+    borderRadius: 37,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },

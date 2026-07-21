@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { Audio, InterruptionModeIOS } from "expo-av";
+import { BlurView } from "expo-blur";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
@@ -98,6 +99,36 @@ async function withTimeout<T>(
   const result = await Promise.race([promise, timeoutResult]);
   if (timeout) clearTimeout(timeout);
   return result;
+}
+
+async function waitForActiveAudioSession(): Promise<void> {
+  if (Platform.OS !== "ios") return;
+
+  if (AppState.currentState !== "active") {
+    await new Promise<void>((resolve) => {
+      let subscription: ReturnType<typeof AppState.addEventListener> | null =
+        null;
+      const finish = () => {
+        subscription?.remove();
+        resolve();
+      };
+      subscription = AppState.addEventListener("change", (state) => {
+        if (state !== "active") return;
+        finish();
+      });
+      // Avoid missing the transition between the initial check and listener.
+      if (AppState.currentState === "active") finish();
+    });
+  }
+
+  // iOS reports the React Native app as active just before AVAudioSession can
+  // reliably be activated when entering through a deep link / Action Button.
+  await new Promise<void>((resolve) => setTimeout(resolve, 180));
+}
+
+function isBackgroundAudioSessionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /background|audio session could not be activated/i.test(message);
 }
 
 function metadataUriFor(localUri: string): string {
@@ -326,9 +357,14 @@ function StopButton({
         accessibilityLabel="Aufnahme stoppen"
         disabled={disabled}
         onPress={onPress}
-        style={({ pressed }) => [styles.stopRing, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.stopPressable,
+          pressed && styles.stopPressed,
+        ]}
       >
-        <View style={styles.stopSquare} />
+        <BlurView intensity={34} tint="light" style={styles.stopGlass}>
+          <View style={styles.stopSquare} />
+        </BlurView>
       </Pressable>
     </View>
   );
@@ -442,48 +478,65 @@ function RecorderScreen() {
     if (startingRef.current || recordingRef.current) return;
     startingRef.current = true;
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-      });
-      const { recording } = await Audio.Recording.createAsync(
-        {
-          ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-          isMeteringEnabled: true,
-        },
-        (status) => {
-          if (!status.isRecording) return;
-          setDurationMs(status.durationMillis ?? 0);
-          const target = meteringToAmplitude(status.metering);
-          const current = smoothedLevelRef.current;
-          const response = target > current ? 0.82 : 0.26;
-          const nextLevel = current + (target - current) * response;
-          const settledLevel = nextLevel < 0.012 ? 0 : nextLevel;
-          smoothedLevelRef.current = settledLevel;
+      const onRecordingStatusUpdate = (status: Audio.RecordingStatus) => {
+        if (!status.isRecording) return;
+        setDurationMs(status.durationMillis ?? 0);
+        const target = meteringToAmplitude(status.metering);
+        const current = smoothedLevelRef.current;
+        const response = target > current ? 0.82 : 0.26;
+        const nextLevel = current + (target - current) * response;
+        const settledLevel = nextLevel < 0.012 ? 0 : nextLevel;
+        smoothedLevelRef.current = settledLevel;
 
-          const history = [
-            settledLevel,
-            ...levelHistoryRef.current.slice(0, WAVE_HISTORY_POINTS - 1),
-          ];
-          levelHistoryRef.current = history;
+        const history = [
+          settledLevel,
+          ...levelHistoryRef.current.slice(0, WAVE_HISTORY_POINTS - 1),
+        ];
+        levelHistoryRef.current = history;
 
-          const mirrored = [
-            ...history.slice(1).reverse(),
-            history[0],
-            ...history.slice(1),
-          ];
-          const center = (mirrored.length - 1) / 2;
-          setAmplitudes(
-            mirrored.map((sample, index) => {
-              const distance = Math.abs(index - center) / center;
-              const envelope = 0.28 + 0.72 * (1 - Math.pow(distance, 1.45));
-              return sample * envelope;
-            }),
+        const mirrored = [
+          ...history.slice(1).reverse(),
+          history[0],
+          ...history.slice(1),
+        ];
+        const center = (mirrored.length - 1) / 2;
+        setAmplitudes(
+          mirrored.map((sample, index) => {
+            const distance = Math.abs(index - center) / center;
+            const envelope = 0.28 + 0.72 * (1 - Math.pow(distance, 1.45));
+            return sample * envelope;
+          }),
+        );
+      };
+
+      let recording: Audio.Recording | null = null;
+      for (let attempt = 0; attempt < 2 && !recording; attempt += 1) {
+        await waitForActiveAudioSession();
+        try {
+          await Audio.setAudioModeAsync({
+            allowsRecordingIOS: true,
+            playsInSilentModeIOS: true,
+            interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+          });
+          const created = await Audio.Recording.createAsync(
+            {
+              ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+              isMeteringEnabled: true,
+            },
+            onRecordingStatusUpdate,
+            65,
           );
-        },
-        65,
-      );
+          recording = created.recording;
+        } catch (error) {
+          await Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(
+            () => undefined,
+          );
+          if (attempt === 0 && isBackgroundAudioSessionError(error)) continue;
+          throw error;
+        }
+      }
+
+      if (!recording) throw new Error("Die Audio-Session ist nicht verfügbar.");
       recordingRef.current = recording;
       setScreenState("recording");
       if (locationEnabledRef.current) {
@@ -966,7 +1019,11 @@ function RecorderScreen() {
             pressed && styles.pressed,
           ]}
         >
-          <Ionicons name="trash-outline" size={21} color={C.ivory60} />
+          <Ionicons
+            name="trash-outline"
+            size={21}
+            color="rgba(255,255,255,0.72)"
+          />
         </Pressable>
         <StopButton disabled={!isActive} onPress={stopRecording} />
       </View>
@@ -984,7 +1041,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 30,
+    gap: 28,
     transform: [{ translateY: -16 }],
   },
   topBar: {
@@ -1000,8 +1057,8 @@ const styles = StyleSheet.create({
   },
   brand: {
     fontFamily: SERIF,
-    fontSize: 12,
-    color: C.ivory60,
+    fontSize: 13,
+    color: "rgba(255,255,255,0.72)",
   },
   status: {
     fontFamily: SERIF_ITALIC,
@@ -1011,10 +1068,10 @@ const styles = StyleSheet.create({
   timer: {
     minWidth: 235,
     fontFamily: SANS,
-    fontSize: 72,
+    fontSize: 68,
     fontWeight: "300",
     letterSpacing: 1,
-    color: C.ivory,
+    color: "rgba(255,255,255,0.92)",
     fontVariant: ["tabular-nums"],
     includeFontPadding: false,
     textAlign: "center",
@@ -1031,13 +1088,13 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: 174,
     height: StyleSheet.hairlineWidth,
-    backgroundColor: C.ivory12,
+    backgroundColor: "rgba(255,255,255,0.18)",
   },
   waveBar: {
     width: 2.4,
     height: 68,
     borderRadius: 2,
-    backgroundColor: C.sage,
+    backgroundColor: "rgba(239,247,252,0.96)",
   },
   bottomControls: {
     width: "100%",
@@ -1060,12 +1117,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  stopRing: {
+  stopPressable: {
     width: 84,
     height: 84,
     borderRadius: 42,
+    shadowColor: "#24455F",
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 7,
+  },
+  stopGlass: {
+    flex: 1,
+    borderRadius: 42,
+    overflow: "hidden",
     borderWidth: 1,
-    borderColor: C.ivory30,
+    borderColor: "rgba(255,255,255,0.52)",
+    backgroundColor: "rgba(255,255,255,0.13)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1073,8 +1141,13 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 5,
-    backgroundColor: C.ivory,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    shadowColor: "#24455F",
+    shadowOpacity: 0.14,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
   },
+  stopPressed: { opacity: 0.88, transform: [{ scale: 0.96 }] },
   disabled: { opacity: 0.42 },
   pressed: { opacity: 0.68 },
   messageContent: {
