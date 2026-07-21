@@ -32,18 +32,11 @@ import {
   LOCATION_ENABLED_KEY,
 } from "@/lib/location-permission";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, {
-  Circle,
-  Defs,
-  LinearGradient,
-  RadialGradient,
-  Rect,
-  Stop,
-} from "react-native-svg";
 import {
   NOTE_SERIF as SERIF,
   NOTE_SERIF_ITALIC as SERIF_ITALIC,
 } from "@/components/NoteUI";
+import { SkyBackground } from "@/components/SkyBackground";
 
 const C = {
   ink: "#10180F",
@@ -245,42 +238,6 @@ function Timer({ durationMs }: { durationMs: number }) {
   );
 }
 
-function OrganicBackground() {
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <Svg width="100%" height="100%">
-        <Defs>
-          <LinearGradient id="base" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={C.ink} />
-            <Stop offset="1" stopColor={C.ink2} />
-          </LinearGradient>
-          <RadialGradient id="b1" cx="50%" cy="50%" r="50%">
-            <Stop offset="0" stopColor={C.sageSoft} stopOpacity="0.35" />
-            <Stop offset="1" stopColor={C.sageSoft} stopOpacity="0" />
-          </RadialGradient>
-          <RadialGradient id="b2" cx="50%" cy="50%" r="50%">
-            <Stop offset="0" stopColor={C.moss} stopOpacity="0.85" />
-            <Stop offset="1" stopColor={C.moss} stopOpacity="0" />
-          </RadialGradient>
-          <RadialGradient id="b3" cx="50%" cy="50%" r="50%">
-            <Stop offset="0" stopColor={C.sage} stopOpacity="0.18" />
-            <Stop offset="1" stopColor={C.sage} stopOpacity="0" />
-          </RadialGradient>
-          <RadialGradient id="b4" cx="50%" cy="50%" r="50%">
-            <Stop offset="0" stopColor={C.sageSoft} stopOpacity="0.22" />
-            <Stop offset="1" stopColor={C.sageSoft} stopOpacity="0" />
-          </RadialGradient>
-        </Defs>
-        <Rect width="100%" height="100%" fill="url(#base)" />
-        <Circle cx="10%" cy="8%" r="45%" fill="url(#b1)" />
-        <Circle cx="95%" cy="42%" r="40%" fill="url(#b2)" />
-        <Circle cx="15%" cy="95%" r="42%" fill="url(#b3)" />
-        <Circle cx="90%" cy="78%" r="30%" fill="url(#b4)" />
-      </Svg>
-    </View>
-  );
-}
-
 const WaveformBar = React.memo(function WaveformBar({
   amplitude,
   isRecording,
@@ -413,8 +370,8 @@ function RecorderScreen() {
     Array.from({ length: WAVE_HISTORY_POINTS }, () => 0),
   );
 
-  const captureLocation = useCallback(
-    async (): Promise<RecordingLocation | null> => {
+  const captureLocation =
+    useCallback(async (): Promise<RecordingLocation | null> => {
       if (!locationEnabledRef.current) return null;
 
       try {
@@ -459,9 +416,7 @@ function RecorderScreen() {
         console.error("location error:", error);
         return currentLocationRef.current;
       }
-    },
-    [],
-  );
+    }, []);
 
   const attemptUpload = useCallback(async (localUri: string) => {
     setPendingUploadUri(localUri);
@@ -854,7 +809,7 @@ function RecorderScreen() {
   if (screenState === "denied") {
     return (
       <View style={shellStyle}>
-        <OrganicBackground />
+        <SkyBackground reduceMotion={reduceMotion} />
         <View style={styles.messageContent}>
           <Ionicons name="mic-off-outline" size={42} color={C.sage} />
           <Text style={styles.messageTitle}>microphone access needed</Text>
@@ -870,7 +825,7 @@ function RecorderScreen() {
   if (screenState === "saveError") {
     return (
       <View style={shellStyle}>
-        <OrganicBackground />
+        <SkyBackground reduceMotion={reduceMotion} />
         <View style={styles.messageContent}>
           <Ionicons name="alert-circle-outline" size={42} color={C.sage} />
           <Text style={styles.messageTitle}>{saveErrorTitle}</Text>
@@ -912,7 +867,7 @@ function RecorderScreen() {
   if (screenState === "saved") {
     return (
       <View style={shellStyle}>
-        <OrganicBackground />
+        <SkyBackground reduceMotion={reduceMotion} />
         <View style={styles.messageContent}>
           <View style={styles.savedRing}>
             <Ionicons name="checkmark" size={34} color={C.sage} />
@@ -972,7 +927,7 @@ function RecorderScreen() {
 
   return (
     <View style={shellStyle}>
-      <OrganicBackground />
+      <SkyBackground reduceMotion={reduceMotion} />
 
       <View style={styles.topBar}>
         <Pressable
@@ -980,7 +935,10 @@ function RecorderScreen() {
           accessibilityLabel="Gespeicherte Gedanken öffnen"
           hitSlop={8}
           onPress={() => router.push("/thoughts" as Href)}
-          style={({ pressed }) => [styles.archiveButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.archiveButton,
+            pressed && styles.pressed,
+          ]}
         >
           <Text style={styles.brand}>thoughts</Text>
         </Pressable>
@@ -1019,7 +977,7 @@ function RecorderScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: C.ink,
+    backgroundColor: "#2E5E8C",
     paddingHorizontal: 30,
   },
   center: {

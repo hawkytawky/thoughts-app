@@ -57,6 +57,7 @@
   "dependencies": {
     "@expo-google-fonts/instrument-sans": "^0.4.2",
     "@expo-google-fonts/newsreader": "^0.4.1",
+    "@shopify/react-native-skia": "2.2.12",
     "expo": "~54.0.35",
     "expo-av": "^16.0.8",
     "expo-file-system": "^19.0.23",
