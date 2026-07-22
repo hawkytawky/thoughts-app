@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Print from "expo-print";
@@ -223,16 +224,47 @@ function SummaryView({
   );
 }
 
-function TranscriptView({ note }: { note: FeaturedNote }) {
+function TranscriptView({
+  copied,
+  note,
+  onCopy,
+}: {
+  copied: boolean;
+  note: FeaturedNote;
+  onCopy: () => void;
+}) {
   return (
-    <Section title="Transkript">
+    <View style={styles.section}>
+      <View style={styles.transcriptHeader}>
+        <Text style={[styles.sectionHeading, styles.transcriptHeading]}>
+          Transkript
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            copied ? "Transkript kopiert" : "Transkript kopieren"
+          }
+          hitSlop={8}
+          onPress={onCopy}
+          style={({ pressed }) => [
+            styles.copyButton,
+            pressed && styles.copyButtonPressed,
+          ]}
+        >
+          <Ionicons
+            name={copied ? "checkmark" : "copy-outline"}
+            size={17}
+            color={copied ? C.skyDeep : C.ink40}
+          />
+        </Pressable>
+      </View>
       {note.transcript.segments.map((segment, index) => (
         <View key={`${segment.start}-${index}`} style={styles.transcriptBlock}>
           <Text style={styles.timestamp}>{formatTimestamp(segment.start)}</Text>
           <Text style={styles.transcriptText}>{segment.text}</Text>
         </View>
       ))}
-    </Section>
+    </View>
   );
 }
 
@@ -246,6 +278,10 @@ export default function ThoughtDetailScreen() {
   const [detailView, setDetailView] = useState<DetailView>("summary");
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [transcriptCopied, setTranscriptCopied] = useState(false);
+  const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     setError(null);
@@ -265,6 +301,15 @@ export default function ThoughtDetailScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(
+    () => () => {
+      if (copyFeedbackTimeoutRef.current) {
+        clearTimeout(copyFeedbackTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   if (error) return <NoteError message={error} onRetry={() => void load()} />;
   if (!note) return <NoteLoading />;
@@ -299,6 +344,36 @@ export default function ThoughtDetailScreen() {
       );
     } finally {
       setSharing(false);
+    }
+  };
+
+  const copyTranscript = async () => {
+    const transcript =
+      note.transcript.text.trim() ||
+      note.transcript.segments
+        .map(({ text }) => text.trim())
+        .filter(Boolean)
+        .join("\n\n");
+    if (!transcript) {
+      Alert.alert("Kein Transkript", "Dieser thought enthält kein Transkript.");
+      return;
+    }
+
+    try {
+      await Clipboard.setStringAsync(transcript);
+      setTranscriptCopied(true);
+      if (copyFeedbackTimeoutRef.current) {
+        clearTimeout(copyFeedbackTimeoutRef.current);
+      }
+      copyFeedbackTimeoutRef.current = setTimeout(() => {
+        setTranscriptCopied(false);
+        copyFeedbackTimeoutRef.current = null;
+      }, 1_600);
+    } catch {
+      Alert.alert(
+        "Kopieren nicht möglich",
+        "Das Transkript konnte nicht in die Zwischenablage kopiert werden.",
+      );
     }
   };
 
@@ -390,7 +465,11 @@ export default function ThoughtDetailScreen() {
             }}
           />
         ) : (
-          <TranscriptView note={note} />
+          <TranscriptView
+            copied={transcriptCopied}
+            note={note}
+            onCopy={() => void copyTranscript()}
+          />
         )}
 
       </ScrollView>
@@ -549,6 +628,21 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
+  transcriptHeader: {
+    minHeight: 32,
+    marginBottom: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  transcriptHeading: { marginBottom: 0 },
+  copyButton: {
+    width: 32,
+    minHeight: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  copyButtonPressed: { opacity: 0.5 },
   transcriptBlock: { marginBottom: 16 },
   timestamp: {
     fontFamily: NOTE_SANS,
