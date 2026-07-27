@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const PENDING_THOUGHTS_KEY = "@thoughts/pending-thoughts";
+const PENDING_THOUGHTS_KEY = "@thoughts/backend-v2/pending-thoughts";
 
 export type PendingThought = {
   id: string;

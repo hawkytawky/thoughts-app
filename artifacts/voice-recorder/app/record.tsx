@@ -38,6 +38,7 @@ import {
   NOTE_SERIF_ITALIC as SERIF_ITALIC,
 } from "@/components/NoteUI";
 import { SkyBackground } from "@/components/SkyBackground";
+import { authConfig, backendFetch } from "@/lib/auth";
 
 const C = {
   ink: "#10180F",
@@ -61,12 +62,19 @@ const SANS = Platform.select({
 const WAVE_HISTORY_POINTS = 14;
 const WAVE_POINT_COUNT = WAVE_HISTORY_POINTS * 2 - 1;
 const INITIAL_AMPLITUDES = Array.from({ length: WAVE_POINT_COUNT }, () => 0);
-const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings/`;
+const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings-v2/`;
 const NOTE_NUMBER_KEY = "@thoughts/next-note-number";
-const RECORDING_UPLOAD_URL =
-  process.env.EXPO_PUBLIC_THOUGHTS_UPLOAD_URL?.replace(/\/+$/, "");
+const RECORDING_API_URL = authConfig.apiUrl;
 
-type UploadResponse = { relativePath?: string; error?: string };
+type CreateRecordingResponse = {
+  recording_id: string;
+  upload_url: string;
+  upload_headers: Record<string, string>;
+};
+type RecordingStatusResponse = {
+  recording_id: string;
+  status: string;
+};
 type SyncState = "idle" | "uploading" | "uploaded" | "pending";
 type RecordingLocation = {
   latitude: number;
@@ -78,8 +86,10 @@ type RecordingLocation = {
   suburb?: string | null;
 };
 type RecordingMetadata = {
+  capturedAt?: string;
   locationStatus: "captured" | "disabled" | "unavailable";
   location: RecordingLocation | null;
+  recordingId?: string;
 };
 type StoppedRecording = {
   sourceUri: string;
@@ -147,60 +157,150 @@ async function readRecordingMetadata(
   }
 }
 
-async function uploadRecording(localUri: string): Promise<string> {
-  if (!RECORDING_UPLOAD_URL) throw new Error("Upload URL is not configured");
+async function writeRecordingMetadata(
+  localUri: string,
+  metadata: RecordingMetadata,
+): Promise<void> {
+  await FileSystem.writeAsStringAsync(
+    metadataUriFor(localUri),
+    JSON.stringify(metadata),
+  );
+}
 
-  const metadata = await readRecordingMetadata(localUri);
-  const location = metadata?.location;
-  const headers: Record<string, string> = {
-    "Content-Type": "audio/mp4",
-    "X-Thoughts-Location-Status": metadata?.locationStatus ?? "unavailable",
+async function responseError(
+  response: Response,
+  fallback: string,
+): Promise<Error> {
+  try {
+    const body = (await response.json()) as {
+      detail?: string | { msg?: string }[];
+      error?: string;
+    };
+    const detail =
+      typeof body.detail === "string"
+        ? body.detail
+        : (body.detail?.map(({ msg }) => msg).filter(Boolean).join(", ") ?? "");
+    return new Error(detail || body.error || fallback);
+  } catch {
+    return new Error(fallback);
+  }
+}
+
+async function removeUploadedRecording(localUri: string): Promise<void> {
+  await FileSystem.deleteAsync(localUri, { idempotent: true });
+  await FileSystem.deleteAsync(metadataUriFor(localUri), { idempotent: true });
+}
+
+async function uploadRecording(localUri: string): Promise<string> {
+  if (!RECORDING_API_URL) throw new Error("thought API is not configured");
+
+  const storedMetadata = await readRecordingMetadata(localUri);
+  const metadata: RecordingMetadata = storedMetadata ?? {
+    capturedAt: new Date().toISOString(),
+    locationStatus: "unavailable",
+    location: null,
   };
-  if (location) {
-    headers["X-Thoughts-Latitude"] = String(location.latitude);
-    headers["X-Thoughts-Longitude"] = String(location.longitude);
-    headers["X-Thoughts-Location-Captured-At"] = location.capturedAt;
-    if (location.city) {
-      headers["X-Thoughts-City"] = encodeURIComponent(location.city);
+
+  // Resume a previously created record after an interrupted upload response.
+  if (metadata.recordingId) {
+    const statusResponse = await backendFetch(
+      `/recordings/${metadata.recordingId}`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (statusResponse.ok) {
+      const existing = (await statusResponse.json()) as RecordingStatusResponse;
+      if (existing.status !== "awaiting_upload") {
+        await removeUploadedRecording(localUri);
+        return metadata.recordingId;
+      }
+
+      const completeResponse = await backendFetch(
+        `/recordings/${metadata.recordingId}/upload-complete`,
+        { method: "POST", headers: { Accept: "application/json" } },
+      );
+      if (completeResponse.ok) {
+        await removeUploadedRecording(localUri);
+        return metadata.recordingId;
+      }
+      if (completeResponse.status !== 409) {
+        throw await responseError(
+          completeResponse,
+          `Upload konnte nicht fortgesetzt werden (${completeResponse.status})`,
+        );
+      }
+    } else if (statusResponse.status !== 404) {
+      throw await responseError(
+        statusResponse,
+        `Aufnahmestatus konnte nicht geladen werden (${statusResponse.status})`,
+      );
     }
-    if (location.suburb) {
-      headers["X-Thoughts-Suburb"] = encodeURIComponent(location.suburb);
-    }
-    if (location.accuracy !== null) {
-      headers["X-Thoughts-Location-Accuracy"] = String(location.accuracy);
-    }
-    if (location.altitude !== null) {
-      headers["X-Thoughts-Location-Altitude"] = String(location.altitude);
-    }
+    metadata.recordingId = undefined;
   }
 
-  const response = await FileSystem.uploadAsync(
-    `${RECORDING_UPLOAD_URL}/recordings`,
+  const createResponse = await backendFetch("/recordings", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      captured_at:
+        metadata.capturedAt ??
+        metadata.location?.capturedAt ??
+        new Date().toISOString(),
+      city: metadata.location?.city ?? null,
+      suburb: metadata.location?.suburb ?? null,
+    }),
+  });
+  if (!createResponse.ok) {
+    throw await responseError(
+      createResponse,
+      `Aufnahme konnte nicht angelegt werden (${createResponse.status})`,
+    );
+  }
+  const created = (await createResponse.json()) as CreateRecordingResponse;
+  if (!created.recording_id || !created.upload_url) {
+    throw new Error("Die API hat keine Upload-Adresse zurückgegeben.");
+  }
+
+  metadata.recordingId = created.recording_id;
+  await writeRecordingMetadata(localUri, metadata);
+
+  const uploadResponse = await FileSystem.uploadAsync(
+    created.upload_url,
     localUri,
     {
-      httpMethod: "POST",
+      httpMethod: "PUT",
       uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-      headers,
+      headers: created.upload_headers,
       sessionType: FileSystem.FileSystemSessionType.BACKGROUND,
     },
   );
-  const body = JSON.parse(response.body || "{}") as UploadResponse;
-  if (response.status < 200 || response.status >= 300) {
+  if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
     throw new Error(
-      body.error ?? `Upload failed with status ${response.status}`,
+      `Audio-Upload fehlgeschlagen (${uploadResponse.status}).`,
     );
   }
-  if (!body.relativePath) throw new Error("Receiver returned no file path");
 
-  await FileSystem.deleteAsync(localUri, { idempotent: true });
-  await FileSystem.deleteAsync(metadataUriFor(localUri), { idempotent: true });
-  return body.relativePath;
+  const completeResponse = await backendFetch(
+    `/recordings/${created.recording_id}/upload-complete`,
+    { method: "POST", headers: { Accept: "application/json" } },
+  );
+  if (!completeResponse.ok) {
+    throw await responseError(
+      completeResponse,
+      `Upload konnte nicht bestätigt werden (${completeResponse.status})`,
+    );
+  }
+
+  await removeUploadedRecording(localUri);
+  return created.recording_id;
 }
 
 let pendingRecordingSync: Promise<void> | null = null;
 
 async function runPendingRecordingSync(): Promise<void> {
-  if (!RECORDING_UPLOAD_URL) return;
+  if (!RECORDING_API_URL) return;
 
   let fileNames: string[];
   try {
@@ -456,7 +556,7 @@ function RecorderScreen() {
 
   const attemptUpload = useCallback(async (localUri: string) => {
     setPendingUploadUri(localUri);
-    if (!RECORDING_UPLOAD_URL) {
+    if (!RECORDING_API_URL) {
       setSyncState("pending");
       return;
     }
@@ -594,7 +694,9 @@ function RecorderScreen() {
           from: stopped.sourceUri,
           to: localUri,
         });
+        const createdAt = new Date().toISOString();
         const metadata: RecordingMetadata = {
+          capturedAt: createdAt,
           locationStatus: stopped.location
             ? "captured"
             : locationEnabledRef.current
@@ -608,7 +710,7 @@ function RecorderScreen() {
         );
         await addPendingThought({
           id: localUri,
-          createdAt: new Date().toISOString(),
+          createdAt,
           durationSeconds: stopped.durationMs / 1000,
           locationLabel: stopped.location
             ? [stopped.location.city, stopped.location.suburb]
@@ -627,7 +729,7 @@ function RecorderScreen() {
       }
 
       setPendingUploadUri(localUri);
-      setSyncState(RECORDING_UPLOAD_URL ? "uploading" : "pending");
+      setSyncState(RECORDING_API_URL ? "uploading" : "pending");
       void attemptUpload(localUri);
     },
     [attemptUpload],
@@ -931,16 +1033,16 @@ function RecorderScreen() {
           </Text>
           <Text style={styles.savedPath}>
             {syncState === "uploaded" && remotePath
-              ? remotePath
+              ? "In der Cloud abgelegt"
               : syncState === "uploading"
-                ? "Uploading privately through Tailscale"
-                : RECORDING_UPLOAD_URL
-                  ? "Mac unavailable · kept safely on iPhone"
-                  : "Upload URL not configured · kept safely on iPhone"}
+                ? "Wird sicher hochgeladen"
+                : RECORDING_API_URL
+                  ? "Upload ausstehend · sicher auf dem iPhone"
+                  : "API nicht konfiguriert · sicher auf dem iPhone"}
           </Text>
         </View>
         <View style={styles.savedActions}>
-          {pendingUploadUri && RECORDING_UPLOAD_URL && (
+          {pendingUploadUri && RECORDING_API_URL && (
             <Pressable
               accessibilityRole="button"
               disabled={syncState === "uploading"}

@@ -6,7 +6,6 @@ An organic, minimal voice recorder for capturing thoughts without friction.
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
 - `pnpm --filter @workspace/thoughts run dev` — start the Expo dev server for the mobile app
-- `pnpm --filter @workspace/scripts run recordings:receive` — receive private audio uploads on `127.0.0.1:4317`
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -15,9 +14,11 @@ An organic, minimal voice recorder for capturing thoughts without friction.
 ### Environment
 
 - `DATABASE_URL` — Postgres connection string (required by the API server)
-- `EXPO_PUBLIC_THOUGHTS_UPLOAD_URL` — private HTTPS URL (e.g. created by Tailscale Serve) the mobile app uploads recordings to
-- Receiver paths, limits, ports, and OpenClaw retry settings live in `scripts/src/config.py`. Set `THOUGHTS_RECEIVER_CONFIG` only when using a different config file.
-- `THOUGHTS_OPENCLAW_HOOK_TOKEN` stays an environment variable because secrets must not be stored in source-controlled config.
+- `EXPO_PUBLIC_THOUGHTS_API_URL` — public HTTPS URL of the Azure Thoughts API
+- `EXPO_PUBLIC_ENTRA_AUTHORITY` — Microsoft Entra External ID authority
+- `EXPO_PUBLIC_ENTRA_IOS_CLIENT_ID` — public iOS application client ID
+- `EXPO_PUBLIC_ENTRA_API_SCOPE` — delegated Thoughts API scope
+- `EXPO_PUBLIC_ENTRA_REDIRECT_URI` — native iOS authentication redirect URI
 
 ## Stack
 
@@ -35,4 +36,4 @@ An organic, minimal voice recorder for capturing thoughts without friction.
 - `artifacts/api-server` — Express API server
 - `artifacts/mockup-sandbox` — Vite design/mockup sandbox
 - `lib/*` — shared packages (db, api-spec, api-zod, api-client-react)
-- `scripts` — operational scripts (e.g. recording receiver)
+- `scripts` — workspace operational scripts
