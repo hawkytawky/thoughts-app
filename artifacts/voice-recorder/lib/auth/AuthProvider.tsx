@@ -16,6 +16,7 @@ import {
   clearSession,
   restoreSession,
   signInWithApple as startAppleSignIn,
+  signInWithGoogle as startGoogleSignIn,
   subscribeToSessionCleared,
 } from "./session";
 
@@ -28,6 +29,7 @@ type AuthContextValue = {
   error: string | null;
   deleteAccount: () => Promise<void>;
   signInWithApple: () => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -99,6 +101,22 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
     }
   }, []);
 
+  const signInWithGoogle = useCallback(async () => {
+    setError(null);
+    try {
+      await startGoogleSignIn();
+      setUser(await fetchCurrentUser());
+      setStatus("signed-in");
+    } catch (caught) {
+      await clearSession();
+      const message =
+        caught instanceof Error ? caught.message : "Anmeldung fehlgeschlagen.";
+      setError(message);
+      setStatus("signed-out");
+      throw caught;
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     await clearSession();
     setUser(null);
@@ -121,9 +139,18 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
       error,
       deleteAccount,
       signInWithApple,
+      signInWithGoogle,
       signOut,
     }),
-    [status, user, error, deleteAccount, signInWithApple, signOut],
+    [
+      status,
+      user,
+      error,
+      deleteAccount,
+      signInWithApple,
+      signInWithGoogle,
+      signOut,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

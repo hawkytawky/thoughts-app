@@ -1,9 +1,9 @@
-# Apple-Login im Frontend
+# Apple- und Google-Login im Frontend
 
 Die App hat zwei bewusst getrennte Betriebsarten:
 
 - `local`: kein Login; der bisherige Mac-/Tailscale-Workflow bleibt aktiv.
-- `azure`: Entra External ID ist vorgeschaltet und nur Apple wird als
+- `azure`: Entra External ID ist vorgeschaltet; Apple und Google werden als
   Identity Provider angeboten.
 
 ## Ablauf
@@ -13,13 +13,13 @@ sequenceDiagram
     actor User
     participant App as iPhone App
     participant Entra as Entra External ID
-    participant Apple
+    participant Provider as Apple oder Google
     participant API as Thoughts API
 
-    User->>App: Mit Apple anmelden
+    User->>App: Mit Apple oder Google anmelden
     App->>Entra: Authorization Code + PKCE
-    Entra->>Apple: Apple Login
-    Apple-->>Entra: bestätigte Identität
+    Entra->>Provider: Provider-Login
+    Provider-->>Entra: bestätigte Identität
     Entra-->>App: Authorization Code
     App->>Entra: Code + PKCE Verifier
     Entra-->>App: Access + Refresh Token
@@ -61,10 +61,11 @@ werden; Expo Go besitzt das benutzerdefinierte URL-Scheme nicht.
 2. Beim iOS-Client `msauth.com.otto.thoughts://auth` als Redirect URI
    registrieren.
 3. Den API-Scope `recordings.readwrite` freigeben und dem iOS-Client erlauben.
-4. Apple als Identity Provider konfigurieren und als einzigen Provider zum
-   User Flow hinzufügen.
+4. Apple und Google als Identity Provider konfigurieren und zum User Flow
+   hinzufügen.
 5. Backend auf `THOUGHTS_AUTH_MODE=entra` und Frontend auf
    `EXPO_PUBLIC_THOUGHTS_DATA_MODE=azure` umstellen.
 
 Die Apple-Konfiguration benötigt im Apple Developer Portal die App ID
 `com.otto.thoughts`, eine Services ID, Team ID, Key ID und den `.p8`-Key.
+Google benötigt eine für Entra konfigurierte Client ID samt Client Secret.

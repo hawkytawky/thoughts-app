@@ -22,19 +22,21 @@ import {
 export default function SignInScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { error, signInWithApple, status } = useAuth();
-  const [isSigningIn, setIsSigningIn] = useState(false);
+  const { error, signInWithApple, signInWithGoogle, status } = useAuth();
+  const [activeProvider, setActiveProvider] = useState<
+    "apple" | "google" | null
+  >(null);
   const unavailable = status === "configuration-error";
 
-  const handleSignIn = async () => {
-    setIsSigningIn(true);
+  const handleSignIn = async (provider: "apple" | "google") => {
+    setActiveProvider(provider);
     try {
-      await signInWithApple();
+      await (provider === "apple" ? signInWithApple() : signInWithGoogle());
       router.replace("/");
     } catch {
       // AuthProvider exposes the user-facing error.
     } finally {
-      setIsSigningIn(false);
+      setActiveProvider(null);
     }
   };
 
@@ -79,20 +81,44 @@ export default function SignInScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Mit Apple anmelden"
-          disabled={isSigningIn || unavailable}
-          onPress={() => void handleSignIn()}
+          disabled={activeProvider !== null || unavailable}
+          onPress={() => void handleSignIn("apple")}
           style={({ pressed }) => [
             styles.appleButton,
             pressed && styles.appleButtonPressed,
-            (isSigningIn || unavailable) && styles.appleButtonDisabled,
+            (activeProvider !== null || unavailable) &&
+              styles.appleButtonDisabled,
           ]}
         >
-          {isSigningIn ? (
+          {activeProvider === "apple" ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <>
               <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
               <Text style={styles.appleButtonText}>Mit Apple fortfahren</Text>
+            </>
+          )}
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Mit Google anmelden"
+          disabled={activeProvider !== null || unavailable}
+          onPress={() => void handleSignIn("google")}
+          style={({ pressed }) => [
+            styles.googleButton,
+            pressed && styles.googleButtonPressed,
+            (activeProvider !== null || unavailable) &&
+              styles.appleButtonDisabled,
+          ]}
+        >
+          {activeProvider === "google" ? (
+            <ActivityIndicator color={C.ink} />
+          ) : (
+            <>
+              <Ionicons name="logo-google" size={18} color={C.ink} />
+              <Text style={styles.googleButtonText}>
+                Mit Google fortfahren
+              </Text>
             </>
           )}
         </Pressable>
@@ -189,6 +215,26 @@ const styles = StyleSheet.create({
   appleButtonDisabled: { opacity: 0.42 },
   appleButtonText: {
     color: "#FFFFFF",
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 16,
+  },
+  googleButton: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.78)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
+  },
+  googleButtonPressed: {
+    backgroundColor: "rgba(255,255,255,0.54)",
+    transform: [{ scale: 0.995 }],
+  },
+  googleButtonText: {
+    color: C.ink,
     fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 16,
   },

@@ -71,7 +71,9 @@ export async function restoreSession(): Promise<boolean> {
   }
 }
 
-export async function signInWithApple(): Promise<void> {
+type IdentityProvider = "apple" | "google";
+
+async function signInWithProvider(provider: IdentityProvider): Promise<void> {
   const discovery = await requireDiscovery();
   const request = new AuthSession.AuthRequest({
     clientId: authConfig.clientId!,
@@ -80,7 +82,7 @@ export async function signInWithApple(): Promise<void> {
     scopes: SCOPES,
     usePKCE: true,
     extraParams: {
-      domain_hint: "apple",
+      domain_hint: provider,
       response_mode: "query",
     },
   });
@@ -90,9 +92,10 @@ export async function signInWithApple(): Promise<void> {
     throw new Error("Anmeldung abgebrochen.");
   }
   if (result.type !== "success") {
+    const providerName = provider === "apple" ? "Apple" : "Google";
     throw new Error(
       (result.type === "error" ? result.params.error_description : undefined) ??
-        "Apple-Anmeldung fehlgeschlagen.",
+        `${providerName}-Anmeldung fehlgeschlagen.`,
     );
   }
   if (!result.params.code || !request.codeVerifier) {
@@ -111,6 +114,14 @@ export async function signInWithApple(): Promise<void> {
   );
   currentTokens = tokens;
   await persistRefreshToken(tokens.refreshToken);
+}
+
+export async function signInWithApple(): Promise<void> {
+  await signInWithProvider("apple");
+}
+
+export async function signInWithGoogle(): Promise<void> {
+  await signInWithProvider("google");
 }
 
 export async function getAccessToken(): Promise<string> {
