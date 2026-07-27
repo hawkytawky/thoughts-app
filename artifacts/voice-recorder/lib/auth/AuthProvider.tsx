@@ -6,12 +6,17 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { fetchCurrentUser, type CurrentUser } from "./api";
+import {
+  deleteCurrentUser,
+  fetchCurrentUser,
+  type CurrentUser,
+} from "./api";
 import { authConfig, getAuthConfigurationError } from "./config";
 import {
   clearSession,
   restoreSession,
   signInWithApple as startAppleSignIn,
+  subscribeToSessionCleared,
 } from "./session";
 
 type AuthStatus =
@@ -21,6 +26,7 @@ type AuthContextValue = {
   status: AuthStatus;
   user: CurrentUser | null;
   error: string | null;
+  deleteAccount: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -68,6 +74,15 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
       });
   }, []);
 
+  useEffect(
+    () =>
+      subscribeToSessionCleared(() => {
+        setUser(null);
+        setStatus("signed-out");
+      }),
+    [],
+  );
+
   const signInWithApple = useCallback(async () => {
     setError(null);
     try {
@@ -91,9 +106,24 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
     setStatus("signed-out");
   }, []);
 
+  const deleteAccount = useCallback(async () => {
+    await deleteCurrentUser();
+    await clearSession();
+    setUser(null);
+    setError(null);
+    setStatus("signed-out");
+  }, []);
+
   const value = useMemo(
-    () => ({ status, user, error, signInWithApple, signOut }),
-    [status, user, error, signInWithApple, signOut],
+    () => ({
+      status,
+      user,
+      error,
+      deleteAccount,
+      signInWithApple,
+      signOut,
+    }),
+    [status, user, error, deleteAccount, signInWithApple, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

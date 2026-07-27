@@ -29,7 +29,12 @@ sequenceDiagram
 
 Das Refresh-Token liegt im iOS-Keychain (`expo-secure-store`). Das kurzlebige
 Access-Token bleibt im Speicher und wird bei Bedarf erneuert. Die App enthält
-kein Client-Secret.
+kein Client-Secret. Im Azure-Modus senden alle Requests an `/recordings` und
+`/auth/me` das Access-Token als Bearer Token. Bei einer abgelaufenen oder
+ungültigen Session wird der lokale Login entfernt und die Loginseite angezeigt.
+
+Das Frontend berücksichtigt außerdem `DELETE /auth/me` als Grundlage für die
+spätere Funktion zum Löschen des Kontos.
 
 ## Lokaler Modus
 

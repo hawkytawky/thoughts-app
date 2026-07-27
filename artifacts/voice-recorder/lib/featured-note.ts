@@ -1,7 +1,5 @@
-const API_URL = process.env.EXPO_PUBLIC_THOUGHTS_API_URL?.replace(
-  /\/+$/,
-  "",
-);
+import { backendFetch } from "@/lib/auth";
+
 const API_TIMEZONE = "Europe/Berlin";
 
 export type NoteLocation = {
@@ -198,8 +196,7 @@ function toThoughtCard(note: FeaturedNote): ThoughtCard {
 export async function fetchNoteProcessingState(
   recordingId: string,
 ): Promise<NoteProcessingState> {
-  if (!API_URL) throw new Error("thought API URL is not configured");
-  const response = await fetch(`${API_URL}/recordings/${recordingId}`, {
+  const response = await backendFetch(`/recordings/${recordingId}`, {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) throw await apiError(response);
@@ -231,20 +228,21 @@ export async function fetchNoteStatus(
 export async function retryNoteProcessing(
   recordingId: string,
 ): Promise<void> {
-  if (!API_URL) throw new Error("thought API URL is not configured");
-  const response = await fetch(`${API_URL}/recordings/${recordingId}/retry`, {
-    method: "POST",
-    headers: { Accept: "application/json" },
-  });
+  const response = await backendFetch(
+    `/recordings/${recordingId}/retry`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    },
+  );
   if (!response.ok) throw await apiError(response);
 }
 
 export async function fetchNotesForDate(
   date: string,
 ): Promise<{ notes: ThoughtCard[]; processingCount: number }> {
-  if (!API_URL) throw new Error("thought API URL is not configured");
-  const response = await fetch(
-    `${API_URL}/recordings?date=${encodeURIComponent(date)}&timezone=${encodeURIComponent(API_TIMEZONE)}`,
+  const response = await backendFetch(
+    `/recordings?date=${encodeURIComponent(date)}&timezone=${encodeURIComponent(API_TIMEZONE)}`,
     { headers: { Accept: "application/json" } },
   );
   if (!response.ok) throw await apiError(response);
@@ -260,9 +258,8 @@ export async function fetchNotesForDate(
 }
 
 export async function fetchThoughtDays(month: string): Promise<Set<string>> {
-  if (!API_URL) throw new Error("thought API URL is not configured");
-  const response = await fetch(
-    `${API_URL}/recordings/calendar?month=${encodeURIComponent(month)}&timezone=${encodeURIComponent(API_TIMEZONE)}`,
+  const response = await backendFetch(
+    `/recordings/calendar?month=${encodeURIComponent(month)}&timezone=${encodeURIComponent(API_TIMEZONE)}`,
     { headers: { Accept: "application/json" } },
   );
   if (!response.ok) throw await apiError(response);

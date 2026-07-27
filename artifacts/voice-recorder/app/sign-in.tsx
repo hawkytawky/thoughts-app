@@ -1,22 +1,30 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth";
+import {
+  NOTE_COLORS as C,
+  NOTE_SANS,
+  NOTE_SANS_MEDIUM,
+  NOTE_SERIF,
+  NOTE_SERIF_ITALIC,
+} from "@/components/NoteUI";
 
 export default function SignInScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { error, signInWithApple } = useAuth();
+  const { error, signInWithApple, status } = useAuth();
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const unavailable = status === "configuration-error";
 
   const handleSignIn = async () => {
     setIsSigningIn(true);
@@ -31,119 +39,182 @@ export default function SignInScreen() {
   };
 
   return (
-    <View
+    <LinearGradient
+      colors={["#FDFEFE", "#EEF6FB", "#DCEBF6"]}
+      locations={[0, 0.52, 1]}
       style={[
         styles.container,
-        { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 },
+        {
+          paddingTop: insets.top + 24,
+          paddingBottom: insets.bottom + 22,
+        },
       ]}
     >
+      <View pointerEvents="none" style={styles.atmosphere}>
+        <View style={[styles.cloud, styles.cloudOne]} />
+        <View style={[styles.cloud, styles.cloudTwo]} />
+        <View style={[styles.cloud, styles.cloudThree]} />
+      </View>
+
+      <Text style={styles.brand}>thoughts</Text>
+
       <View style={styles.copy}>
-        <Text style={styles.eyebrow}>thoughts</Text>
-        <Text style={styles.title}>Deine Gedanken, nur für dich.</Text>
+        <Text style={styles.title}>Gedanken brauchen Raum.</Text>
         <Text style={styles.body}>
-          Melde dich an, damit deine Aufnahmen sicher deinem Account zugeordnet
-          werden.
+          Ein stiller Ort für alles, was dir durch den Kopf geht.
         </Text>
       </View>
 
       <View style={styles.actions}>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error ? (
+          <View style={styles.errorCard}>
+            <Ionicons
+              name="information-circle-outline"
+              size={17}
+              color="#7B5260"
+            />
+            <Text style={styles.error}>{error}</Text>
+          </View>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Mit Apple anmelden"
-          disabled={isSigningIn}
+          disabled={isSigningIn || unavailable}
           onPress={() => void handleSignIn()}
           style={({ pressed }) => [
             styles.appleButton,
-            (pressed || isSigningIn) && styles.appleButtonPressed,
+            pressed && styles.appleButtonPressed,
+            (isSigningIn || unavailable) && styles.appleButtonDisabled,
           ]}
         >
           {isSigningIn ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <>
-              <Ionicons name="logo-apple" size={22} color="#FFFFFF" />
-              <Text style={styles.appleButtonText}>Mit Apple anmelden</Text>
+              <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
+              <Text style={styles.appleButtonText}>Mit Apple fortfahren</Text>
             </>
           )}
         </Pressable>
-        <Text style={styles.hint}>
-          Die Anmeldung wird sicher über Apple und Microsoft Entra verarbeitet.
-        </Text>
+        <Text style={styles.hint}>Privat. Sicher. Nur für dich.</Text>
       </View>
-    </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "space-between",
-    paddingHorizontal: 28,
-    backgroundColor: "#EBE7DA",
+    paddingHorizontal: 24,
+    overflow: "hidden",
+  },
+  atmosphere: { ...StyleSheet.absoluteFillObject },
+  cloud: {
+    position: "absolute",
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.56)",
+  },
+  cloudOne: {
+    width: 310,
+    height: 180,
+    top: 95,
+    right: -145,
+    transform: [{ rotate: "-12deg" }],
+  },
+  cloudTwo: {
+    width: 260,
+    height: 145,
+    top: 250,
+    left: -160,
+    backgroundColor: "rgba(255,255,255,0.38)",
+    transform: [{ rotate: "9deg" }],
+  },
+  cloudThree: {
+    width: 350,
+    height: 190,
+    bottom: 70,
+    right: -210,
+    backgroundColor: "rgba(191,217,236,0.22)",
+  },
+  brand: {
+    zIndex: 1,
+    alignSelf: "flex-start",
+    fontFamily: NOTE_SERIF,
+    fontSize: 24,
+    color: C.ink,
   },
   copy: {
-    marginTop: 80,
-    gap: 18,
-  },
-  eyebrow: {
-    color: "#5C7048",
-    fontFamily: "InstrumentSans_600SemiBold",
-    fontSize: 14,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
+    zIndex: 1,
+    flex: 1,
+    justifyContent: "center",
+    paddingBottom: 42,
+    gap: 16,
   },
   title: {
-    maxWidth: 340,
-    color: "#10180F",
-    fontFamily: "Newsreader_400Regular",
-    fontSize: 44,
-    lineHeight: 48,
+    maxWidth: 330,
+    fontFamily: NOTE_SERIF_ITALIC,
+    fontSize: 46,
+    lineHeight: 49,
+    color: C.ink,
   },
   body: {
-    maxWidth: 340,
-    color: "#26351F",
-    fontFamily: "InstrumentSans_400Regular",
-    fontSize: 17,
-    lineHeight: 25,
+    maxWidth: 290,
+    fontFamily: NOTE_SANS,
+    fontSize: 16,
+    lineHeight: 24,
+    color: C.ink60,
   },
   actions: {
-    gap: 14,
+    zIndex: 1,
+    gap: 13,
   },
   appleButton: {
-    minHeight: 54,
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    borderRadius: 14,
-    backgroundColor: "#000000",
+    borderRadius: 18,
+    backgroundColor: "#17222A",
+    shadowColor: C.skyDeep,
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 4,
   },
   appleButtonPressed: {
-    opacity: 0.72,
+    opacity: 0.82,
+    transform: [{ scale: 0.995 }],
   },
+  appleButtonDisabled: { opacity: 0.42 },
   appleButtonText: {
     color: "#FFFFFF",
-    fontFamily: Platform.select({
-      ios: "System",
-      default: "InstrumentSans_600SemiBold",
-    }),
-    fontSize: 17,
-    fontWeight: "600",
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 16,
+  },
+  errorCard: {
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 9,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.68)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(123,82,96,0.24)",
   },
   error: {
-    color: "#9B2C2C",
-    fontFamily: "InstrumentSans_500Medium",
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: "center",
+    flex: 1,
+    color: "#7B5260",
+    fontFamily: NOTE_SANS,
+    fontSize: 12,
+    lineHeight: 17,
   },
   hint: {
-    paddingHorizontal: 12,
-    color: "#5C7048",
-    fontFamily: "InstrumentSans_400Regular",
-    fontSize: 12,
-    lineHeight: 18,
+    fontFamily: NOTE_SANS,
+    fontSize: 11,
+    letterSpacing: 0.35,
+    color: C.ink30,
     textAlign: "center",
   },
 });

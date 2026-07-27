@@ -1,4 +1,4 @@
-const dataMode = process.env.EXPO_PUBLIC_THOUGHTS_DATA_MODE ?? "local";
+const dataMode = process.env.EXPO_PUBLIC_THOUGHTS_DATA_MODE ?? "azure";
 
 export const authConfig = {
   isAzureMode: dataMode === "azure",

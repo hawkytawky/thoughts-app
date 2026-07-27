@@ -1,5 +1,5 @@
 import { authConfig } from "./config";
-import { getAccessToken } from "./session";
+import { clearSession, getAccessToken } from "./session";
 
 export type CurrentUser = {
   user_id: string;
@@ -21,7 +21,14 @@ export async function backendFetch(
     headers.set("Authorization", `Bearer ${await getAccessToken()}`);
   }
 
-  return fetch(`${authConfig.apiUrl}${path}`, { ...init, headers });
+  const response = await fetch(`${authConfig.apiUrl}${path}`, {
+    ...init,
+    headers,
+  });
+  if (authConfig.isAzureMode && response.status === 401) {
+    await clearSession();
+  }
+  return response;
 }
 
 export async function fetchCurrentUser(): Promise<CurrentUser> {
@@ -30,4 +37,13 @@ export async function fetchCurrentUser(): Promise<CurrentUser> {
     throw new Error(`Backend hat den Login abgelehnt (${response.status}).`);
   }
   return (await response.json()) as CurrentUser;
+}
+
+export async function deleteCurrentUser(): Promise<void> {
+  const response = await backendFetch("/auth/me", { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(
+      `Das Konto konnte nicht gelöscht werden (${response.status}).`,
+    );
+  }
 }

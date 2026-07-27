@@ -14,6 +14,7 @@ import {
   NOTE_SANS_MEDIUM,
   NOTE_SERIF,
 } from "@/components/NoteUI";
+import { authConfig, useAuth } from "@/lib/auth";
 
 type SidebarDestination = "thoughts" | "overview";
 
@@ -66,6 +67,7 @@ export function AppSidebar({
   visible: boolean;
 }) {
   const router = useRouter();
+  const { signOut, user } = useAuth();
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -173,6 +175,30 @@ export function AppSidebar({
             );
           })}
         </View>
+
+        {authConfig.isAzureMode ? (
+          <View style={styles.account}>
+            {user?.display_name ? (
+              <Text numberOfLines={1} style={styles.accountName}>
+                {user.display_name}
+              </Text>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                onClose();
+                void signOut();
+              }}
+              style={({ pressed }) => [
+                styles.signOut,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Ionicons name="log-out-outline" size={18} color={C.ink40} />
+              <Text style={styles.signOutText}>abmelden</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </Animated.View>
     </View>
   );
@@ -251,6 +277,29 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 3,
     backgroundColor: C.sky,
+  },
+  account: {
+    marginTop: "auto",
+    gap: 8,
+  },
+  accountName: {
+    paddingHorizontal: 14,
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 12,
+    color: C.ink30,
+  },
+  signOut: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+  },
+  signOutText: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 14,
+    color: C.ink60,
   },
   pressed: { opacity: 0.58 },
 });

@@ -1,6 +1,9 @@
 import * as AuthSession from "expo-auth-session";
 import * as SecureStore from "expo-secure-store";
+import * as WebBrowser from "expo-web-browser";
 import { authConfig, getAuthConfigurationError } from "./config";
+
+WebBrowser.maybeCompleteAuthSession();
 
 const REFRESH_TOKEN_KEY = "thoughts.auth.refresh-token";
 const KEYCHAIN_OPTIONS: SecureStore.SecureStoreOptions = {
@@ -15,6 +18,12 @@ const SCOPES = [
 
 let currentTokens: AuthSession.TokenResponse | null = null;
 let refreshPromise: Promise<AuthSession.TokenResponse> | null = null;
+const sessionClearedListeners = new Set<() => void>();
+
+export function subscribeToSessionCleared(listener: () => void): () => void {
+  sessionClearedListeners.add(listener);
+  return () => sessionClearedListeners.delete(listener);
+}
 
 async function requireDiscovery(): Promise<AuthSession.DiscoveryDocument> {
   const configurationError = getAuthConfigurationError();
@@ -132,4 +141,5 @@ export async function clearSession(): Promise<void> {
   currentTokens = null;
   refreshPromise = null;
   await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY, KEYCHAIN_OPTIONS);
+  sessionClearedListeners.forEach((listener) => listener());
 }

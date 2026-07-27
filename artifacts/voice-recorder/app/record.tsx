@@ -38,6 +38,7 @@ import {
   NOTE_SERIF_ITALIC as SERIF_ITALIC,
 } from "@/components/NoteUI";
 import { SkyBackground } from "@/components/SkyBackground";
+import { authConfig, backendFetch } from "@/lib/auth";
 
 const C = {
   ink: "#10180F",
@@ -63,8 +64,7 @@ const WAVE_POINT_COUNT = WAVE_HISTORY_POINTS * 2 - 1;
 const INITIAL_AMPLITUDES = Array.from({ length: WAVE_POINT_COUNT }, () => 0);
 const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings-v2/`;
 const NOTE_NUMBER_KEY = "@thoughts/next-note-number";
-const RECORDING_API_URL =
-  process.env.EXPO_PUBLIC_THOUGHTS_API_URL?.replace(/\/+$/, "");
+const RECORDING_API_URL = authConfig.apiUrl;
 
 type CreateRecordingResponse = {
   recording_id: string;
@@ -203,8 +203,8 @@ async function uploadRecording(localUri: string): Promise<string> {
 
   // Resume a previously created record after an interrupted upload response.
   if (metadata.recordingId) {
-    const statusResponse = await fetch(
-      `${RECORDING_API_URL}/recordings/${metadata.recordingId}`,
+    const statusResponse = await backendFetch(
+      `/recordings/${metadata.recordingId}`,
       { headers: { Accept: "application/json" } },
     );
     if (statusResponse.ok) {
@@ -214,8 +214,8 @@ async function uploadRecording(localUri: string): Promise<string> {
         return metadata.recordingId;
       }
 
-      const completeResponse = await fetch(
-        `${RECORDING_API_URL}/recordings/${metadata.recordingId}/upload-complete`,
+      const completeResponse = await backendFetch(
+        `/recordings/${metadata.recordingId}/upload-complete`,
         { method: "POST", headers: { Accept: "application/json" } },
       );
       if (completeResponse.ok) {
@@ -237,7 +237,7 @@ async function uploadRecording(localUri: string): Promise<string> {
     metadata.recordingId = undefined;
   }
 
-  const createResponse = await fetch(`${RECORDING_API_URL}/recordings`, {
+  const createResponse = await backendFetch("/recordings", {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -282,8 +282,8 @@ async function uploadRecording(localUri: string): Promise<string> {
     );
   }
 
-  const completeResponse = await fetch(
-    `${RECORDING_API_URL}/recordings/${created.recording_id}/upload-complete`,
+  const completeResponse = await backendFetch(
+    `/recordings/${created.recording_id}/upload-complete`,
     { method: "POST", headers: { Accept: "application/json" } },
   );
   if (!completeResponse.ok) {

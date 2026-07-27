@@ -86,7 +86,7 @@ function AppShell() {
   if (authConfig.isAzureMode && status === "loading") {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator color="#5C7048" />
+        <ActivityIndicator color="#7FB0D6" />
       </View>
     );
   }
@@ -150,6 +150,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EBE7DA",
+    backgroundColor: "#F5F9FC",
   },
 });
