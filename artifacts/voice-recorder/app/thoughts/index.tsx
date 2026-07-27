@@ -61,6 +61,10 @@ const FILTER_OPTIONS = [
   { label: "Fragen", type: "QUESTION" },
   { label: "Reflexionen", type: "REFLECTION" },
   { label: "Entscheidungen", type: "DECISION" },
+  { label: "Pläne", type: "PLAN" },
+  { label: "Beobachtungen", type: "OBSERVATION" },
+  { label: "Erinnerungen", type: "MEMORY" },
+  { label: "Probleme", type: "PROBLEM" },
 ] as const;
 
 function typeLabel(type: string): string {
@@ -72,6 +76,8 @@ function typeLabel(type: string): string {
     TASK: "Aufgabe",
     DECISION: "Entscheidung",
     OBSERVATION: "Beobachtung",
+    PLAN: "Plan",
+    MEMORY: "Erinnerung",
   };
   return labels[type] ?? type.toLocaleLowerCase("de-DE");
 }

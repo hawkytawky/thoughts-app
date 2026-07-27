@@ -51,6 +51,8 @@ function categoryLabel(type: string): string {
     TASK: "Aufgabe",
     PROBLEM: "Problem",
     OBSERVATION: "Beobachtung",
+    PLAN: "Plan",
+    MEMORY: "Erinnerung",
   };
   return labels[type] ?? type.toLocaleLowerCase("de-DE");
 }

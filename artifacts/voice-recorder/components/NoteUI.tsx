@@ -62,6 +62,24 @@ export const NOTE_CATEGORY_COLORS = {
     level2: "#A3BED0",
     surface: "#C8DCE8",
   },
+  PLAN: {
+    text: "#758C81",
+    level1: "#91A99D",
+    level2: "#A6B9AF",
+    surface: "#C7D4CD",
+  },
+  MEMORY: {
+    text: "#8D788C",
+    level1: "#AA93A9",
+    level2: "#BAA7B9",
+    surface: "#D7C9D6",
+  },
+  PROBLEM: {
+    text: "#9B766D",
+    level1: "#B99389",
+    level2: "#C6A69E",
+    surface: "#DECBC6",
+  },
 } as const;
 
 export const NOTE_CATEGORY_TEXT_OPACITY = 1;

@@ -1,7 +1,8 @@
-const API_URL = process.env.EXPO_PUBLIC_THOUGHTS_UPLOAD_URL?.replace(
+const API_URL = process.env.EXPO_PUBLIC_THOUGHTS_API_URL?.replace(
   /\/+$/,
   "",
 );
+const API_TIMEZONE = "Europe/Berlin";
 
 export type NoteLocation = {
   latitude: number;
@@ -62,11 +63,47 @@ export type ThoughtCard = Pick<
   | "durationSeconds"
 >;
 
-type NoteStatusResponse = {
-  ok: boolean;
-  status?: "processing" | "ready" | "failed";
-  note?: FeaturedNote;
-  error?: string;
+type RecordingStatus =
+  | "awaiting_upload"
+  | "uploaded"
+  | "transcribing"
+  | "transcribed"
+  | "summarizing"
+  | "completed"
+  | "transcription_failed"
+  | "summary_failed";
+
+type BackendThoughtCard = {
+  type: string;
+  title: string;
+  subtitle: string;
+  tags: string[];
+  summary: string;
+  key_points: string[];
+  open_questions: string[];
+  decisions: string[];
+  next_steps: string[];
+  people: string[];
+  projects: string[];
+  mentioned_locations: string[];
+};
+
+type BackendRecording = {
+  recording_id: string;
+  status: RecordingStatus;
+  captured_at: string;
+  city: string | null;
+  suburb: string | null;
+  transcript: string | null;
+  transcript_locale: string | null;
+  duration_ms: number | null;
+  word_count: number | null;
+  transcript_segments: {
+    start_ms: number;
+    end_ms: number;
+    text: string;
+  }[];
+  thought_card: BackendThoughtCard | null;
 };
 
 export type NoteProcessingState =
@@ -74,42 +111,111 @@ export type NoteProcessingState =
   | { status: "failed"; error: string }
   | { status: "ready"; note: FeaturedNote };
 
-type NotesForDateResponse = {
-  ok: boolean;
-  date?: string;
-  notes?: ThoughtCard[];
-  processingCount?: number;
-  error?: string;
+type ThoughtDaysResponse = {
+  month: string;
+  days: { date: string; recording_count: number }[];
 };
 
-type ThoughtDaysResponse = {
-  ok: boolean;
-  month?: string;
-  days?: { date: string; count: number }[];
-  error?: string;
-};
+async function apiError(response: Response): Promise<Error> {
+  let detail = "";
+  try {
+    const body = (await response.json()) as {
+      detail?: string | { msg?: string }[];
+    };
+    detail =
+      typeof body.detail === "string"
+        ? body.detail
+        : (body.detail?.map(({ msg }) => msg).filter(Boolean).join(", ") ?? "");
+  } catch {
+    // The HTTP status remains useful when the response has no JSON body.
+  }
+  return new Error(detail || `thought API request failed (${response.status})`);
+}
+
+function locationLabel(recording: BackendRecording): string {
+  return (
+    [recording.city, recording.suburb].filter(Boolean).join(", ") ||
+    "Ohne Standort"
+  );
+}
+
+function toFeaturedNote(recording: BackendRecording): FeaturedNote | null {
+  const card = recording.thought_card;
+  if (recording.status !== "completed" || !card) return null;
+
+  return {
+    id: recording.recording_id,
+    relativePath: recording.recording_id,
+    type: card.type,
+    title: card.title,
+    subtitle: card.subtitle,
+    tags: card.tags,
+    summary: card.summary,
+    keyPoints: card.key_points,
+    openQuestions: card.open_questions,
+    decisions: card.decisions,
+    nextSteps: card.next_steps,
+    people: card.people,
+    projects: card.projects,
+    mentionedLocations: card.mentioned_locations,
+    recordedAt: recording.captured_at,
+    locationStatus:
+      recording.city || recording.suburb ? "captured" : "unavailable",
+    location: null,
+    locationLabel: locationLabel(recording),
+    durationSeconds: Math.max(0, (recording.duration_ms ?? 0) / 1_000),
+    wordCount:
+      recording.word_count ??
+      (recording.transcript?.trim().split(/\s+/).filter(Boolean).length ?? 0),
+    audioBytes: 0,
+    transcript: {
+      text: recording.transcript?.trim() ?? "",
+      language: recording.transcript_locale ?? "de-DE",
+      segments: recording.transcript_segments.map((segment) => ({
+        start: segment.start_ms / 1_000,
+        end: segment.end_ms / 1_000,
+        text: segment.text.trim(),
+      })),
+    },
+  };
+}
+
+function toThoughtCard(note: FeaturedNote): ThoughtCard {
+  return {
+    id: note.id,
+    relativePath: note.relativePath,
+    type: note.type,
+    title: note.title,
+    subtitle: note.subtitle,
+    tags: note.tags,
+    recordedAt: note.recordedAt,
+    locationStatus: note.locationStatus,
+    locationLabel: note.locationLabel,
+    durationSeconds: note.durationSeconds,
+  };
+}
 
 export async function fetchNoteProcessingState(
-  relativePath: string,
+  recordingId: string,
 ): Promise<NoteProcessingState> {
   if (!API_URL) throw new Error("thought API URL is not configured");
-  const response = await fetch(
-    `${API_URL}/notes/status?path=${encodeURIComponent(relativePath)}`,
-    { headers: { Accept: "application/json" } },
-  );
-  const body = (await response.json()) as NoteStatusResponse;
-  if (!response.ok || !body.ok) {
-    throw new Error(
-      body.error ?? `thought status request failed (${response.status})`,
-    );
-  }
-  if (body.status === "ready" && body.note) {
-    return { status: "ready", note: body.note };
-  }
-  if (body.status === "failed") {
+  const response = await fetch(`${API_URL}/recordings/${recordingId}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) throw await apiError(response);
+  const recording = (await response.json()) as BackendRecording;
+  const note = toFeaturedNote(recording);
+  if (note) return { status: "ready", note };
+  if (
+    recording.status === "transcription_failed" ||
+    recording.status === "summary_failed"
+  ) {
     return {
       status: "failed",
-      error: body.error ?? "Die Verarbeitung ist fehlgeschlagen.",
+      error:
+        recording.status === "transcription_failed"
+          ? "Die Transkription ist fehlgeschlagen."
+          : "Die Zusammenfassung ist fehlgeschlagen.",
     };
   }
   return { status: "processing" };
@@ -123,22 +229,14 @@ export async function fetchNoteStatus(
 }
 
 export async function retryNoteProcessing(
-  relativePath: string,
+  recordingId: string,
 ): Promise<void> {
   if (!API_URL) throw new Error("thought API URL is not configured");
-  const response = await fetch(
-    `${API_URL}/notes/retry?path=${encodeURIComponent(relativePath)}`,
-    {
-      method: "POST",
-      headers: { Accept: "application/json" },
-    },
-  );
-  const body = (await response.json()) as NoteStatusResponse;
-  if (!response.ok || !body.ok) {
-    throw new Error(
-      body.error ?? `thought retry request failed (${response.status})`,
-    );
-  }
+  const response = await fetch(`${API_URL}/recordings/${recordingId}/retry`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) throw await apiError(response);
 }
 
 export async function fetchNotesForDate(
@@ -146,33 +244,33 @@ export async function fetchNotesForDate(
 ): Promise<{ notes: ThoughtCard[]; processingCount: number }> {
   if (!API_URL) throw new Error("thought API URL is not configured");
   const response = await fetch(
-    `${API_URL}/notes?date=${encodeURIComponent(date)}`,
+    `${API_URL}/recordings?date=${encodeURIComponent(date)}&timezone=${encodeURIComponent(API_TIMEZONE)}`,
     { headers: { Accept: "application/json" } },
   );
-  const body = (await response.json()) as NotesForDateResponse;
-  if (!response.ok || !body.ok || !body.notes) {
-    throw new Error(body.error ?? `thoughts request failed (${response.status})`);
-  }
+  if (!response.ok) throw await apiError(response);
+  const recordings = (await response.json()) as BackendRecording[];
+  const notes = recordings
+    .map(toFeaturedNote)
+    .filter((note): note is FeaturedNote => note !== null)
+    .map(toThoughtCard);
   return {
-    notes: body.notes,
-    processingCount: body.processingCount ?? 0,
+    notes,
+    processingCount: recordings.length - notes.length,
   };
 }
 
 export async function fetchThoughtDays(month: string): Promise<Set<string>> {
   if (!API_URL) throw new Error("thought API URL is not configured");
   const response = await fetch(
-    `${API_URL}/notes/days?month=${encodeURIComponent(month)}`,
+    `${API_URL}/recordings/calendar?month=${encodeURIComponent(month)}&timezone=${encodeURIComponent(API_TIMEZONE)}`,
     { headers: { Accept: "application/json" } },
   );
+  if (!response.ok) throw await apiError(response);
   const body = (await response.json()) as ThoughtDaysResponse;
-  if (!response.ok || !body.ok || !body.days) {
-    throw new Error(
-      body.error ?? `thought days request failed (${response.status})`,
-    );
-  }
   return new Set(
-    body.days.filter(({ count }) => count > 0).map(({ date }) => date),
+    body.days
+      .filter(({ recording_count }) => recording_count > 0)
+      .map(({ date }) => date),
   );
 }
 
