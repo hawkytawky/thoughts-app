@@ -23,7 +23,6 @@ import * as Haptics from "expo-haptics";
 import { type Href, useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DayPicker } from "@/components/DayPicker";
-import { ThoughtFilterPicker } from "@/components/ThoughtFilterPicker";
 import { AppMenuGlyph, AppSidebar } from "@/components/AppSidebar";
 import {
   NOTE_COLORS as C,
@@ -54,17 +53,6 @@ import {
   removePendingThought,
 } from "@/lib/pending-thoughts";
 import { useActiveRecording } from "@/lib/active-recording";
-
-const FILTER_OPTIONS = [
-  { label: "Ideen", type: "IDEA" },
-  { label: "Fragen", type: "QUESTION" },
-  { label: "Reflexionen", type: "REFLECTION" },
-  { label: "Entscheidungen", type: "DECISION" },
-  { label: "Pläne", type: "PLAN" },
-  { label: "Beobachtungen", type: "OBSERVATION" },
-  { label: "Erinnerungen", type: "MEMORY" },
-  { label: "Probleme", type: "PROBLEM" },
-] as const;
 
 function typeLabel(type: string): string {
   const labels: Record<string, string> = {
@@ -116,13 +104,10 @@ function buildDayRange(): Date[] {
 }
 
 type DayPageProps = {
-  activeFilters: string[];
   date: Date;
   insets: { bottom: number; top: number };
   notes: ThoughtCard[] | undefined;
-  onClearFilters: () => void;
   onOpenDatePicker: () => void;
-  onOpenFilters: () => void;
   onOpenMenu: () => void;
   onOpenThought: (note: ThoughtCard) => void;
   onRetryProcessing: (thought: PendingThought) => void;
@@ -131,13 +116,10 @@ type DayPageProps = {
 };
 
 const DayPage = React.memo(function DayPage({
-  activeFilters,
   date,
   insets,
   notes,
-  onClearFilters,
   onOpenDatePicker,
-  onOpenFilters,
   onOpenMenu,
   onOpenThought,
   onRetryProcessing,
@@ -145,17 +127,13 @@ const DayPage = React.memo(function DayPage({
   width,
 }: DayPageProps) {
   const dateKey = formatApiDate(date);
-  const filteredNotes = activeFilters.length
-    ? (notes ?? []).filter((note) => activeFilters.includes(note.type))
-    : (notes ?? []);
-  const visiblePendingThoughts = activeFilters.length
-    ? []
-    : pendingThoughts.filter(
-        (thought) => formatApiDate(new Date(thought.createdAt)) === dateKey,
-      );
+  const visibleNotes = notes ?? [];
+  const visiblePendingThoughts = pendingThoughts.filter(
+    (thought) => formatApiDate(new Date(thought.createdAt)) === dateKey,
+  );
   const empty =
     notes !== undefined &&
-    filteredNotes.length === 0 &&
+    visibleNotes.length === 0 &&
     visiblePendingThoughts.length === 0;
 
   return (
@@ -201,54 +179,6 @@ const DayPage = React.memo(function DayPage({
           </Pressable>
         </View>
 
-        <View style={styles.filters} accessibilityRole="tablist">
-          <Pressable
-            accessibilityRole="tab"
-            accessibilityState={{ selected: activeFilters.length === 0 }}
-            onPress={onClearFilters}
-            style={({ pressed }) => pressed && styles.filterPressed}
-          >
-            <Text
-              style={[
-                styles.filter,
-                activeFilters.length === 0 && styles.filterActive,
-              ]}
-            >
-              Alle
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel={`Filtern${activeFilters.length ? `, ${activeFilters.length} aktiv` : ""}`}
-            accessibilityRole="button"
-            onPress={onOpenFilters}
-            style={({ pressed }) => [
-              styles.filterControl,
-              pressed && styles.filterPressed,
-            ]}
-          >
-            <Ionicons
-              name="options-outline"
-              size={13}
-              color={activeFilters.length ? C.plum : C.ink30}
-            />
-            <Text
-              style={[
-                styles.filter,
-                activeFilters.length > 0 && styles.filterSelected,
-              ]}
-            >
-              Filtern
-            </Text>
-            {activeFilters.length > 0 && (
-              <View style={styles.filterBadge}>
-                <Text style={styles.filterBadgeText}>
-                  {activeFilters.length}
-                </Text>
-              </View>
-            )}
-          </Pressable>
-        </View>
-
         {visiblePendingThoughts.map((pending) => (
           <View key={pending.id} style={[styles.card, styles.processingCard]}>
             <View style={styles.cardBody}>
@@ -277,7 +207,7 @@ const DayPage = React.memo(function DayPage({
                       onPress={() => onRetryProcessing(pending)}
                       style={({ pressed }) => [
                         styles.processingRetry,
-                        pressed && styles.filterPressed,
+                        pressed && styles.controlPressed,
                       ]}
                     >
                       <Ionicons name="refresh" size={13} color={C.plum} />
@@ -301,16 +231,14 @@ const DayPage = React.memo(function DayPage({
         {empty && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>
-              {activeFilters.length
-                ? "Keine thoughts für diese Filter"
-                : isToday(date)
-                  ? "Noch keine thoughts heute"
-                  : "Keine thoughts an diesem Tag"}
+              {isToday(date)
+                ? "Noch keine thoughts heute"
+                : "Keine thoughts an diesem Tag"}
             </Text>
           </View>
         )}
 
-        {filteredNotes.map((cardNote) => (
+        {visibleNotes.map((cardNote) => (
           <Pressable
             key={cardNote.relativePath}
             accessibilityRole="button"
@@ -362,9 +290,7 @@ export default function ThoughtsFeedScreen() {
   const initialDayIndex = dayDates.length - 1;
   const [feedDate, setFeedDate] = useState(dayDates[initialDayIndex]);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
-  const [filterPickerOpen, setFilterPickerOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [notesByDate, setNotesByDate] = useState<Record<string, ThoughtCard[]>>(
     {},
   );
@@ -626,8 +552,6 @@ export default function ThoughtsFeedScreen() {
   }
   if (loading) return <NoteLoading />;
 
-  const currentNotes = notesByDate[formatApiDate(feedDate)] ?? [];
-
   return (
     <View style={styles.root}>
       <FlatList
@@ -636,7 +560,7 @@ export default function ThoughtsFeedScreen() {
         decelerationRate="fast"
         directionalLockEnabled
         disableIntervalMomentum
-        extraData={{ activeFilters, notesByDate, pendingThoughts, width }}
+        extraData={{ notesByDate, pendingThoughts, width }}
         getItemLayout={(_, index) => ({
           index,
           length: width,
@@ -660,13 +584,10 @@ export default function ThoughtsFeedScreen() {
           const key = formatApiDate(item);
           return (
             <DayPage
-              activeFilters={activeFilters}
               date={item}
               insets={insets}
               notes={notesByDate[key]}
-              onClearFilters={() => setActiveFilters([])}
               onOpenDatePicker={() => setDatePickerOpen(true)}
-              onOpenFilters={() => setFilterPickerOpen(true)}
               onOpenMenu={() => setSidebarOpen(true)}
               onOpenThought={openThought}
               onRetryProcessing={(thought) => void retryProcessing(thought)}
@@ -709,20 +630,6 @@ export default function ThoughtsFeedScreen() {
         value={feedDate}
         visible={datePickerOpen}
       />
-      <ThoughtFilterPicker
-        onApply={(types) => {
-          setActiveFilters(types);
-          setFilterPickerOpen(false);
-        }}
-        onClose={() => setFilterPickerOpen(false)}
-        options={FILTER_OPTIONS.map((option) => ({
-          ...option,
-          count: currentNotes.filter((note) => note.type === option.type)
-            .length,
-        }))}
-        selected={activeFilters}
-        visible={filterPickerOpen}
-      />
       <AppSidebar
         active="thoughts"
         insets={insets}
@@ -739,82 +646,46 @@ const styles = StyleSheet.create({
   dayPage: { flex: 1, backgroundColor: C.paper },
   content: { paddingHorizontal: 20, paddingBottom: 130 },
   appBar: {
-    minHeight: 38,
-    paddingBottom: 14,
+    height: 38,
+    marginBottom: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   brandGroup: {
+    height: 38,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
   },
   menuButton: {
-    width: 28,
-    height: 28,
+    width: 24,
+    height: 38,
     alignItems: "flex-start",
     justifyContent: "center",
   },
   menuButtonPressed: { opacity: 0.5, transform: [{ scale: 0.96 }] },
   brand: {
     fontFamily: NOTE_SERIF,
-    fontSize: 12,
-    color: C.ink40,
+    fontSize: 20,
+    lineHeight: 24,
+    color: C.ink,
   },
   day: {
     fontFamily: NOTE_SANS_ITALIC,
-    fontSize: 13,
+    fontSize: 12,
+    lineHeight: 18,
     color: C.ink30,
   },
   dayButton: {
+    height: 38,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingLeft: 10,
-    paddingVertical: 8,
+    gap: 4,
+    paddingLeft: 12,
   },
   dayButtonPressed: { opacity: 0.5 },
-  filters: {
-    paddingBottom: 18,
-    flexDirection: "row",
-    gap: 20,
-  },
-  filter: {
-    fontFamily: NOTE_SANS_SEMIBOLD,
-    fontSize: 10,
-    letterSpacing: 1.25,
-    textTransform: "uppercase",
-    color: C.ink30,
-    paddingBottom: 4,
-  },
-  filterActive: {
-    color: C.ink,
-    borderBottomWidth: 1,
-    borderBottomColor: C.ink,
-  },
-  filterSelected: { color: C.plum },
-  filterControl: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 5,
-  },
-  filterBadge: {
-    minWidth: 17,
-    height: 17,
-    borderRadius: 9,
-    paddingHorizontal: 4,
-    marginTop: -3,
-    backgroundColor: C.plum,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  filterBadgeText: {
-    fontFamily: NOTE_SANS_SEMIBOLD,
-    fontSize: 9,
-    color: C.card,
-  },
-  filterPressed: { opacity: 0.5 },
+  controlPressed: { opacity: 0.5 },
   card: {
     backgroundColor: C.card,
     borderWidth: StyleSheet.hairlineWidth,
