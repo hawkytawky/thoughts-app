@@ -19,6 +19,7 @@ import {
   signInWithGoogle as startGoogleSignIn,
   subscribeToSessionCleared,
 } from "./session";
+import { clearLocalUserData } from "@/lib/local-user-data";
 
 type AuthStatus =
   "loading" | "signed-out" | "signed-in" | "configuration-error";
@@ -114,10 +115,14 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
 
   const deleteAccount = useCallback(async () => {
     await deleteCurrentUser();
-    await clearSession();
-    setUser(null);
-    setError(null);
-    setStatus("signed-out");
+    try {
+      await clearLocalUserData();
+    } finally {
+      await clearSession();
+      setUser(null);
+      setError(null);
+      setStatus("signed-out");
+    }
   }, []);
 
   const value = useMemo(

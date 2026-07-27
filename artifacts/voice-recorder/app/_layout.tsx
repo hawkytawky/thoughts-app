@@ -113,6 +113,7 @@ function AppShell() {
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         <Stack.Screen name="record" options={{ headerShown: false }} />
         <Stack.Screen name="overview" options={{ headerShown: false }} />
+        <Stack.Screen name="profile" options={{ headerShown: false }} />
         <Stack.Screen name="thoughts/index" options={{ headerShown: false }} />
         <Stack.Screen name="thoughts/detail" options={{ headerShown: false }} />
       </Stack>

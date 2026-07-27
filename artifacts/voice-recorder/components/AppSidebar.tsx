@@ -67,7 +67,7 @@ export function AppSidebar({
   visible: boolean;
 }) {
   const router = useRouter();
-  const { signOut, user } = useAuth();
+  const { user } = useAuth();
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -177,24 +177,28 @@ export function AppSidebar({
         </View>
 
         <View style={styles.account}>
-          {user?.display_name ? (
-            <Text numberOfLines={1} style={styles.accountName}>
-              {user.display_name}
-            </Text>
-          ) : null}
           <Pressable
+            accessibilityLabel="Profil öffnen"
             accessibilityRole="button"
             onPress={() => {
               onClose();
-              void signOut();
+              router.push("/profile");
             }}
             style={({ pressed }) => [
-              styles.signOut,
+              styles.profileButton,
               pressed && styles.pressed,
             ]}
           >
-            <Ionicons name="log-out-outline" size={18} color={C.ink40} />
-            <Text style={styles.signOutText}>abmelden</Text>
+            <View style={styles.profileIcon}>
+              <Ionicons name="person-outline" size={17} color={C.skyDeep} />
+            </View>
+            <View style={styles.profileCopy}>
+              <Text numberOfLines={1} style={styles.profileName}>
+                {user?.display_name || "Profil"}
+              </Text>
+              <Text style={styles.profileLabel}>Account ansehen</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={C.ink30} />
           </Pressable>
         </View>
       </Animated.View>
@@ -278,25 +282,40 @@ const styles = StyleSheet.create({
   },
   account: {
     marginTop: "auto",
-    gap: 8,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.divider,
   },
-  accountName: {
-    paddingHorizontal: 14,
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 12,
-    color: C.ink30,
-  },
-  signOut: {
-    minHeight: 44,
-    paddingHorizontal: 14,
+  profileButton: {
+    minHeight: 56,
+    paddingHorizontal: 8,
     borderRadius: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 13,
+    gap: 11,
   },
-  signOutText: {
+  profileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.skyLight,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border,
+  },
+  profileCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  profileName: {
     fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 14,
+    color: C.ink,
+  },
+  profileLabel: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 10,
     color: C.ink60,
   },
   pressed: { opacity: 0.58 },
