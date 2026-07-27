@@ -1,7 +1,4 @@
-const dataMode = process.env.EXPO_PUBLIC_THOUGHTS_DATA_MODE ?? "azure";
-
 export const authConfig = {
-  isAzureMode: dataMode === "azure",
   apiUrl: process.env.EXPO_PUBLIC_THOUGHTS_API_URL?.replace(/\/+$/, ""),
   authority: process.env.EXPO_PUBLIC_ENTRA_AUTHORITY?.replace(/\/+$/, ""),
   clientId: process.env.EXPO_PUBLIC_ENTRA_IOS_CLIENT_ID,
@@ -12,8 +9,6 @@ export const authConfig = {
 } as const;
 
 export function getAuthConfigurationError(): string | null {
-  if (!authConfig.isAzureMode) return null;
-
   const missing = [
     ["EXPO_PUBLIC_THOUGHTS_API_URL", authConfig.apiUrl],
     ["EXPO_PUBLIC_ENTRA_AUTHORITY", authConfig.authority],

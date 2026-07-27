@@ -14,7 +14,7 @@ import {
   NOTE_SANS_MEDIUM,
   NOTE_SERIF,
 } from "@/components/NoteUI";
-import { authConfig, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 
 type SidebarDestination = "thoughts" | "overview";
 
@@ -176,29 +176,27 @@ export function AppSidebar({
           })}
         </View>
 
-        {authConfig.isAzureMode ? (
-          <View style={styles.account}>
-            {user?.display_name ? (
-              <Text numberOfLines={1} style={styles.accountName}>
-                {user.display_name}
-              </Text>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                onClose();
-                void signOut();
-              }}
-              style={({ pressed }) => [
-                styles.signOut,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Ionicons name="log-out-outline" size={18} color={C.ink40} />
-              <Text style={styles.signOutText}>abmelden</Text>
-            </Pressable>
-          </View>
-        ) : null}
+        <View style={styles.account}>
+          {user?.display_name ? (
+            <Text numberOfLines={1} style={styles.accountName}>
+              {user.display_name}
+            </Text>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              onClose();
+              void signOut();
+            }}
+            style={({ pressed }) => [
+              styles.signOut,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Ionicons name="log-out-outline" size={18} color={C.ink40} />
+            <Text style={styles.signOutText}>abmelden</Text>
+          </Pressable>
+        </View>
       </Animated.View>
     </View>
   );

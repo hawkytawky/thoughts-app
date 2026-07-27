@@ -11,7 +11,7 @@ import {
   fetchCurrentUser,
   type CurrentUser,
 } from "./api";
-import { authConfig, getAuthConfigurationError } from "./config";
+import { getAuthConfigurationError } from "./config";
 import {
   clearSession,
   restoreSession,
@@ -36,23 +36,11 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: React.PropsWithChildren) {
-  const [status, setStatus] = useState<AuthStatus>(
-    authConfig.isAzureMode ? "loading" : "signed-in",
-  );
-  const [user, setUser] = useState<CurrentUser | null>(
-    authConfig.isAzureMode
-      ? null
-      : {
-          user_id: "local",
-          display_name: "Lokaler Modus",
-          auth_provider: "local",
-        },
-  );
+  const [status, setStatus] = useState<AuthStatus>("loading");
+  const [user, setUser] = useState<CurrentUser | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!authConfig.isAzureMode) return;
-
     const configurationError = getAuthConfigurationError();
     if (configurationError) {
       setError(configurationError);

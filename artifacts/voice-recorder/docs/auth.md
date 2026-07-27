@@ -1,10 +1,9 @@
 # Apple- und Google-Login im Frontend
 
-Die App hat zwei bewusst getrennte Betriebsarten:
-
-- `local`: kein Login; der bisherige Mac-/Tailscale-Workflow bleibt aktiv.
-- `azure`: Entra External ID ist vorgeschaltet; Apple und Google werden als
-  Identity Provider angeboten.
+Die App verwendet ausschließlich das authentifizierte Azure-Backend. Entra
+External ID ist vorgeschaltet; Apple und Google werden als Identity Provider
+angeboten. Einen lokalen Receiver- oder unauthentifizierten Fallback gibt es
+im Frontend nicht.
 
 ## Ablauf
 
@@ -36,20 +35,9 @@ ungültigen Session wird der lokale Login entfernt und die Loginseite angezeigt.
 Das Frontend berücksichtigt außerdem `DELETE /auth/me` als Grundlage für die
 spätere Funktion zum Löschen des Kontos.
 
-## Lokaler Modus
+## Konfiguration
 
-```env
-EXPO_PUBLIC_THOUGHTS_DATA_MODE=local
-EXPO_PUBLIC_THOUGHTS_UPLOAD_URL=https://your-mac.your-tailnet.ts.net
-```
-
-## Azure-Modus
-
-Die benötigten Werte stehen in `.env.example`. Danach:
-
-```env
-EXPO_PUBLIC_THOUGHTS_DATA_MODE=azure
-```
+Die benötigten Azure- und Entra-Werte stehen in `.env.example`.
 
 Für den Redirect muss ein Development-/Production-Build der App verwendet
 werden; Expo Go besitzt das benutzerdefinierte URL-Scheme nicht.
@@ -63,8 +51,8 @@ werden; Expo Go besitzt das benutzerdefinierte URL-Scheme nicht.
 3. Den API-Scope `recordings.readwrite` freigeben und dem iOS-Client erlauben.
 4. Apple und Google als Identity Provider konfigurieren und zum User Flow
    hinzufügen.
-5. Backend auf `THOUGHTS_AUTH_MODE=entra` und Frontend auf
-   `EXPO_PUBLIC_THOUGHTS_DATA_MODE=azure` umstellen.
+5. Backend mit aktivierter Entra-Authentifizierung deployen und die
+   Produktionswerte aus `.env.example` im Frontend setzen.
 
 Die Apple-Konfiguration benötigt im Apple Developer Portal die App ID
 `com.otto.thoughts`, eine Services ID, Team ID, Key ID und den `.p8`-Key.

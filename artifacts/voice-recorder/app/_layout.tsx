@@ -28,7 +28,7 @@ import {
 } from "expo-router";
 import { ActiveRecordingBar } from "@/components/ActiveRecordingBar";
 import { ensureLocationPermission } from "@/lib/location-permission";
-import { AuthProvider, authConfig, useAuth } from "@/lib/auth";
+import { AuthProvider, useAuth } from "@/lib/auth";
 
 function LocationPermissionBootstrap() {
   useEffect(() => {
@@ -83,7 +83,7 @@ function AppShell() {
   const segments = useSegments();
   const isSignInRoute = String(segments[0] ?? "") === "sign-in";
 
-  if (authConfig.isAzureMode && status === "loading") {
+  if (status === "loading") {
     return (
       <View style={styles.loading}>
         <ActivityIndicator color="#7FB0D6" />
@@ -92,18 +92,17 @@ function AppShell() {
   }
 
   if (
-    authConfig.isAzureMode &&
     (status === "signed-out" || status === "configuration-error") &&
     !isSignInRoute
   ) {
     return <Redirect href="/sign-in" />;
   }
 
-  if (authConfig.isAzureMode && status === "signed-in" && isSignInRoute) {
+  if (status === "signed-in" && isSignInRoute) {
     return <Redirect href="/" />;
   }
 
-  const appIsAvailable = !authConfig.isAzureMode || status === "signed-in";
+  const appIsAvailable = status === "signed-in";
 
   return (
     <>

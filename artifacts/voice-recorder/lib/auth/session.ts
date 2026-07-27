@@ -55,7 +55,6 @@ async function refreshTokens(
 }
 
 export async function restoreSession(): Promise<boolean> {
-  if (!authConfig.isAzureMode) return true;
   const refreshToken = await SecureStore.getItemAsync(
     REFRESH_TOKEN_KEY,
     KEYCHAIN_OPTIONS,
@@ -125,9 +124,6 @@ export async function signInWithGoogle(): Promise<void> {
 }
 
 export async function getAccessToken(): Promise<string> {
-  if (!authConfig.isAzureMode) {
-    throw new Error("Der lokale Modus benötigt kein Access Token.");
-  }
   if (
     currentTokens &&
     AuthSession.TokenResponse.isTokenFresh(currentTokens, -60)

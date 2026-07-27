@@ -17,15 +17,13 @@ export async function backendFetch(
 
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
-  if (authConfig.isAzureMode) {
-    headers.set("Authorization", `Bearer ${await getAccessToken()}`);
-  }
+  headers.set("Authorization", `Bearer ${await getAccessToken()}`);
 
   const response = await fetch(`${authConfig.apiUrl}${path}`, {
     ...init,
     headers,
   });
-  if (authConfig.isAzureMode && response.status === 401) {
+  if (response.status === 401) {
     await clearSession();
   }
   return response;
