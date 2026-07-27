@@ -7,6 +7,8 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   FlatList,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -116,6 +118,7 @@ type DayPageProps = {
   onClearFilters: () => void;
   onOpenDatePicker: () => void;
   onOpenFilters: () => void;
+  onOpenMenu: () => void;
   onOpenThought: (note: ThoughtCard) => void;
   onRetryProcessing: (thought: PendingThought) => void;
   pendingThoughts: PendingThought[];
@@ -130,6 +133,7 @@ const DayPage = React.memo(function DayPage({
   onClearFilters,
   onOpenDatePicker,
   onOpenFilters,
+  onOpenMenu,
   onOpenThought,
   onRetryProcessing,
   pendingThoughts,
@@ -163,7 +167,21 @@ const DayPage = React.memo(function DayPage({
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.appBar}>
-          <Text style={styles.brand}>thoughts</Text>
+          <View style={styles.brandGroup}>
+            <Pressable
+              accessibilityLabel="Menü öffnen"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={onOpenMenu}
+              style={({ pressed }) => [
+                styles.menuButton,
+                pressed && styles.menuButtonPressed,
+              ]}
+            >
+              <Ionicons name="menu-outline" size={19} color={C.ink40} />
+            </Pressable>
+            <Text style={styles.brand}>thoughts</Text>
+          </View>
           <Pressable
             accessibilityLabel={`Datum auswählen. Angezeigt wird ${feedDateLabel(date)}`}
             accessibilityRole="button"
@@ -323,6 +341,107 @@ const DayPage = React.memo(function DayPage({
   );
 });
 
+function FeedSidebar({
+  insets,
+  onClose,
+  visible,
+}: {
+  insets: { bottom: number; top: number };
+  onClose: () => void;
+  visible: boolean;
+}) {
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      duration: visible ? 280 : 220,
+      easing: visible
+        ? Easing.out(Easing.cubic)
+        : Easing.inOut(Easing.cubic),
+      toValue: visible ? 1 : 0,
+      useNativeDriver: true,
+    }).start();
+  }, [progress, visible]);
+
+  return (
+    <View
+      pointerEvents={visible ? "auto" : "none"}
+      style={styles.sidebarLayer}
+    >
+      <Animated.View
+        style={[
+          styles.sidebarBackdrop,
+          {
+            opacity: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 1],
+            }),
+          },
+        ]}
+      >
+        <Pressable
+          accessibilityLabel="Menü schließen"
+          onPress={onClose}
+          style={StyleSheet.absoluteFillObject}
+        />
+      </Animated.View>
+
+      <Animated.View
+        style={[
+          styles.sidebar,
+          {
+            paddingBottom: insets.bottom + 24,
+            paddingTop: insets.top + 12,
+            transform: [
+              {
+                translateX: progress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-330, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <View style={styles.sidebarHeader}>
+          <Text style={styles.sidebarBrand}>thoughts</Text>
+          <Pressable
+            accessibilityLabel="Menü schließen"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={onClose}
+            style={({ pressed }) => [
+              styles.sidebarClose,
+              pressed && styles.menuButtonPressed,
+            ]}
+          >
+            <Ionicons name="close" size={18} color={C.ink40} />
+          </Pressable>
+        </View>
+
+        <View style={styles.sidebarNavigation}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onClose}
+            style={({ pressed }) => [
+              styles.sidebarItem,
+              styles.sidebarItemActive,
+              pressed && styles.sidebarItemPressed,
+            ]}
+          >
+            <Ionicons name="cloud-outline" size={19} color={C.skyDeep} />
+            <Text style={[styles.sidebarItemText, styles.sidebarItemTextActive]}>
+              thoughts
+            </Text>
+            <View style={styles.sidebarActiveDot} />
+          </Pressable>
+
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
 export default function ThoughtsFeedScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -340,6 +459,7 @@ export default function ThoughtsFeedScreen() {
   const [feedDate, setFeedDate] = useState(dayDates[initialDayIndex]);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [filterPickerOpen, setFilterPickerOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [notesByDate, setNotesByDate] = useState<Record<string, ThoughtCard[]>>(
     {},
@@ -643,6 +763,7 @@ export default function ThoughtsFeedScreen() {
               onClearFilters={() => setActiveFilters([])}
               onOpenDatePicker={() => setDatePickerOpen(true)}
               onOpenFilters={() => setFilterPickerOpen(true)}
+              onOpenMenu={() => setSidebarOpen(true)}
               onOpenThought={openThought}
               onRetryProcessing={(thought) => void retryProcessing(thought)}
               pendingThoughts={pendingThoughts}
@@ -698,6 +819,11 @@ export default function ThoughtsFeedScreen() {
         selected={activeFilters}
         visible={filterPickerOpen}
       />
+      <FeedSidebar
+        insets={insets}
+        onClose={() => setSidebarOpen(false)}
+        visible={sidebarOpen}
+      />
     </View>
   );
 }
@@ -715,6 +841,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  brandGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  menuButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(234,242,248,0.58)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(191,217,236,0.78)",
+  },
+  menuButtonPressed: { opacity: 0.5, transform: [{ scale: 0.96 }] },
   brand: {
     fontFamily: NOTE_SERIF,
     fontSize: 12,
@@ -870,4 +1012,71 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   recordButtonPressed: { transform: [{ scale: 0.96 }], opacity: 0.86 },
+  sidebarLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 50,
+  },
+  sidebarBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(36,69,95,0.17)",
+  },
+  sidebar: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: "78%",
+    maxWidth: 310,
+    paddingHorizontal: 22,
+    backgroundColor: "rgba(251,252,253,0.98)",
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderRightColor: C.border,
+    shadowColor: C.skyDeep,
+    shadowOpacity: 0.12,
+    shadowRadius: 22,
+    shadowOffset: { width: 8, height: 0 },
+    elevation: 12,
+  },
+  sidebarHeader: {
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  sidebarBrand: {
+    fontFamily: NOTE_SERIF,
+    fontSize: 22,
+    color: C.ink,
+  },
+  sidebarClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sidebarNavigation: { marginTop: 42, gap: 7 },
+  sidebarItem: {
+    minHeight: 48,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+  },
+  sidebarItemActive: { backgroundColor: "rgba(234,242,248,0.72)" },
+  sidebarItemPressed: { opacity: 0.58 },
+  sidebarItemText: {
+    flex: 1,
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 15,
+    color: C.ink60,
+  },
+  sidebarItemTextActive: { color: C.ink },
+  sidebarActiveDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: C.sky,
+  },
 });
