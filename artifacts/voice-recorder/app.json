@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "thoughts",
+    "scheme": ["thoughts", "msauth.com.otto.thoughts"],
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -24,6 +24,7 @@
       "expo-router",
       "expo-font",
       "expo-web-browser",
+      "expo-secure-store",
       [
         "expo-av",
         {
