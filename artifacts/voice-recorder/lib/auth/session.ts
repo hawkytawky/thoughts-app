@@ -1,23 +1,29 @@
-import * as AuthSession from "expo-auth-session";
+import {
+  GoogleSignin,
+  isCancelledResponse,
+  isSuccessResponse,
+} from "@react-native-google-signin/google-signin";
 import * as SecureStore from "expo-secure-store";
-import * as WebBrowser from "expo-web-browser";
 import { authConfig, getAuthConfigurationError } from "./config";
-
-WebBrowser.maybeCompleteAuthSession();
 
 const REFRESH_TOKEN_KEY = "thoughts.auth.refresh-token";
 const KEYCHAIN_OPTIONS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
 };
-const SCOPES = [
-  "openid",
-  "profile",
-  "offline_access",
-  authConfig.apiScope ?? "",
-].filter(Boolean);
+const REFRESH_MARGIN_MS = 60_000;
 
-let currentTokens: AuthSession.TokenResponse | null = null;
-let refreshPromise: Promise<AuthSession.TokenResponse> | null = null;
+type Session = { accessToken: string; expiresAt: number };
+
+type SessionPayload = {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+};
+
+let googleConfigured = false;
+let currentSession: Session | null = null;
+let currentRefreshToken: string | null = null;
+let refreshPromise: Promise<Session> | null = null;
 const sessionClearedListeners = new Set<() => void>();
 
 export function subscribeToSessionCleared(listener: () => void): () => void {
@@ -25,33 +31,62 @@ export function subscribeToSessionCleared(listener: () => void): () => void {
   return () => sessionClearedListeners.delete(listener);
 }
 
-async function requireDiscovery(): Promise<AuthSession.DiscoveryDocument> {
+function ensureConfigured(): void {
   const configurationError = getAuthConfigurationError();
   if (configurationError) throw new Error(configurationError);
-  return AuthSession.fetchDiscoveryAsync(authConfig.authority!);
+  if (googleConfigured) return;
+  GoogleSignin.configure({
+    iosClientId: authConfig.googleIosClientId!,
+    webClientId: authConfig.googleWebClientId!,
+  });
+  googleConfigured = true;
 }
 
-async function persistRefreshToken(token: string | undefined): Promise<void> {
-  if (!token) return;
+function apiUrl(path: string): string {
+  if (!authConfig.apiUrl) {
+    throw new Error("EXPO_PUBLIC_THOUGHTS_API_URL ist nicht konfiguriert.");
+  }
+  return `${authConfig.apiUrl}${path}`;
+}
+
+async function requestSession(
+  path: string,
+  body: unknown,
+): Promise<SessionPayload> {
+  const response = await fetch(apiUrl(path), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`Anmeldung fehlgeschlagen (${response.status}).`);
+  }
+  return (await response.json()) as SessionPayload;
+}
+
+async function persistRefreshToken(token: string): Promise<void> {
+  currentRefreshToken = token;
   await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, token, KEYCHAIN_OPTIONS);
 }
 
-async function refreshTokens(
-  refreshToken: string,
-): Promise<AuthSession.TokenResponse> {
-  const discovery = await requireDiscovery();
-  const tokens = await AuthSession.refreshAsync(
-    {
-      clientId: authConfig.clientId!,
-      refreshToken,
-      scopes: SCOPES,
-    },
-    discovery,
-  );
-  tokens.refreshToken = tokens.refreshToken ?? refreshToken;
-  currentTokens = tokens;
-  await persistRefreshToken(tokens.refreshToken);
-  return tokens;
+function adoptSession(payload: SessionPayload): Session {
+  currentSession = {
+    accessToken: payload.access_token,
+    expiresAt: Date.now() + payload.expires_in * 1000,
+  };
+  return currentSession;
+}
+
+async function refreshSession(): Promise<Session> {
+  if (!currentRefreshToken) throw new Error("Nicht angemeldet.");
+  const payload = await requestSession("/auth/refresh", {
+    refresh_token: currentRefreshToken,
+  });
+  await persistRefreshToken(payload.refresh_token);
+  return adoptSession(payload);
 }
 
 export async function restoreSession(): Promise<boolean> {
@@ -61,8 +96,9 @@ export async function restoreSession(): Promise<boolean> {
   );
   if (!refreshToken) return false;
 
+  currentRefreshToken = refreshToken;
   try {
-    await refreshTokens(refreshToken);
+    await refreshSession();
     return true;
   } catch {
     await clearSession();
@@ -70,73 +106,47 @@ export async function restoreSession(): Promise<boolean> {
   }
 }
 
-type IdentityProvider = "apple" | "google";
+export async function signInWithGoogle(): Promise<void> {
+  ensureConfigured();
+  await GoogleSignin.hasPlayServices();
 
-async function signInWithProvider(provider: IdentityProvider): Promise<void> {
-  const discovery = await requireDiscovery();
-  const request = new AuthSession.AuthRequest({
-    clientId: authConfig.clientId!,
-    redirectUri: authConfig.redirectUri,
-    responseType: AuthSession.ResponseType.Code,
-    scopes: SCOPES,
-    usePKCE: true,
-    extraParams: {
-      domain_hint: provider,
-      response_mode: "query",
-    },
-  });
-
-  const result = await request.promptAsync(discovery);
-  if (result.type === "cancel" || result.type === "dismiss") {
+  const result = await GoogleSignin.signIn();
+  if (isCancelledResponse(result)) {
     throw new Error("Anmeldung abgebrochen.");
   }
-  if (result.type !== "success") {
-    const providerName = provider === "apple" ? "Apple" : "Google";
-    throw new Error(
-      (result.type === "error" ? result.params.error_description : undefined) ??
-        `${providerName}-Anmeldung fehlgeschlagen.`,
-    );
-  }
-  if (!result.params.code || !request.codeVerifier) {
-    throw new Error("Entra hat keinen vollständigen Login-Code geliefert.");
+  if (!isSuccessResponse(result) || !result.data.idToken) {
+    throw new Error("Google hat keinen Login-Token geliefert.");
   }
 
-  const tokens = await AuthSession.exchangeCodeAsync(
-    {
-      clientId: authConfig.clientId!,
-      code: result.params.code,
-      redirectUri: authConfig.redirectUri,
-      scopes: SCOPES,
-      extraParams: { code_verifier: request.codeVerifier },
-    },
-    discovery,
-  );
-  currentTokens = tokens;
-  await persistRefreshToken(tokens.refreshToken);
+  const payload = await requestSession("/auth/google", {
+    id_token: result.data.idToken,
+  });
+  await persistRefreshToken(payload.refresh_token);
+  adoptSession(payload);
 }
 
 export async function signInWithApple(): Promise<void> {
-  await signInWithProvider("apple");
-}
-
-export async function signInWithGoogle(): Promise<void> {
-  await signInWithProvider("google");
+  throw new Error("Apple-Login ist bald verfügbar.");
 }
 
 export async function getAccessToken(): Promise<string> {
   if (
-    currentTokens &&
-    AuthSession.TokenResponse.isTokenFresh(currentTokens, -60)
+    currentSession &&
+    currentSession.expiresAt - REFRESH_MARGIN_MS > Date.now()
   ) {
-    return currentTokens.accessToken;
+    return currentSession.accessToken;
   }
 
+  if (!currentRefreshToken) {
+    currentRefreshToken = await SecureStore.getItemAsync(
+      REFRESH_TOKEN_KEY,
+      KEYCHAIN_OPTIONS,
+    );
+  }
+  if (!currentRefreshToken) throw new Error("Nicht angemeldet.");
+
   if (!refreshPromise) {
-    const refreshToken =
-      currentTokens?.refreshToken ??
-      (await SecureStore.getItemAsync(REFRESH_TOKEN_KEY, KEYCHAIN_OPTIONS));
-    if (!refreshToken) throw new Error("Nicht angemeldet.");
-    refreshPromise = refreshTokens(refreshToken).finally(() => {
+    refreshPromise = refreshSession().finally(() => {
       refreshPromise = null;
     });
   }
@@ -145,8 +155,29 @@ export async function getAccessToken(): Promise<string> {
 }
 
 export async function clearSession(): Promise<void> {
-  currentTokens = null;
+  const refreshToken = currentRefreshToken;
+  currentSession = null;
+  currentRefreshToken = null;
   refreshPromise = null;
   await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY, KEYCHAIN_OPTIONS);
+
+  if (refreshToken) {
+    try {
+      await fetch(apiUrl("/auth/logout"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+    } catch {
+      // Logout is best effort; the local session is already cleared.
+    }
+  }
+
+  try {
+    await GoogleSignin.signOut();
+  } catch {
+    // Signing out of Google is best effort.
+  }
+
   sessionClearedListeners.forEach((listener) => listener());
 }

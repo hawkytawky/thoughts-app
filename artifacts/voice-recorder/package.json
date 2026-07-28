@@ -57,6 +57,7 @@
   "dependencies": {
     "@expo-google-fonts/instrument-sans": "^0.4.2",
     "@expo-google-fonts/newsreader": "^0.4.1",
+    "@react-native-google-signin/google-signin": "^16.1.2",
     "@shopify/react-native-skia": "2.2.12",
     "expo": "~54.0.35",
     "expo-auth-session": "~7.0.11",

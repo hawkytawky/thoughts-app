@@ -20,7 +20,6 @@ import {
   Newsreader_400Regular_Italic,
 } from "@expo-google-fonts/newsreader";
 import {
-  Redirect,
   type Href,
   Stack,
   useRouter,
@@ -81,28 +80,28 @@ function RecordingDeepLinkBootstrap() {
 function AppShell() {
   const { status } = useAuth();
   const segments = useSegments();
+  const router = useRouter();
   const isSignInRoute = String(segments[0] ?? "") === "sign-in";
 
-  if (status === "loading") {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator color="#7FB0D6" />
-      </View>
-    );
-  }
-
-  if (
-    (status === "signed-out" || status === "configuration-error") &&
-    !isSignInRoute
-  ) {
-    return <Redirect href="/sign-in" />;
-  }
-
-  if (status === "signed-in" && isSignInRoute) {
-    return <Redirect href="/" />;
-  }
-
   const appIsAvailable = status === "signed-in";
+  const needsSignIn =
+    status === "signed-out" || status === "configuration-error";
+  const redirecting =
+    status === "loading" ||
+    (needsSignIn && !isSignInRoute) ||
+    (appIsAvailable && isSignInRoute);
+
+  // Redirect imperatively AFTER the navigator is mounted. Returning a
+  // <Redirect> (or a plain <View>) in place of the <Stack> would leave the
+  // router without a mounted navigator and render a blank/white screen.
+  useEffect(() => {
+    if (status === "loading") return;
+    if (needsSignIn && !isSignInRoute) {
+      router.replace("/sign-in" as Href);
+    } else if (appIsAvailable && isSignInRoute) {
+      router.replace("/" as Href);
+    }
+  }, [status, needsSignIn, appIsAvailable, isSignInRoute, router]);
 
   return (
     <>
@@ -117,6 +116,11 @@ function AppShell() {
         <Stack.Screen name="thoughts/index" options={{ headerShown: false }} />
         <Stack.Screen name="thoughts/detail" options={{ headerShown: false }} />
       </Stack>
+      {redirecting ? (
+        <View style={styles.loading}>
+          <ActivityIndicator color="#7FB0D6" />
+        </View>
+      ) : null}
       {appIsAvailable ? <ActiveRecordingBar /> : null}
     </>
   );

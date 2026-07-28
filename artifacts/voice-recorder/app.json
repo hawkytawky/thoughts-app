@@ -5,7 +5,9 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": ["thoughts", "msauth.com.otto.thoughts"],
+    "scheme": [
+      "thoughts"
+    ],
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -35,6 +37,12 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Erlaube thoughts, deinen Standort zu verwenden, damit jeder thought automatisch Stadt und Stadtteil erhält."
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.660632473974-ee1pilng805otr2ta2d6s83v7iq7q6dl"
         }
       ]
     ],
