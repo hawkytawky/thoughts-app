@@ -141,7 +141,7 @@ const DayPage = React.memo(function DayPage({
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: insets.top + 7,
+            paddingTop: Math.max(insets.top - 3, 8),
             paddingBottom: insets.bottom + 120,
           },
         ]}
