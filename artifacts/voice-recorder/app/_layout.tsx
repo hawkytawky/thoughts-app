@@ -173,7 +173,7 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   loading: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#F5F9FC",

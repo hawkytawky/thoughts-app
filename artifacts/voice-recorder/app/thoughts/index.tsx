@@ -32,7 +32,6 @@ import {
   NOTE_SANS_SEMIBOLD,
   NOTE_SERIF,
   NoteError,
-  NoteLoading,
   NOTE_CATEGORY_TEXT_OPACITY,
   noteCategoryColor,
 } from "@/components/NoteUI";
@@ -175,7 +174,7 @@ const DayPage = React.memo(function DayPage({
             ]}
           >
             <Text style={styles.day}>{feedDateLabel(date)}</Text>
-            <Ionicons name="chevron-down" size={12} color={C.ink30} />
+            <Ionicons name="chevron-down" size={12} color={C.ink60} />
           </Pressable>
         </View>
 
@@ -294,14 +293,12 @@ export default function ThoughtsFeedScreen() {
   const [notesByDate, setNotesByDate] = useState<Record<string, ThoughtCard[]>>(
     {},
   );
-  const [loading, setLoading] = useState(true);
   const [pendingThoughts, setPendingThoughts] = useState<PendingThought[]>([]);
   const [error, setError] = useState<string | null>(null);
   const notesByDateRef = useRef(new Map<string, ThoughtCard[]>());
   const dateFetchesRef = useRef(new Map<string, Promise<ThoughtCard[]>>());
   const pagerRef = useRef<FlatList<Date>>(null);
   const currentDayIndexRef = useRef(initialDayIndex);
-  const initialLoadRef = useRef(true);
   const activeDateKeyRef = useRef(formatApiDate(feedDate));
   activeDateKeyRef.current = formatApiDate(feedDate);
 
@@ -366,21 +363,16 @@ export default function ThoughtsFeedScreen() {
 
   useEffect(() => {
     const currentKey = formatApiDate(feedDate);
-    const isInitialLoad = initialLoadRef.current;
     setError(null);
 
-    void loadDate(feedDate, notesByDateRef.current.has(currentKey))
-      .catch((loadError) => {
+    void loadDate(feedDate, notesByDateRef.current.has(currentKey)).catch(
+      (loadError) => {
         if (activeDateKeyRef.current !== currentKey) return;
         setError(
           loadError instanceof Error ? loadError.message : "Unbekannter Fehler",
         );
-      })
-      .finally(() => {
-        if (!isInitialLoad) return;
-        initialLoadRef.current = false;
-        setLoading(false);
-      });
+      },
+    );
 
     for (const offset of [-2, -1, 1, 2]) {
       const adjacent = shiftDay(feedDate, offset);
@@ -531,16 +523,13 @@ export default function ThoughtsFeedScreen() {
         message={error}
         onRetry={() => {
           setError(null);
-          setLoading(true);
-          void loadDate(feedDate, true)
-            .catch((loadError) =>
-              setError(
-                loadError instanceof Error
-                  ? loadError.message
-                  : "Unbekannter Fehler",
-              ),
-            )
-            .finally(() => setLoading(false));
+          void loadDate(feedDate, true).catch((loadError) =>
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "Unbekannter Fehler",
+            ),
+          );
         }}
         onRecord={() =>
           activeRecording.active
@@ -550,7 +539,6 @@ export default function ThoughtsFeedScreen() {
       />
     );
   }
-  if (loading) return <NoteLoading />;
 
   return (
     <View style={styles.root}>
@@ -646,45 +634,60 @@ const styles = StyleSheet.create({
   dayPage: { flex: 1, backgroundColor: C.paper },
   content: { paddingHorizontal: 20, paddingBottom: 130 },
   appBar: {
-    height: 38,
-    marginBottom: 20,
+    minHeight: 40,
+    marginBottom: 24,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   brandGroup: {
-    height: 38,
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 9,
   },
   menuButton: {
-    width: 24,
-    height: 38,
-    alignItems: "flex-start",
+    width: 32,
+    height: 32,
+    borderRadius: 11,
+    alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(234,242,248,0.72)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(191,217,236,0.72)",
   },
-  menuButtonPressed: { opacity: 0.5, transform: [{ scale: 0.96 }] },
+  menuButtonPressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.96 }],
+  },
   brand: {
     fontFamily: NOTE_SERIF,
-    fontSize: 20,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 19,
+    letterSpacing: 0.15,
     color: C.ink,
   },
   day: {
-    fontFamily: NOTE_SANS_ITALIC,
+    fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 12,
-    lineHeight: 18,
-    color: C.ink30,
+    lineHeight: 16,
+    color: C.ink60,
   },
   dayButton: {
-    height: 38,
+    minHeight: 32,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingLeft: 12,
+    gap: 5,
+    paddingHorizontal: 11,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.72)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(191,217,236,0.68)",
   },
-  dayButtonPressed: { opacity: 0.5 },
+  dayButtonPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
+  },
   controlPressed: { opacity: 0.5 },
   card: {
     backgroundColor: C.card,

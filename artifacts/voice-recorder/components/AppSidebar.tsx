@@ -27,9 +27,8 @@ export function AppMenuGlyph() {
     >
       <Ionicons
         name="menu-outline"
-        size={19}
-        color={C.ink40}
-        style={styles.menuGlyphIcon}
+        size={18}
+        color={C.ink60}
       />
     </View>
   );
@@ -208,12 +207,11 @@ export function AppSidebar({
 
 const styles = StyleSheet.create({
   menuGlyph: {
-    width: 16,
-    height: 19,
-    alignItems: "flex-start",
+    width: 18,
+    height: 18,
+    alignItems: "center",
     justifyContent: "center",
   },
-  menuGlyphIcon: { marginLeft: -2 },
   sidebarLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 50,
