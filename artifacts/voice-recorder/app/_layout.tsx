@@ -78,18 +78,25 @@ function RecordingDeepLinkBootstrap() {
 }
 
 function AppShell() {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
-  const isSignInRoute = String(segments[0] ?? "") === "sign-in";
+  const firstSegment = String(segments[0] ?? "");
+  const isSignInRoute = firstSegment === "sign-in";
+  const isOnboardingRoute = firstSegment === "onboarding";
 
   const appIsAvailable = status === "signed-in";
   const needsSignIn =
     status === "signed-out" || status === "configuration-error";
+  const needsOnboarding =
+    appIsAvailable && user !== null && !user.onboarding_complete;
   const redirecting =
     status === "loading" ||
     (needsSignIn && !isSignInRoute) ||
-    (appIsAvailable && isSignInRoute);
+    (appIsAvailable && needsOnboarding && !isOnboardingRoute) ||
+    (appIsAvailable &&
+      !needsOnboarding &&
+      (isSignInRoute || isOnboardingRoute));
 
   // Redirect imperatively AFTER the navigator is mounted. Returning a
   // <Redirect> (or a plain <View>) in place of the <Stack> would leave the
@@ -98,10 +105,24 @@ function AppShell() {
     if (status === "loading") return;
     if (needsSignIn && !isSignInRoute) {
       router.replace("/sign-in" as Href);
-    } else if (appIsAvailable && isSignInRoute) {
+    } else if (appIsAvailable && needsOnboarding && !isOnboardingRoute) {
+      router.replace("/onboarding" as Href);
+    } else if (
+      appIsAvailable &&
+      !needsOnboarding &&
+      (isSignInRoute || isOnboardingRoute)
+    ) {
       router.replace("/" as Href);
     }
-  }, [status, needsSignIn, appIsAvailable, isSignInRoute, router]);
+  }, [
+    status,
+    needsSignIn,
+    appIsAvailable,
+    needsOnboarding,
+    isSignInRoute,
+    isOnboardingRoute,
+    router,
+  ]);
 
   return (
     <>
@@ -110,6 +131,7 @@ function AppShell() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="record" options={{ headerShown: false }} />
         <Stack.Screen name="overview" options={{ headerShown: false }} />
         <Stack.Screen name="profile" options={{ headerShown: false }} />

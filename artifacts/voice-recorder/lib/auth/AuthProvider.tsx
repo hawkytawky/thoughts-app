@@ -9,7 +9,9 @@ import React, {
 import {
   deleteCurrentUser,
   fetchCurrentUser,
+  updateProfile,
   type CurrentUser,
+  type Gender,
 } from "./api";
 import { getAuthConfigurationError } from "./config";
 import {
@@ -29,6 +31,10 @@ type AuthContextValue = {
   user: CurrentUser | null;
   error: string | null;
   deleteAccount: () => Promise<void>;
+  saveProfile: (input: {
+    date_of_birth: string;
+    gender: Gender;
+  }) => Promise<void>;
   signInWithApple: () => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -113,6 +119,14 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
     setStatus("signed-out");
   }, []);
 
+  const saveProfile = useCallback(
+    async (input: { date_of_birth: string; gender: Gender }) => {
+      const updated = await updateProfile(input);
+      setUser(updated);
+    },
+    [],
+  );
+
   const deleteAccount = useCallback(async () => {
     await deleteCurrentUser();
     try {
@@ -131,6 +145,7 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
       user,
       error,
       deleteAccount,
+      saveProfile,
       signInWithApple,
       signInWithGoogle,
       signOut,
@@ -140,6 +155,7 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
       user,
       error,
       deleteAccount,
+      saveProfile,
       signInWithApple,
       signInWithGoogle,
       signOut,

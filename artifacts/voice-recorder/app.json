@@ -18,7 +18,9 @@
       "bundleIdentifier": "com.otto.thoughts",
       "buildNumber": "3"
     },
-    "android": {},
+    "android": {
+      "package": "com.otto.thoughts"
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
