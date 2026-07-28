@@ -98,7 +98,12 @@ export async function restoreSession(): Promise<boolean> {
 
   currentRefreshToken = refreshToken;
   try {
-    await refreshSession();
+    if (!refreshPromise) {
+      refreshPromise = refreshSession().finally(() => {
+        refreshPromise = null;
+      });
+    }
+    await refreshPromise;
     return true;
   } catch {
     await clearSession();
