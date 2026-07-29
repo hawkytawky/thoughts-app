@@ -40,6 +40,18 @@ import {
   retryNoteProcessing,
 } from "@/lib/featured-note";
 import {
+  type FeedBootstrap,
+  consumeFeedBootstrapPrefetch,
+  initialMonths,
+  loadFeedBootstrap,
+  monthKey,
+  previousMonth,
+  readFeedCache,
+  todayKey,
+  writeFeedCache,
+  yesterdayKey,
+} from "@/lib/feed-bootstrap";
+import {
   type PendingThought,
   getPendingThoughts,
   markPendingThoughtProcessing,
@@ -165,33 +177,6 @@ function topDate(dateKey: string): string {
   }).format(date);
   if (isToday(date)) return `Heute, ${formatted}`;
   return `${dayHeading(dateKey)}, ${formatted}`;
-}
-
-function monthKey(dateKey: string): string {
-  return dateKey.slice(0, 7);
-}
-
-function previousMonth(month: string): string {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const date = new Date(year, monthNumber - 2, 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function todayKey(): string {
-  return formatApiDate(new Date());
-}
-
-function yesterdayKey(): string {
-  const date = new Date();
-  date.setDate(date.getDate() - 1);
-  return formatApiDate(date);
-}
-
-// Merge the two months we always want counts for so `yesterday` is covered
-// even when it falls into the previous calendar month.
-function initialMonths(): [string, string] {
-  const current = monthKey(todayKey());
-  return [current, previousMonth(current)];
 }
 
 function noteEntries(notes: ThoughtCard[]): TimelineEntry[] {
@@ -592,52 +577,67 @@ export default function ThoughtsFeedScreen() {
     }
   }, []);
 
-  const loadInitial = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setInitialLoading(true);
-    setError(null);
+  // Applies a bootstrap payload (fresh or cached) to the feed state.
+  const applyBootstrap = useCallback((data: FeedBootstrap) => {
     const today = todayKey();
-    const yesterday = yesterdayKey();
-    const [currentMonth, prevMonth] = initialMonths();
-    try {
-      const [currentCounts, prevCounts, todayNotes, yesterdayNotes] =
-        await Promise.all([
-          fetchThoughtDayCounts(currentMonth),
-          fetchThoughtDayCounts(prevMonth),
-          fetchNotesForDate(today),
-          fetchNotesForDate(yesterday),
-        ]);
+    const [, prevMonth] = initialMonths();
 
-      const counts = new Map<string, number>();
-      for (const { date, count } of [...currentCounts, ...prevCounts]) {
-        counts.set(date, count);
-      }
-      const notes = new Map<string, ThoughtCard[]>();
-      notes.set(today, todayNotes.notes);
-      notes.set(yesterday, yesterdayNotes.notes);
+    oldestMonthLoaded.current = prevMonth;
+    emptyHistoryMonths.current = 0;
+    historyExhausted.current = false;
+    inFlightDays.current.clear();
 
-      oldestMonthLoaded.current = prevMonth;
-      emptyHistoryMonths.current = 0;
-      historyExhausted.current = false;
-      inFlightDays.current.clear();
-
-      setDayCounts(counts);
-      setDayNotes(notes);
-      setExpandedDays(new Set([today, yesterday]));
-      setLoadingDays(new Set());
-      setFailedDays(new Set());
-      setVisibleDate(today);
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error ? loadError.message : "Unbekannter Fehler",
-      );
-    } finally {
-      if (!silent) setInitialLoading(false);
-    }
+    setDayCounts(new Map(data.counts));
+    setDayNotes(new Map(data.notes));
+    setExpandedDays(new Set(data.notes.map(([date]) => date)));
+    setLoadingDays(new Set());
+    setFailedDays(new Set());
+    setVisibleDate(today);
   }, []);
 
+  const loadInitial = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!silent) setInitialLoading(true);
+      setError(null);
+      try {
+        // Reuse the request AuthProvider already started, when there is one.
+        const data = await (consumeFeedBootstrapPrefetch() ??
+          loadFeedBootstrap());
+        applyBootstrap(data);
+        void writeFeedCache(data);
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error ? loadError.message : "Unbekannter Fehler",
+        );
+      } finally {
+        if (!silent) setInitialLoading(false);
+      }
+    },
+    [applyBootstrap],
+  );
+
   useEffect(() => {
-    void loadInitial();
-  }, [loadInitial]);
+    let cancelled = false;
+
+    // Paint the last known feed first so the app is usable immediately, then
+    // refresh in the background. A cold backend can take ~30s to answer, and
+    // this is what keeps that from being a blank spinner.
+    void (async () => {
+      const cached = await readFeedCache();
+      if (cancelled) return;
+      if (cached) {
+        applyBootstrap(cached);
+        setInitialLoading(false);
+        await loadInitial({ silent: true });
+      } else {
+        await loadInitial();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyBootstrap, loadInitial]);
 
   const loadMoreHistory = useCallback(async () => {
     if (loadingMore || historyExhausted.current) return;

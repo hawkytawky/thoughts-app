@@ -22,6 +22,11 @@ import {
   subscribeToSessionCleared,
 } from "./session";
 import { clearLocalUserData } from "@/lib/local-user-data";
+import {
+  clearFeedBootstrapPrefetch,
+  clearFeedCache,
+  prefetchFeedBootstrap,
+} from "@/lib/feed-bootstrap";
 
 type AuthStatus =
   "loading" | "signed-out" | "signed-in" | "configuration-error";
@@ -61,10 +66,14 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
           setStatus("signed-out");
           return;
         }
+        // Kick the feed requests off now so they overlap with /auth/me
+        // instead of waiting for the feed screen to mount behind it.
+        prefetchFeedBootstrap();
         setUser(await fetchCurrentUser());
         setStatus("signed-in");
       })
       .catch(async () => {
+        clearFeedBootstrapPrefetch();
         await clearSession();
         setUser(null);
         setStatus("signed-out");
@@ -113,6 +122,7 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
   }, []);
 
   const signOut = useCallback(async () => {
+    await clearFeedCache();
     await clearSession();
     setUser(null);
     setError(null);
