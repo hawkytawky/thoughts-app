@@ -29,8 +29,8 @@ export default function OverviewScreen() {
         style={[
           styles.content,
           {
-            paddingBottom: insets.bottom + 24,
-            paddingTop: insets.top + 7,
+            paddingBottom: 0,
+            paddingTop: Math.max(insets.top - 3, 8),
           },
         ]}
       >
@@ -50,9 +50,8 @@ export default function OverviewScreen() {
             </Pressable>
             <Text style={styles.brand}>thoughts</Text>
           </View>
+          <Text style={styles.overviewLabel}>Overview</Text>
         </View>
-
-        <Text style={styles.title}>Overview</Text>
 
         <View accessibilityRole="tablist" style={styles.toggle}>
           {VIEWS.map((view) => {
@@ -115,36 +114,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   appBar: {
-    minHeight: 38,
-    paddingBottom: 14,
+    minHeight: 40,
+    marginBottom: 14,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
   },
   brandGroup: {
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
   },
   menuButton: {
-    width: 28,
-    height: 28,
+    width: 24,
+    height: 40,
     alignItems: "flex-start",
     justifyContent: "center",
   },
   brand: {
     fontFamily: NOTE_SERIF,
-    fontSize: 12,
-    color: C.ink40,
-  },
-  title: {
-    marginTop: 14,
-    fontFamily: NOTE_SERIF,
-    fontSize: 30,
-    lineHeight: 36,
+    fontSize: 15,
+    lineHeight: 19,
+    letterSpacing: 0.15,
     color: C.ink,
   },
+  overviewLabel: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 12,
+    lineHeight: 16,
+    color: C.ink60,
+  },
   toggle: {
-    marginTop: 20,
+    marginTop: 0,
     marginHorizontal: -20,
     flexDirection: "row",
     borderBottomWidth: StyleSheet.hairlineWidth,

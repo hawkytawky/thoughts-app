@@ -3,21 +3,33 @@ import {
   ActivityIndicator,
   LayoutChangeEvent,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { Canvas, Circle, Group, Line, vec } from "@shopify/react-native-skia";
+import {
+  BlurStyle,
+  Canvas,
+  createPicture,
+  PaintStyle,
+  Picture,
+  Skia,
+  useClock,
+  useFont,
+} from "@shopify/react-native-skia";
+import { InstrumentSans_500Medium } from "@expo-google-fonts/instrument-sans";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
-  Extrapolation,
-  interpolate,
+  Easing,
+  LinearTransition,
   runOnJS,
+  SlideInDown,
+  SlideOutDown,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
-  withSpring,
+  withTiming,
 } from "react-native-reanimated";
 import {
   NOTE_COLORS as C,
@@ -32,9 +44,44 @@ const PAD = 46;
 const MIN_SCALE = 0.6;
 const MAX_SCALE = 4;
 
+// Well-separated categorical hues so neighbouring themes never read as the same
+// colour. Assigned per cluster (by order) on the JS thread.
+// Muted, low-saturation hues — separated enough to tell themes apart, but
+// dimmed to keep the map calm and paper-like.
+const CLUSTER_PALETTE = [
+  "#6E8CA8", // dusty blue
+  "#B08A72", // muted clay
+  "#7E9A80", // sage
+  "#9487A8", // soft lavender
+  "#BBA36A", // soft ochre
+  "#6FA0A0", // muted teal
+  "#B08498", // dusty rose
+  "#8990A8", // periwinkle slate
+  "#9A9670", // olive tan
+  "#AD8078", // soft terracotta
+  "#7C97B4", // powder blue
+  "#93A277", // moss
+];
+
+// High-contrast label drawn on top of the coloured dot.
+const KEYWORD_INK = "#FBFAF7";
+
 function clamp(v: number, lo: number, hi: number) {
   "worklet";
   return Math.min(hi, Math.max(lo, v));
+}
+
+// Clamped linear map, used for the zoom-driven label crossfades. Worklet-safe.
+function lerpClamp(
+  x: number,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+): number {
+  "worklet";
+  const t = Math.min(1, Math.max(0, (x - x0) / (x1 - x0)));
+  return y0 + (y1 - y0) * t;
 }
 
 type Pos = {
@@ -46,6 +93,22 @@ type Pos = {
   tcolor: string;
   keyword: string;
 };
+
+// Node draw-data lives in a shared value so the render worklet can read (and,
+// while dragging, mutate) base positions without a React re-render. Colors stay
+// as hex strings — they're cached to SkColor once per frame inside the worklet.
+type NodeDraw = {
+  cx: number;
+  cy: number;
+  r: number;
+  color: string;
+  tcolor: string;
+  keyword: string;
+};
+
+type EdgeDraw = { source: number; target: number; weight: number };
+
+type ClusterDraw = { cx: number; cy: number; label: string; tcolor: string };
 
 // Gentle repulsion so dots stop overlapping, anchored to keep clusters in
 // place. Runs once per (graph, size) on the JS thread — cheap for our sizes.
@@ -86,12 +149,27 @@ export function OverviewGraph() {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
   const scale = useSharedValue(1);
   const prevScale = useSharedValue(1);
-  const cardY = useSharedValue(0);
+
+  // Peek shows a few lines; expanded shows the whole thought. The card hugs
+  // its text exactly, so it always ends right at the last line.
+  const dragY = useSharedValue(0);
+
+  // Imperative render state (UI thread).
+  const clock = useClock();
+  const keywordFont = useFont(InstrumentSans_500Medium, 11);
+  const clusterFont = useFont(InstrumentSans_500Medium, 12);
+  const nodesSV = useSharedValue<NodeDraw[]>([]);
+  const edgesSV = useSharedValue<EdgeDraw[]>([]);
+  const clustersSV = useSharedValue<ClusterDraw[]>([]);
+  const selectedIdxSV = useSharedValue<number>(-1);
+  const neighborFlagsSV = useSharedValue<number[]>([]);
+  const dragIdx = useSharedValue<number>(-1);
 
   const load = () => {
     setStatus("loading");
@@ -111,51 +189,84 @@ export function OverviewGraph() {
   const layout = useMemo(() => {
     const w = Math.max(0, size.w - PAD * 2);
     const h = Math.max(0, size.h - PAD * 2);
+    const clusterIndex = new Map(clusters.map((c, i) => [c.id, i]));
     const pos: Pos[] = nodes.map((n) => {
-      const cl = clusters.find((c) => c.id === n.cluster);
+      const ci = clusterIndex.get(n.cluster) ?? 0;
+      const fill = CLUSTER_PALETTE[ci % CLUSTER_PALETTE.length];
       return {
         idx: n.idx,
         cx: PAD + n.x * w,
         cy: PAD + n.y * h,
         r: n.size,
-        color: cl?.color ?? C.sky,
-        tcolor: cl?.textColor ?? C.ink,
+        color: fill,
+        tcolor: fill,
         keyword: n.keyword,
       };
     });
     if (pos.length && w > 0 && h > 0) declutter(pos);
-    const centroids = clusters.map((c) => {
+    const centroids = clusters.map((c, ci) => {
       const pts = pos.filter((_, i) => nodes[i].cluster === c.id);
       const cx = pts.reduce((s, p) => s + p.cx, 0) / (pts.length || 1);
       const cy = pts.reduce((s, p) => s + p.cy, 0) / (pts.length || 1);
-      return { ...c, cx, cy };
+      return {
+        ...c,
+        cx,
+        cy,
+        paletteColor: CLUSTER_PALETTE[ci % CLUSTER_PALETTE.length],
+      };
     });
     return { pos, centroids };
   }, [graph, size]);
 
-  // focus: which nodes are the selected node + its neighbours
-  const neighbours = useMemo(() => {
-    if (!selected) return null;
-    const set = new Set<number>([selected.idx]);
-    for (const e of edges) {
-      if (e.source === selected.idx) set.add(e.target);
-      if (e.target === selected.idx) set.add(e.source);
+  // Push layout into the shared values the worklet reads. Resets drag state.
+  useEffect(() => {
+    nodesSV.value = layout.pos.map((p) => ({
+      cx: p.cx,
+      cy: p.cy,
+      r: p.r,
+      color: p.color,
+      tcolor: p.tcolor,
+      keyword: p.keyword,
+    }));
+    edgesSV.value = edges.map((e) => ({
+      source: e.source,
+      target: e.target,
+      weight: e.weight,
+    }));
+    clustersSV.value = layout.centroids.map((c) => ({
+      cx: c.cx,
+      cy: c.cy,
+      label: c.label,
+      tcolor: c.paletteColor,
+    }));
+    dragIdx.value = -1;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout]);
+
+  // focus: selected node + neighbours → 0/1 flags for per-node/edge dimming.
+  useEffect(() => {
+    const idx = selected?.idx ?? -1;
+    selectedIdxSV.value = idx;
+    const flags = new Array(nodes.length).fill(0);
+    if (idx >= 0) {
+      if (idx < flags.length) flags[idx] = 1;
+      for (const e of edges) {
+        if (e.source === idx && e.target < flags.length) flags[e.target] = 1;
+        if (e.target === idx && e.source < flags.length) flags[e.source] = 1;
+      }
     }
-    return set;
-  }, [selected, edges]);
+    neighborFlagsSV.value = flags;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, graph]);
 
   const selectByIndex = (i: number) => {
     setExpanded(false);
-    cardY.value = 0;
     setSelected(i >= 0 ? nodes[i] : null);
   };
 
-  const handleCardSwipe = (dy: number) => {
-    if (!expanded && dy < -40) setExpanded(true);
-    else if (dy > 60) {
-      if (expanded) setExpanded(false);
-      else setSelected(null);
-    }
+  const collapseOrClose = () => {
+    if (expanded) setExpanded(false);
+    else setSelected(null);
   };
 
   const onLayout = (e: LayoutChangeEvent) => {
@@ -163,11 +274,44 @@ export function OverviewGraph() {
     setSize({ w: width, h: height });
   };
 
-  // ---- canvas gestures (incremental → pan & pinch compose cleanly) ----
-  const pan = Gesture.Pan().onChange((e) => {
-    tx.value += e.changeX;
-    ty.value += e.changeY;
-  });
+  // ---- canvas gestures ----
+  // Pan doubles as node-drag: grab a node on begin, then either move that node
+  // (in base coords) or pan the whole canvas.
+  const pan = Gesture.Pan()
+    .onBegin((e) => {
+      const bx = (e.x - tx.value) / scale.value;
+      const by = (e.y - ty.value) / scale.value;
+      const ns = nodesSV.value;
+      let best = -1;
+      let bestD = Infinity;
+      for (let i = 0; i < ns.length; i++) {
+        const p = ns[i];
+        const d = (p.cx - bx) ** 2 + (p.cy - by) ** 2;
+        const hit = (p.r + 8) ** 2;
+        if (d < hit && d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      dragIdx.value = best;
+    })
+    .onChange((e) => {
+      const i = dragIdx.value;
+      if (i >= 0) {
+        const ns = nodesSV.value;
+        if (i < ns.length) {
+          ns[i].cx += e.changeX / scale.value;
+          ns[i].cy += e.changeY / scale.value;
+          nodesSV.value = ns;
+        }
+      } else {
+        tx.value += e.changeX;
+        ty.value += e.changeY;
+      }
+    })
+    .onFinalize(() => {
+      dragIdx.value = -1;
+    });
 
   const pinch = Gesture.Pinch()
     .onBegin(() => {
@@ -188,10 +332,11 @@ export function OverviewGraph() {
     .onEnd((e) => {
       const bx = (e.x - tx.value) / scale.value;
       const by = (e.y - ty.value) / scale.value;
+      const ns = nodesSV.value;
       let best = -1;
       let bestD = Infinity;
-      for (let i = 0; i < layout.pos.length; i++) {
-        const p = layout.pos[i];
+      for (let i = 0; i < ns.length; i++) {
+        const p = ns[i];
         const d = (p.cx - bx) ** 2 + (p.cy - by) ** 2;
         const hit = Math.max(p.r + 8, 16) ** 2;
         if (d < hit && d < bestD) {
@@ -204,140 +349,211 @@ export function OverviewGraph() {
 
   const canvasGesture = Gesture.Simultaneous(pan, pinch, tap);
 
+  // Thought card drag: swipe up expands, swipe down collapses then dismisses.
   const cardPan = Gesture.Pan()
     .onChange((e) => {
-      cardY.value = clamp(cardY.value + e.changeY, -180, 400);
+      dragY.value = clamp(dragY.value + e.changeY * 0.5, -30, 90);
     })
-    .onEnd(() => {
-      const dy = cardY.value;
-      cardY.value = withSpring(0, { damping: 18 });
-      runOnJS(handleCardSwipe)(dy);
+    .onEnd((e) => {
+      const y = dragY.value;
+      const v = e.velocityY;
+      dragY.value = withTiming(0, {
+        duration: 160,
+        easing: Easing.out(Easing.quad),
+      });
+      if (y < -14 || v < -650) {
+        runOnJS(setExpanded)(true);
+      } else if (y > 32 || v > 650) {
+        runOnJS(collapseOrClose)();
+      }
     });
 
-  const skiaTransform = useDerivedValue(() => [
-    { translateX: tx.value },
-    { translateY: ty.value },
-    { scale: scale.value },
-  ]);
-  const overlayStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: tx.value },
-      { translateY: ty.value },
-      { scale: scale.value },
-    ],
-  }));
-  // level-of-detail crossfade: cluster labels out, node keywords in
-  const clusterLabelStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scale.value, [1.15, 1.65], [1, 0], Extrapolation.CLAMP),
-  }));
-  const keywordStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scale.value, [1.35, 1.85], [0, 1], Extrapolation.CLAMP),
-  }));
-  const cardStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: cardY.value }],
-  }));
+  // Imperative Skia picture, redrawn every frame on the UI thread (clock tick).
+  const picture = useDerivedValue(() =>
+    createPicture((canvas) => {
+      "worklet";
+      const kFont = keywordFont;
+      const cFont = clusterFont;
+      const t = clock.value;
+      const s = scale.value;
+      const px = tx.value;
+      const py = ty.value;
+      const ns = nodesSV.value;
+      const es = edgesSV.value;
+      const cs = clustersSV.value;
+      const selIdx = selectedIdxSV.value;
+      const flags = neighborFlagsSV.value;
 
-  const nodeOpacity = (idx: number) =>
-    !selected ? 0.94 : neighbours?.has(idx) ? 0.96 : 0.16;
+      // Cache hex → SkColor once per frame (few unique colors).
+      const cache: Record<string, ReturnType<typeof Skia.Color>> = {};
+      const col = (hex: string) => {
+        if (!cache[hex]) cache[hex] = Skia.Color(hex);
+        return cache[hex];
+      };
+
+      const edgePaint = Skia.Paint();
+      edgePaint.setAntiAlias(true);
+      edgePaint.setStyle(PaintStyle.Stroke);
+
+      const shadowPaint = Skia.Paint();
+      shadowPaint.setAntiAlias(true);
+      shadowPaint.setColor(col(C.ink));
+      shadowPaint.setMaskFilter(
+        Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 2.0, true),
+      );
+
+      const ringPaint = Skia.Paint();
+      ringPaint.setAntiAlias(true);
+      ringPaint.setColor(col(C.paper));
+
+      const nodePaint = Skia.Paint();
+      nodePaint.setAntiAlias(true);
+
+      const selPaint = Skia.Paint();
+      selPaint.setAntiAlias(true);
+      selPaint.setStyle(PaintStyle.Stroke);
+      selPaint.setStrokeWidth(0.75);
+      selPaint.setColor(col(C.ink));
+      selPaint.setAlphaf(0.7);
+
+      const textPaint = Skia.Paint();
+      textPaint.setAntiAlias(true);
+
+      // Topic "toggle" chips: soft paper fill + thin coloured outline.
+      const chipFill = Skia.Paint();
+      chipFill.setAntiAlias(true);
+      chipFill.setColor(col(C.card));
+
+      const chipStroke = Skia.Paint();
+      chipStroke.setAntiAlias(true);
+      chipStroke.setStyle(PaintStyle.Stroke);
+      chipStroke.setStrokeWidth(1);
+
+      // Ambient drift — per node i, applied on top of (draggable) base pos.
+      const n = ns.length;
+      const dcx: number[] = [];
+      const dcy: number[] = [];
+      for (let i = 0; i < n; i++) {
+        dcx[i] = ns[i].cx + 1.5 * Math.sin(t * 0.00055 + i * 1.3);
+        dcy[i] = ns[i].cy + 1.5 * Math.cos(t * 0.00048 + i * 0.9);
+      }
+
+      canvas.save();
+      canvas.translate(px, py);
+      canvas.scale(s, s);
+
+      // 1) edges — track drifted endpoints, dim on focus.
+      for (let i = 0; i < es.length; i++) {
+        const e = es[i];
+        const a = e.source;
+        const b = e.target;
+        if (a >= n || b >= n) continue;
+        const incident = selIdx >= 0 && (a === selIdx || b === selIdx);
+        let op = 0.1 + 0.16 * e.weight;
+        let c = col(C.border);
+        let sw = 0.6;
+        if (selIdx >= 0) {
+          if (incident) {
+            op = 0.22 + 0.3 * e.weight;
+            c = col(ns[a].color);
+            sw = 0.7;
+          } else {
+            op = 0.035;
+          }
+        }
+        edgePaint.setColor(c);
+        edgePaint.setAlphaf(op);
+        edgePaint.setStrokeWidth(sw);
+        canvas.drawLine(dcx[a], dcy[a], dcx[b], dcy[b], edgePaint);
+      }
+
+      // 2) nodes — soft shadow, paper ring, colored dot; dim non-neighbours.
+      for (let i = 0; i < n; i++) {
+        const node = ns[i];
+        const dim = selIdx >= 0 && flags.length > i && flags[i] === 0;
+        const alpha = selIdx < 0 ? 0.9 : dim ? 0.14 : 0.95;
+        shadowPaint.setAlphaf(dim ? 0.04 : 0.1);
+        canvas.drawCircle(dcx[i], dcy[i] + 1.6, node.r, shadowPaint);
+        ringPaint.setAlphaf(alpha);
+        canvas.drawCircle(dcx[i], dcy[i], node.r + 1, ringPaint);
+        nodePaint.setColor(col(node.color));
+        nodePaint.setAlphaf(alpha);
+        canvas.drawCircle(dcx[i], dcy[i], node.r, nodePaint);
+      }
+
+      // 3) selection ring
+      if (selIdx >= 0 && selIdx < n) {
+        canvas.drawCircle(dcx[selIdx], dcy[selIdx], ns[selIdx].r + 3, selPaint);
+      }
+
+      canvas.restore();
+
+      // 4) labels in SCREEN space (constant size). Cluster labels fade out and
+      // node keywords fade in as you zoom — matching the old overlay.
+      const clusterA = lerpClamp(s, 1.15, 1.65, 1, 0);
+      if (cFont && clusterA > 0.01) {
+        const m = cFont.getMetrics();
+        const asc = -m.ascent;
+        const desc = m.descent;
+        const textH = asc + desc;
+        const padX = 10;
+        const padY = 4;
+        for (let i = 0; i < cs.length; i++) {
+          const c = cs[i];
+          const sx = px + c.cx * s;
+          const sy = py + c.cy * s;
+          const w = cFont.measureText(c.label).width;
+          const chipW = w + padX * 2;
+          const chipH = textH + padY * 2;
+          const rect = Skia.XYWHRect(sx - chipW / 2, sy - chipH / 2, chipW, chipH);
+          const rrect = Skia.RRectXY(rect, chipH / 2, chipH / 2);
+          chipFill.setAlphaf(0.92 * clusterA);
+          canvas.drawRRect(rrect, chipFill);
+          chipStroke.setColor(col(c.tcolor));
+          chipStroke.setAlphaf(0.9 * clusterA);
+          canvas.drawRRect(rrect, chipStroke);
+          textPaint.setColor(col(C.ink));
+          textPaint.setAlphaf(clusterA);
+          canvas.drawText(
+            c.label,
+            sx - w / 2,
+            sy + (asc - desc) / 2,
+            textPaint,
+            cFont,
+          );
+        }
+      }
+
+      const keywordA = lerpClamp(s, 1.35, 1.85, 0, 1);
+      if (kFont && keywordA > 0.01) {
+        for (let i = 0; i < n; i++) {
+          const node = ns[i];
+          const dim = selIdx >= 0 && flags.length > i && flags[i] === 0;
+          const a2 = keywordA * (dim ? 0.2 : 1);
+          if (a2 < 0.01) continue;
+          const sx = px + dcx[i] * s;
+          const sy = py + dcy[i] * s;
+          const w = kFont.measureText(node.keyword).width;
+          textPaint.setColor(col(KEYWORD_INK));
+          textPaint.setAlphaf(a2);
+          // Centred on the dot rather than below it.
+          canvas.drawText(node.keyword, sx - w / 2, sy + 4, textPaint, kFont);
+        }
+      }
+    }),
+  );
+
+  const cardStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: dragY.value }],
+  }));
 
   return (
     <View style={styles.root} onLayout={onLayout}>
       <GestureDetector gesture={canvasGesture}>
         <View style={StyleSheet.absoluteFill}>
           <Canvas style={StyleSheet.absoluteFill}>
-            <Group transform={skiaTransform}>
-              {edges.map((ed, i) => {
-                const a = layout.pos[ed.source];
-                const b = layout.pos[ed.target];
-                if (!a || !b) return null;
-                const incident =
-                  selected != null &&
-                  (ed.source === selected.idx || ed.target === selected.idx);
-                let op = 0.1 + 0.22 * ed.weight;
-                let col: string = C.border;
-                let sw = 0.8;
-                if (selected != null) {
-                  if (incident) {
-                    op = 0.35 + 0.5 * ed.weight;
-                    col = a.color;
-                    sw = 1.6;
-                  } else {
-                    op = 0.04;
-                  }
-                }
-                return (
-                  <Line
-                    key={`e${i}`}
-                    p1={vec(a.cx, a.cy)}
-                    p2={vec(b.cx, b.cy)}
-                    color={col}
-                    style="stroke"
-                    strokeWidth={sw}
-                    opacity={op}
-                  />
-                );
-              })}
-              {layout.pos.map((p) => (
-                <Group key={`n${p.idx}`} opacity={nodeOpacity(p.idx)}>
-                  <Circle cx={p.cx} cy={p.cy} r={p.r + 1.5} color={C.paper} />
-                  <Circle cx={p.cx} cy={p.cy} r={p.r} color={p.color} />
-                </Group>
-              ))}
-              {selected
-                ? (() => {
-                    const p = layout.pos[selected.idx];
-                    if (!p) return null;
-                    return (
-                      <Circle
-                        cx={p.cx}
-                        cy={p.cy}
-                        r={p.r + 5}
-                        color={C.ink}
-                        style="stroke"
-                        strokeWidth={2}
-                      />
-                    );
-                  })()
-                : null}
-            </Group>
+            <Picture picture={picture} />
           </Canvas>
-
-          {/* labels overlay — synced to pan/zoom, crossfading by zoom */}
-          <Animated.View
-            pointerEvents="none"
-            style={[StyleSheet.absoluteFill, styles.origin, overlayStyle]}
-          >
-            <Animated.View style={[StyleSheet.absoluteFill, clusterLabelStyle]}>
-              {layout.centroids.map((c) => (
-                <View
-                  key={`l${c.id}`}
-                  style={[
-                    styles.chip,
-                    { left: c.cx, top: c.cy, borderColor: c.color },
-                  ]}
-                >
-                  <Text style={[styles.chipText, { color: c.textColor }]}>
-                    {c.label}
-                  </Text>
-                </View>
-              ))}
-            </Animated.View>
-            <Animated.View style={[StyleSheet.absoluteFill, keywordStyle]}>
-              {layout.pos.map((p) => (
-                <View
-                  key={`k${p.idx}`}
-                  style={[styles.keyword, { left: p.cx - 44, top: p.cy - 8 }]}
-                >
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.keywordText, { color: p.tcolor }]}
-                  >
-                    {p.keyword}
-                  </Text>
-                </View>
-              ))}
-            </Animated.View>
-          </Animated.View>
         </View>
       </GestureDetector>
 
@@ -379,28 +595,39 @@ export function OverviewGraph() {
 
       {selected ? (
         <GestureDetector gesture={cardPan}>
-          <Animated.View style={[styles.card, cardStyle]}>
+          <Animated.View
+            key={selected.idx}
+            style={[
+              styles.sheet,
+              { paddingBottom: insets.bottom + 8 },
+              cardStyle,
+            ]}
+            entering={SlideInDown.duration(240)}
+            exiting={SlideOutDown.duration(180)}
+            layout={LinearTransition.duration(220)}
+          >
             <View style={styles.handle} />
             <View style={styles.cardHeader}>
-              <View
-                style={[
-                  styles.typeDot,
-                  { backgroundColor: noteCategoryColor(selected.type) },
-                ]}
-              />
-              <Text style={styles.typeLabel}>{selected.type}</Text>
+              <View style={styles.typeRow}>
+                <View
+                  style={[
+                    styles.typeDot,
+                    { backgroundColor: noteCategoryColor(selected.type) },
+                  ]}
+                />
+                <Text style={styles.typeLabel}>{selected.type}</Text>
+              </View>
+              {selected.dateLabel ? (
+                <Text style={styles.cardDate}>{selected.dateLabel}</Text>
+              ) : null}
             </View>
             <Text style={styles.cardTitle}>{selected.title}</Text>
-            {selected.dateLabel ? (
-              <Text style={styles.cardDate}>{selected.dateLabel}</Text>
-            ) : null}
-            <ScrollView style={{ maxHeight: expanded ? 260 : undefined }}>
-              <Text style={styles.cardSubtitle}>
-                {expanded
-                  ? selected.summary || selected.subtitle
-                  : selected.subtitle}
-              </Text>
-            </ScrollView>
+            <Text
+              style={styles.cardBody}
+              numberOfLines={expanded ? undefined : 4}
+            >
+              {selected.summary || selected.subtitle}
+            </Text>
           </Animated.View>
         </GestureDetector>
       ) : null}
@@ -410,24 +637,6 @@ export function OverviewGraph() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.paper, overflow: "hidden" },
-  origin: { transformOrigin: "top left" },
-  chip: {
-    position: "absolute",
-    transform: [{ translateX: -60 }, { translateY: -13 }],
-    maxWidth: 170,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 11,
-    borderWidth: 1,
-    backgroundColor: "rgba(249,249,248,0.86)",
-  },
-  chipText: {
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 11.5,
-    textAlign: "center",
-  },
-  keyword: { position: "absolute", width: 88, alignItems: "center" },
-  keywordText: { fontFamily: NOTE_SANS_MEDIUM, fontSize: 10.5 },
   hintRow: {
     position: "absolute",
     top: 8,
@@ -462,23 +671,23 @@ const styles = StyleSheet.create({
     backgroundColor: C.skyLight,
   },
   retryText: { fontFamily: NOTE_SANS_MEDIUM, fontSize: 13, color: C.skyDeep },
-  card: {
+  sheet: {
     position: "absolute",
-    left: 12,
-    right: 12,
-    bottom: 16,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: C.card,
-    borderRadius: 20,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: C.border,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 16,
     shadowColor: C.ink,
-    shadowOpacity: 0.16,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -5 },
+    elevation: 8,
   },
   handle: {
     width: 38,
@@ -486,9 +695,15 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: "rgba(138,163,184,0.5)",
     alignSelf: "center",
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  cardHeader: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  typeRow: { flexDirection: "row", alignItems: "center" },
   typeDot: { width: 9, height: 9, borderRadius: 5, marginRight: 7 },
   typeLabel: {
     fontFamily: NOTE_SANS_MEDIUM,
@@ -496,26 +711,24 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     color: C.ink60,
     textTransform: "uppercase",
-    flex: 1,
   },
   cardTitle: {
     fontFamily: NOTE_SERIF,
-    fontSize: 20,
-    lineHeight: 26,
+    fontSize: 22,
+    lineHeight: 28,
     color: C.ink,
-    marginBottom: 3,
+    marginBottom: 8,
   },
   cardDate: {
-    fontFamily: NOTE_SERIF,
-    fontStyle: "italic",
-    fontSize: 13,
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 12,
     color: C.ink40,
-    marginBottom: 10,
   },
-  cardSubtitle: {
+  cardBody: {
     fontFamily: NOTE_SANS,
-    fontSize: 13.5,
-    lineHeight: 20,
+    fontSize: 14.5,
+    lineHeight: 22,
     color: C.ink70,
+    marginTop: 2,
   },
 });
