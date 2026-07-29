@@ -114,22 +114,9 @@ type ThoughtDaysResponse = {
   days: { date: string; recording_count: number }[];
 };
 
-type BackendThoughtFeedItem = Pick<
-  BackendRecording,
-  "captured_at" | "duration_ms" | "status"
-> & {
-  recording_id: string;
-  thought_card: Pick<BackendThoughtCard, "title" | "type"> | null;
-};
-
-type BackendThoughtFeedResponse = {
-  items: BackendThoughtFeedItem[];
-  next_cursor: string | null;
-};
-
-export type ThoughtFeedPage = {
-  notes: ThoughtCard[];
-  nextCursor: string | null;
+export type ThoughtDayCount = {
+  date: string;
+  count: number;
 };
 
 async function apiError(response: Response): Promise<Error> {
@@ -275,61 +262,23 @@ export async function fetchNotesForDate(
   };
 }
 
-export async function fetchThoughtFeedPage({
-  anchorDate,
-  cursor,
-  limit = 30,
-}: {
-  anchorDate?: string;
-  cursor?: string;
-  limit?: number;
-} = {}): Promise<ThoughtFeedPage> {
-  const params = new URLSearchParams({
-    limit: String(limit),
-    timezone: API_TIMEZONE,
-  });
-  if (cursor) params.set("cursor", cursor);
-  if (anchorDate) params.set("anchor_date", anchorDate);
-  const response = await backendFetch(`/recordings/feed?${params}`, {
-    headers: { Accept: "application/json" },
-  });
-  if (!response.ok) throw await apiError(response);
-  const page = (await response.json()) as BackendThoughtFeedResponse;
-  return {
-    notes: page.items.flatMap((recording) => {
-      const card = recording.thought_card;
-      if (recording.status !== "completed" || !card) return [];
-      return [
-        {
-          id: recording.recording_id,
-          relativePath: recording.recording_id,
-          type: card.type,
-          title: card.title,
-          subtitle: "",
-          tags: [],
-          recordedAt: recording.captured_at,
-          locationStatus: "unavailable" as const,
-          locationLabel: "Ohne Standort",
-          durationSeconds: Math.max(0, (recording.duration_ms ?? 0) / 1_000),
-        },
-      ];
-    }),
-    nextCursor: page.next_cursor,
-  };
-}
-
-export async function fetchThoughtDays(month: string): Promise<Set<string>> {
+export async function fetchThoughtDayCounts(
+  month: string,
+): Promise<ThoughtDayCount[]> {
   const response = await backendFetch(
     `/recordings/calendar?month=${encodeURIComponent(month)}&timezone=${encodeURIComponent(API_TIMEZONE)}`,
     { headers: { Accept: "application/json" } },
   );
   if (!response.ok) throw await apiError(response);
   const body = (await response.json()) as ThoughtDaysResponse;
-  return new Set(
-    body.days
-      .filter(({ recording_count }) => recording_count > 0)
-      .map(({ date }) => date),
-  );
+  return body.days
+    .filter(({ recording_count }) => recording_count > 0)
+    .map(({ date, recording_count }) => ({ date, count: recording_count }));
+}
+
+export async function fetchThoughtDays(month: string): Promise<Set<string>> {
+  const days = await fetchThoughtDayCounts(month);
+  return new Set(days.map(({ date }) => date));
 }
 
 export function formatApiDate(date: Date): string {
