@@ -332,10 +332,41 @@ export async function fetchThoughtDays(month: string): Promise<Set<string>> {
   );
 }
 
+// Hermes (React Native's engine) fails to parse ISO timestamps with microsecond
+// precision (6 fractional digits) and some timezone-offset forms that the
+// backend emits, returning an Invalid Date. Parse the components explicitly so
+// it works the same on device and web.
+export function parseApiTimestamp(value: string): Date {
+  const raw = (value ?? "").trim();
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:(Z)|([+-])(\d{2}):?(\d{2}))?$/.exec(
+      raw,
+    );
+  if (!match) return new Date(raw);
+  const [, y, mo, d, h, mi, s, frac, zulu, sign, oh, om] = match;
+  const ms = frac ? Number(frac.slice(0, 3).padEnd(3, "0")) : 0;
+  let epoch = Date.UTC(
+    Number(y),
+    Number(mo) - 1,
+    Number(d),
+    Number(h),
+    Number(mi),
+    Number(s),
+    ms,
+  );
+  if (!zulu && sign) {
+    const offsetMinutes =
+      (Number(oh) * 60 + Number(om)) * (sign === "-" ? -1 : 1);
+    epoch -= offsetMinutes * 60_000;
+  }
+  return new Date(epoch);
+}
+
 export function formatApiDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const safe = Number.isNaN(date.getTime()) ? new Date() : date;
+  const year = safe.getFullYear();
+  const month = String(safe.getMonth() + 1).padStart(2, "0");
+  const day = String(safe.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -354,7 +385,7 @@ export function formatNoteDate(isoDate: string, includeYear = false): string {
     day: "numeric",
     month: "long",
     ...(includeYear ? { year: "numeric" as const } : {}),
-  }).format(new Date(isoDate));
+  }).format(parseApiTimestamp(isoDate));
 }
 
 export function formatNoteDay(isoDate: string): string {
@@ -362,5 +393,5 @@ export function formatNoteDay(isoDate: string): string {
     weekday: "long",
     day: "numeric",
     month: "long",
-  }).format(new Date(isoDate));
+  }).format(parseApiTimestamp(isoDate));
 }

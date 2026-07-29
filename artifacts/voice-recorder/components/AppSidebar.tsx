@@ -177,8 +177,8 @@ export function AppSidebar({
             style={[
               styles.sidebar,
               {
-                paddingBottom: insets.bottom + 24,
-                paddingTop: insets.top + 12,
+                paddingBottom: insets.bottom + 6,
+                paddingTop: insets.top,
                 width: drawerWidth,
               },
               drawerStyle,
@@ -217,7 +217,7 @@ export function AppSidebar({
               >
                 <Ionicons
                   name={destination.icon}
-                  size={19}
+                  size={18}
                   color={selected ? C.skyDeep : C.ink40}
                 />
                 <Text
@@ -248,7 +248,7 @@ export function AppSidebar({
             ]}
           >
             <View style={styles.profileIcon}>
-              <Ionicons name="person-outline" size={17} color={C.skyDeep} />
+              <Ionicons name="person-outline" size={16} color={C.ink40} />
             </View>
             <View style={styles.profileCopy}>
               <Text numberOfLines={1} style={styles.profileName}>
@@ -256,7 +256,7 @@ export function AppSidebar({
               </Text>
               <Text style={styles.profileLabel}>Account ansehen</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color={C.ink30} />
+            <Ionicons name="chevron-forward" size={14} color={C.ink30} />
           </Pressable>
         </View>
           </Animated.View>
@@ -295,32 +295,33 @@ const styles = StyleSheet.create({
   },
   sidebarBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(36,69,95,0.17)",
+    backgroundColor: "rgba(36,69,95,0.12)",
   },
   sidebar: {
     position: "absolute",
     left: 0,
     top: 0,
     bottom: 0,
-    paddingHorizontal: 22,
-    backgroundColor: "rgba(251,252,253,0.98)",
+    paddingHorizontal: 20,
+    backgroundColor: C.warmWhite,
     borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: C.border,
+    borderRightColor: C.divider,
     shadowColor: C.skyDeep,
-    shadowOpacity: 0.12,
-    shadowRadius: 22,
-    shadowOffset: { width: 8, height: 0 },
-    elevation: 12,
+    shadowOpacity: 0.07,
+    shadowRadius: 26,
+    shadowOffset: { width: 6, height: 0 },
+    elevation: 10,
   },
   sidebarHeader: {
-    minHeight: 42,
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   sidebarBrand: {
     fontFamily: NOTE_SERIF,
-    fontSize: 22,
+    fontSize: 19,
+    letterSpacing: 0.1,
     color: C.ink,
   },
   sidebarClose: {
@@ -330,50 +331,51 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  sidebarNavigation: { marginTop: 42, gap: 7 },
+  sidebarNavigation: { marginTop: 34, gap: 2 },
   sidebarItem: {
-    minHeight: 48,
-    paddingHorizontal: 14,
-    borderRadius: 12,
+    minHeight: 44,
+    paddingHorizontal: 10,
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 13,
+    gap: 12,
   },
-  sidebarItemActive: { backgroundColor: "rgba(234,242,248,0.72)" },
+  sidebarItemActive: { backgroundColor: "rgba(234,242,248,0.45)" },
   sidebarItemText: {
     flex: 1,
     fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 15,
-    color: C.ink60,
+    fontSize: 14.5,
+    letterSpacing: 0.1,
+    color: C.ink40,
   },
   sidebarItemTextActive: { color: C.ink },
   sidebarActiveDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: C.sky,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: C.skyDeep,
   },
   account: {
     marginTop: "auto",
-    paddingTop: 14,
+    paddingTop: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: C.divider,
   },
   profileButton: {
-    minHeight: 56,
-    paddingHorizontal: 8,
-    borderRadius: 12,
+    minHeight: 52,
+    paddingHorizontal: 6,
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
+    gap: 12,
   },
   profileIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: C.skyLight,
+    backgroundColor: "transparent",
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: C.border,
   },
@@ -389,7 +391,8 @@ const styles = StyleSheet.create({
   profileLabel: {
     fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 10,
-    color: C.ink60,
+    letterSpacing: 0.2,
+    color: C.ink40,
   },
   pressed: { opacity: 0.58 },
 });

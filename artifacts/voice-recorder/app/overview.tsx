@@ -1,5 +1,13 @@
-import React, { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useRef, useState } from "react";
+import {
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppMenuGlyph, AppSidebar } from "@/components/AppSidebar";
 import {
@@ -10,69 +18,70 @@ import {
 } from "@/components/NoteUI";
 import { OverviewGraph } from "@/components/overview/OverviewGraph";
 
-type OverviewView = "base" | "all" | "time";
+type OverviewView = "base" | "network" | "time";
 
 const VIEWS: { id: OverviewView; label: string }[] = [
   { id: "base", label: "base" },
-  { id: "all", label: "network" },
+  { id: "network", label: "network" },
   { id: "time", label: "time" },
 ];
 
 export default function OverviewScreen() {
   const insets = useSafeAreaInsets();
-  const [activeView, setActiveView] = useState<OverviewView>("base");
+  const [activeIndex, setActiveIndex] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const scrollRef = useRef<ScrollView>(null);
+
+  const goTo = (index: number) => {
+    setActiveIndex(index);
+    scrollRef.current?.scrollTo({ x: index * size.w, animated: true });
+  };
+
+  const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const index = Math.round(e.nativeEvent.contentOffset.x / (size.w || 1));
+    if (index !== activeIndex) setActiveIndex(index);
+  };
 
   return (
     <View style={styles.root}>
-      <View
-        style={[
-          styles.content,
-          {
-            paddingBottom: 0,
-            paddingTop: Math.max(insets.top - 3, 8),
-          },
-        ]}
-      >
-        <View style={styles.appBar}>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <View style={styles.topBar}>
           <View style={styles.brandGroup}>
             <Pressable
               accessibilityLabel="Menü öffnen"
               accessibilityRole="button"
-              hitSlop={8}
+              hitSlop={10}
               onPress={() => setSidebarOpen(true)}
               style={({ pressed }) => [
                 styles.menuButton,
-                pressed && styles.pressed,
+                pressed && styles.controlPressed,
               ]}
             >
               <AppMenuGlyph />
             </Pressable>
             <Text style={styles.brand}>thoughts</Text>
           </View>
-          <Text style={styles.overviewLabel}>Overview</Text>
+          <Text style={styles.pageLabel}>Overview</Text>
         </View>
 
-        <View accessibilityRole="tablist" style={styles.toggle}>
-          {VIEWS.map((view) => {
-            const selected = view.id === activeView;
+        <View accessibilityRole="tablist" style={styles.tabs}>
+          {VIEWS.map((view, index) => {
+            const selected = index === activeIndex;
             return (
               <Pressable
                 key={view.id}
                 accessibilityRole="tab"
                 accessibilityState={{ selected }}
-                onPress={() => setActiveView(view.id)}
+                onPress={() => goTo(index)}
                 style={({ pressed }) => [
-                  styles.toggleItem,
-                  selected && styles.toggleItemActive,
-                  pressed && styles.pressed,
+                  styles.tabItem,
+                  selected && styles.tabItemActive,
+                  pressed && styles.controlPressed,
                 ]}
               >
                 <Text
-                  style={[
-                    styles.toggleLabel,
-                    selected && styles.toggleLabelActive,
-                  ]}
+                  style={[styles.tabLabel, selected && styles.tabLabelActive]}
                 >
                   {view.label}
                 </Text>
@@ -80,20 +89,45 @@ export default function OverviewScreen() {
             );
           })}
         </View>
+      </View>
 
-        <View style={styles.body}>
-          {activeView === "all" ? (
-            <OverviewGraph />
-          ) : (
-            <View style={styles.placeholder}>
-              <Text style={styles.placeholderText}>
-                {activeView === "base"
-                  ? "Base-Statistiken folgen."
-                  : "Gedankenfluss über Zeit folgt."}
-              </Text>
+      <View
+        style={styles.pager}
+        onLayout={(e) =>
+          setSize({
+            w: e.nativeEvent.layout.width,
+            h: e.nativeEvent.layout.height,
+          })
+        }
+      >
+        {size.w > 0 ? (
+          <ScrollView
+            ref={scrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onMomentumEnd}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={[styles.page, { width: size.w, height: size.h }]}>
+              <View style={styles.placeholder}>
+                <Text style={styles.placeholderText}>
+                  Base-Statistiken folgen.
+                </Text>
+              </View>
             </View>
-          )}
-        </View>
+            <View style={[styles.page, { width: size.w, height: size.h }]}>
+              <OverviewGraph />
+            </View>
+            <View style={[styles.page, { width: size.w, height: size.h }]}>
+              <View style={styles.placeholder}>
+                <Text style={styles.placeholderText}>
+                  Gedankenfluss über Zeit folgt.
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+        ) : null}
       </View>
 
       <AppSidebar
@@ -109,75 +143,68 @@ export default function OverviewScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.paper },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  appBar: {
-    minHeight: 40,
-    marginBottom: 14,
+  header: { backgroundColor: C.paper, paddingHorizontal: 20 },
+  topBar: {
+    height: 40,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   brandGroup: {
-    minHeight: 40,
+    height: 40,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
   menuButton: {
-    width: 24,
+    width: 20,
     height: 40,
     alignItems: "flex-start",
     justifyContent: "center",
   },
   brand: {
     fontFamily: NOTE_SERIF,
-    fontSize: 15,
-    lineHeight: 19,
-    letterSpacing: 0.15,
+    fontSize: 13,
+    lineHeight: 17,
+    letterSpacing: 0.08,
     color: C.ink,
   },
-  overviewLabel: {
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 12,
-    lineHeight: 16,
+  pageLabel: {
+    fontFamily: NOTE_SERIF,
+    fontSize: 13,
+    lineHeight: 17,
     color: C.ink60,
   },
-  toggle: {
-    marginTop: 0,
+  controlPressed: { opacity: 0.5 },
+  tabs: {
+    marginTop: 10,
     marginHorizontal: -20,
     flexDirection: "row",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(191,217,236,0.45)",
   },
-  toggleItem: {
+  tabItem: {
     flex: 1,
-    height: 38,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
   },
-  toggleItemActive: {
+  tabItemActive: {
     borderBottomWidth: 2,
     borderBottomColor: C.ink,
     marginBottom: -StyleSheet.hairlineWidth,
   },
-  toggleLabel: {
+  tabLabel: {
     fontFamily: NOTE_SANS,
-    fontSize: 13.5,
+    fontSize: 13,
     color: C.ink40,
   },
-  toggleLabelActive: {
+  tabLabelActive: {
     fontFamily: NOTE_SANS_MEDIUM,
     color: C.ink,
   },
-  pressed: { opacity: 0.55 },
-  body: {
-    flex: 1,
-    marginTop: 20,
-    marginHorizontal: -20, // graph goes edge-to-edge
-  },
+  pager: { flex: 1 },
+  page: { flex: 1 },
   placeholder: {
     flex: 1,
     alignItems: "center",

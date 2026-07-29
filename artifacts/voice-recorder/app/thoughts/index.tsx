@@ -15,7 +15,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { GlassView } from "expo-glass-effect";
+import { LinearGradient } from "expo-linear-gradient";
 import { type Href, useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DayPicker } from "@/components/DayPicker";
@@ -36,6 +36,7 @@ import {
   fetchThoughtFeedPage,
   formatApiDate,
   formatDuration,
+  parseApiTimestamp,
   retryNoteProcessing,
 } from "@/lib/featured-note";
 import {
@@ -97,8 +98,13 @@ function isYesterday(date: Date): boolean {
   return formatApiDate(date) === formatApiDate(yesterday);
 }
 
+function dayKeyToDate(dateKey: string): Date {
+  const date = new Date(`${dateKey}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
 function dayHeading(dateKey: string): string {
-  const date = startOfDay(new Date(`${dateKey}T12:00:00`));
+  const date = startOfDay(dayKeyToDate(dateKey));
   if (isToday(date)) return "Heute";
   if (isYesterday(date)) return "Gestern";
   const label = new Intl.DateTimeFormat("de-DE", { weekday: "long" }).format(
@@ -112,11 +118,11 @@ function dayDate(dateKey: string): string {
     day: "numeric",
     month: "long",
     year: "numeric",
-  }).format(new Date(`${dateKey}T12:00:00`));
+  }).format(dayKeyToDate(dateKey));
 }
 
 function topDate(dateKey: string): string {
-  const date = new Date(`${dateKey}T12:00:00`);
+  const date = dayKeyToDate(dateKey);
   const formatted = new Intl.DateTimeFormat("de-DE", {
     day: "numeric",
     month: "long",
@@ -154,7 +160,7 @@ function buildSections(
 
   const grouped = new Map<string, TimelineEntry[]>();
   for (const entry of entries) {
-    const key = formatApiDate(new Date(entry.recordedAt));
+    const key = formatApiDate(parseApiTimestamp(entry.recordedAt));
     const group = grouped.get(key) ?? [];
     group.push(entry);
     grouped.set(key, group);
@@ -471,7 +477,7 @@ export default function ThoughtsFeedScreen() {
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: { item: TimelineEntry }[] }) => {
       const first = viewableItems[0]?.item;
-      if (first) setVisibleDate(formatApiDate(new Date(first.recordedAt)));
+      if (first) setVisibleDate(formatApiDate(parseApiTimestamp(first.recordedAt)));
     },
   ).current;
 
@@ -595,6 +601,12 @@ export default function ThoughtsFeedScreen() {
         />
       )}
 
+      <LinearGradient
+        pointerEvents="none"
+        colors={["rgba(249,249,248,0)", C.paper]}
+        style={[styles.bottomFade, { height: insets.bottom + 64 }]}
+      />
+
       {!activeRecording.active && (
         <Pressable
           accessibilityLabel="Neue Aufnahme starten"
@@ -602,19 +614,13 @@ export default function ThoughtsFeedScreen() {
           onPress={openRecorder}
           style={({ pressed }) => [
             styles.recordButtonOuter,
-            { bottom: insets.bottom + 18 },
+            { bottom: insets.bottom + 6 },
             pressed && styles.recordButtonPressed,
           ]}
         >
-          <GlassView
-            colorScheme="light"
-            glassEffectStyle="regular"
-            isInteractive
-            style={styles.recordButtonGlass}
-            tintColor="rgba(127,176,214,0.22)"
-          >
-            <Ionicons name="mic" size={20} color={C.skyDeep} />
-          </GlassView>
+          <View style={styles.recordButtonGlass}>
+            <Ionicons name="mic" size={20} color={C.card} />
+          </View>
         </Pressable>
       )}
 
@@ -783,11 +789,11 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    shadowColor: C.skyDeep,
-    shadowOpacity: 0.16,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 6,
+    shadowColor: C.ink,
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
   recordButtonGlass: {
     flex: 1,
@@ -795,6 +801,14 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: C.ink,
+  },
+  bottomFade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 64,
   },
   recordButtonPressed: { transform: [{ scale: 0.95 }], opacity: 0.86 },
 });

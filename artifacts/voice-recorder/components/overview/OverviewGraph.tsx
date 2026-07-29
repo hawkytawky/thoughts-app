@@ -122,7 +122,7 @@ function declutter(pos: Pos[]): void {
         let dx = b.cx - a.cx;
         let dy = b.cy - a.cy;
         const d = Math.hypot(dx, dy) || 0.01;
-        const min = a.r + b.r + 9;
+        const min = a.r + b.r + 13;
         if (d < min) {
           const push = (min - d) / 2;
           dx /= d;
@@ -449,9 +449,9 @@ export function OverviewGraph() {
         const b = e.target;
         if (a >= n || b >= n) continue;
         const incident = selIdx >= 0 && (a === selIdx || b === selIdx);
-        let op = 0.1 + 0.16 * e.weight;
+        let op = 0.14 + 0.2 * e.weight;
         let c = col(C.border);
-        let sw = 0.6;
+        let sw = 0.7;
         if (selIdx >= 0) {
           if (incident) {
             op = 0.22 + 0.3 * e.weight;
