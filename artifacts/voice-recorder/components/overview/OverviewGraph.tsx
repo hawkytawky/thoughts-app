@@ -141,7 +141,11 @@ function declutter(pos: Pos[]): void {
   }
 }
 
-export function OverviewGraph() {
+export function OverviewGraph({
+  filterDate = null,
+}: {
+  filterDate?: string | null;
+}) {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [status, setStatus] = useState<"loading" | "error" | "ready">(
     "loading",
@@ -170,6 +174,9 @@ export function OverviewGraph() {
   const selectedIdxSV = useSharedValue<number>(-1);
   const neighborFlagsSV = useSharedValue<number[]>([]);
   const dragIdx = useSharedValue<number>(-1);
+  // 1 per node when a date filter is active and that node matches; empty
+  // array means "no filter", which the worklet treats as everything visible.
+  const matchFlagsSV = useSharedValue<number[]>([]);
 
   const load = () => {
     setStatus("loading");
@@ -258,6 +265,23 @@ export function OverviewGraph() {
     neighborFlagsSV.value = flags;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, graph]);
+
+  const matchCount = useMemo(() => {
+    if (!filterDate) return 0;
+    return nodes.filter((n) => (n.date ?? "").slice(0, 10) === filterDate)
+      .length;
+  }, [filterDate, nodes]);
+
+  useEffect(() => {
+    if (!filterDate) {
+      matchFlagsSV.value = [];
+      return;
+    }
+    matchFlagsSV.value = nodes.map((n) =>
+      (n.date ?? "").slice(0, 10) === filterDate ? 1 : 0,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterDate, graph]);
 
   const selectByIndex = (i: number) => {
     setExpanded(false);
@@ -383,6 +407,9 @@ export function OverviewGraph() {
       const cs = clustersSV.value;
       const selIdx = selectedIdxSV.value;
       const flags = neighborFlagsSV.value;
+      const match = matchFlagsSV.value;
+      const filtering = match.length > 0;
+      const matches = (i: number) => !filtering || match[i] === 1;
 
       // Cache hex → SkColor once per frame (few unique colors).
       const cache: Record<string, ReturnType<typeof Skia.Color>> = {};
@@ -461,6 +488,8 @@ export function OverviewGraph() {
             op = 0.035;
           }
         }
+        // A date filter keeps an edge lit only while it touches a match.
+        if (filtering && !matches(a) && !matches(b)) op = Math.min(op, 0.03);
         edgePaint.setColor(c);
         edgePaint.setAlphaf(op);
         edgePaint.setStrokeWidth(sw);
@@ -470,8 +499,9 @@ export function OverviewGraph() {
       // 2) nodes — soft shadow, paper ring, colored dot; dim non-neighbours.
       for (let i = 0; i < n; i++) {
         const node = ns[i];
-        const dim = selIdx >= 0 && flags.length > i && flags[i] === 0;
-        const alpha = selIdx < 0 ? 0.9 : dim ? 0.14 : 0.95;
+        const dim =
+          (selIdx >= 0 && flags.length > i && flags[i] === 0) || !matches(i);
+        const alpha = dim ? 0.14 : selIdx < 0 && !filtering ? 0.9 : 0.95;
         shadowPaint.setAlphaf(dim ? 0.04 : 0.1);
         canvas.drawCircle(dcx[i], dcy[i] + 1.6, node.r, shadowPaint);
         ringPaint.setAlphaf(alpha);
@@ -479,6 +509,10 @@ export function OverviewGraph() {
         nodePaint.setColor(col(node.color));
         nodePaint.setAlphaf(alpha);
         canvas.drawCircle(dcx[i], dcy[i], node.r, nodePaint);
+        // Ring every match so the picked day stands out even when zoomed out.
+        if (filtering && match[i] === 1) {
+          canvas.drawCircle(dcx[i], dcy[i], node.r + 4, selPaint);
+        }
       }
 
       // 3) selection ring
@@ -528,7 +562,8 @@ export function OverviewGraph() {
       if (kFont && keywordA > 0.01) {
         for (let i = 0; i < n; i++) {
           const node = ns[i];
-          const dim = selIdx >= 0 && flags.length > i && flags[i] === 0;
+          const dim =
+            (selIdx >= 0 && flags.length > i && flags[i] === 0) || !matches(i);
           const a2 = keywordA * (dim ? 0.2 : 1);
           if (a2 < 0.01) continue;
           const sx = px + dcx[i] * s;
@@ -560,7 +595,11 @@ export function OverviewGraph() {
       {status === "ready" && nodes.length > 0 ? (
         <View pointerEvents="none" style={styles.hintRow}>
           <Text style={styles.hint}>
-            {nodes.length} Gedanken · {clusters.length} Themen
+            {filterDate
+              ? matchCount === 1
+                ? "1 Gedanke an diesem Tag"
+                : `${matchCount} Gedanken an diesem Tag`
+              : `${nodes.length} Gedanken · ${clusters.length} Themen`}
           </Text>
         </View>
       ) : null}

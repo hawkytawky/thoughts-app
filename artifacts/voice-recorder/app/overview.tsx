@@ -8,8 +8,10 @@ import {
   Text,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppMenuGlyph, AppSidebar } from "@/components/AppSidebar";
+import { DayPicker } from "@/components/DayPicker";
 import {
   NOTE_COLORS as C,
   NOTE_SANS,
@@ -17,6 +19,7 @@ import {
   NOTE_SERIF,
 } from "@/components/NoteUI";
 import { OverviewGraph } from "@/components/overview/OverviewGraph";
+import { formatApiDate } from "@/lib/featured-note";
 
 type OverviewView = "base" | "network" | "time";
 
@@ -26,11 +29,24 @@ const VIEWS: { id: OverviewView; label: string }[] = [
   { id: "time", label: "time" },
 ];
 
+const NETWORK_INDEX = VIEWS.findIndex((view) => view.id === "network");
+
+function filterLabel(dateKey: string): string {
+  const date = new Date(`${dateKey}T12:00:00`);
+  if (dateKey === formatApiDate(new Date())) return "Heute";
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "numeric",
+    month: "long",
+  }).format(date);
+}
+
 export default function OverviewScreen() {
   const insets = useSafeAreaInsets();
   const [activeIndex, setActiveIndex] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [size, setSize] = useState({ w: 0, h: 0 });
+  const [filterDate, setFilterDate] = useState<string | null>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const goTo = (index: number) => {
@@ -62,7 +78,46 @@ export default function OverviewScreen() {
             </Pressable>
             <Text style={styles.brand}>thoughts</Text>
           </View>
-          <Text style={styles.pageLabel}>Overview</Text>
+          {activeIndex === NETWORK_INDEX ? (
+            <View style={styles.dateGroup}>
+              <Pressable
+                accessibilityLabel="Datum für die Netzwerkansicht auswählen"
+                accessibilityRole="button"
+                onPress={() => setDatePickerOpen(true)}
+                style={({ pressed }) => [
+                  styles.dateButton,
+                  filterDate != null && styles.dateButtonActive,
+                  pressed && styles.controlPressed,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.pageLabel,
+                    filterDate != null && styles.pageLabelActive,
+                  ]}
+                >
+                  {filterDate ? filterLabel(filterDate) : "Datum"}
+                </Text>
+                <Ionicons name="chevron-down" size={11} color={C.ink60} />
+              </Pressable>
+              {filterDate != null && (
+                <Pressable
+                  accessibilityLabel="Datumsfilter aufheben"
+                  accessibilityRole="button"
+                  hitSlop={10}
+                  onPress={() => setFilterDate(null)}
+                  style={({ pressed }) => [
+                    styles.clearFilter,
+                    pressed && styles.controlPressed,
+                  ]}
+                >
+                  <Ionicons name="close" size={13} color={C.ink60} />
+                </Pressable>
+              )}
+            </View>
+          ) : (
+            <Text style={styles.pageLabel}>Overview</Text>
+          )}
         </View>
 
         <View accessibilityRole="tablist" style={styles.tabs}>
@@ -117,7 +172,7 @@ export default function OverviewScreen() {
               </View>
             </View>
             <View style={[styles.page, { width: size.w, height: size.h }]}>
-              <OverviewGraph />
+              <OverviewGraph filterDate={filterDate} />
             </View>
             <View style={[styles.page, { width: size.w, height: size.h }]}>
               <View style={styles.placeholder}>
@@ -130,6 +185,15 @@ export default function OverviewScreen() {
         ) : null}
       </View>
 
+      <DayPicker
+        onChange={(date) => {
+          setFilterDate(formatApiDate(date));
+          setDatePickerOpen(false);
+        }}
+        onClose={() => setDatePickerOpen(false)}
+        value={new Date(`${filterDate ?? formatApiDate(new Date())}T12:00:00`)}
+        visible={datePickerOpen}
+      />
       <AppSidebar
         active="overview"
         insets={insets}
@@ -174,6 +238,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
     color: C.ink60,
+  },
+  pageLabelActive: { color: C.ink },
+  dateGroup: { flexDirection: "row", alignItems: "center", gap: 2 },
+  dateButton: {
+    minHeight: 40,
+    paddingLeft: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  dateButtonActive: {
+    paddingLeft: 10,
+    paddingRight: 8,
+    minHeight: 28,
+    borderRadius: 14,
+    backgroundColor: C.skyLight,
+  },
+  clearFilter: {
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
   },
   controlPressed: { opacity: 0.5 },
   tabs: {
