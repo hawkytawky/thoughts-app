@@ -6,6 +6,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import {
@@ -133,9 +134,15 @@ function AppShell() {
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="record" options={{ headerShown: false }} />
-        <Stack.Screen name="overview" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="overview"
+          options={{ gestureEnabled: false, headerShown: false }}
+        />
         <Stack.Screen name="profile" options={{ headerShown: false }} />
-        <Stack.Screen name="thoughts/index" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="thoughts/index"
+          options={{ gestureEnabled: false, headerShown: false }}
+        />
         <Stack.Screen name="thoughts/detail" options={{ headerShown: false }} />
       </Stack>
       {redirecting ? (
@@ -161,13 +168,15 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <SafeAreaProvider>
-      <ErrorBoundary>
-        <AuthProvider>
-          <AppShell />
-        </AuthProvider>
-      </ErrorBoundary>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <AuthProvider>
+            <AppShell />
+          </AuthProvider>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

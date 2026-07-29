@@ -8,12 +8,13 @@ import {
   NOTE_SANS_MEDIUM,
   NOTE_SERIF,
 } from "@/components/NoteUI";
+import { OverviewGraph } from "@/components/overview/OverviewGraph";
 
 type OverviewView = "base" | "all" | "time";
 
 const VIEWS: { id: OverviewView; label: string }[] = [
   { id: "base", label: "base" },
-  { id: "all", label: "all" },
+  { id: "all", label: "network" },
   { id: "time", label: "time" },
 ];
 
@@ -28,8 +29,8 @@ export default function OverviewScreen() {
         style={[
           styles.content,
           {
-            paddingBottom: insets.bottom + 24,
-            paddingTop: insets.top + 7,
+            paddingBottom: 0,
+            paddingTop: Math.max(insets.top - 3, 8),
           },
         ]}
       >
@@ -49,9 +50,8 @@ export default function OverviewScreen() {
             </Pressable>
             <Text style={styles.brand}>thoughts</Text>
           </View>
+          <Text style={styles.overviewLabel}>Overview</Text>
         </View>
-
-        <Text style={styles.title}>Overview</Text>
 
         <View accessibilityRole="tablist" style={styles.toggle}>
           {VIEWS.map((view) => {
@@ -80,12 +80,27 @@ export default function OverviewScreen() {
             );
           })}
         </View>
+
+        <View style={styles.body}>
+          {activeView === "all" ? (
+            <OverviewGraph />
+          ) : (
+            <View style={styles.placeholder}>
+              <Text style={styles.placeholderText}>
+                {activeView === "base"
+                  ? "Base-Statistiken folgen."
+                  : "Gedankenfluss über Zeit folgt."}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
       <AppSidebar
         active="overview"
         insets={insets}
         onClose={() => setSidebarOpen(false)}
+        onOpen={() => setSidebarOpen(true)}
         visible={sidebarOpen}
       />
     </View>
@@ -99,62 +114,58 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   appBar: {
-    minHeight: 38,
-    paddingBottom: 14,
+    minHeight: 40,
+    marginBottom: 14,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
   },
   brandGroup: {
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
   },
   menuButton: {
-    width: 28,
-    height: 28,
+    width: 24,
+    height: 40,
     alignItems: "flex-start",
     justifyContent: "center",
   },
   brand: {
     fontFamily: NOTE_SERIF,
-    fontSize: 12,
-    color: C.ink40,
-  },
-  title: {
-    marginTop: 14,
-    fontFamily: NOTE_SERIF,
-    fontSize: 30,
-    lineHeight: 36,
+    fontSize: 15,
+    lineHeight: 19,
+    letterSpacing: 0.15,
     color: C.ink,
   },
+  overviewLabel: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 12,
+    lineHeight: 16,
+    color: C.ink60,
+  },
   toggle: {
-    alignSelf: "flex-start",
-    marginTop: 24,
-    padding: 3,
+    marginTop: 0,
+    marginHorizontal: -20,
     flexDirection: "row",
-    borderRadius: 12,
-    backgroundColor: "rgba(234,242,248,0.72)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(191,217,236,0.72)",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(191,217,236,0.45)",
   },
   toggleItem: {
-    minWidth: 72,
-    height: 34,
-    paddingHorizontal: 17,
-    borderRadius: 9,
+    flex: 1,
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
   },
   toggleItemActive: {
-    backgroundColor: C.card,
-    shadowColor: C.skyDeep,
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    borderBottomWidth: 2,
+    borderBottomColor: C.ink,
+    marginBottom: -StyleSheet.hairlineWidth,
   },
   toggleLabel: {
     fontFamily: NOTE_SANS,
-    fontSize: 13,
+    fontSize: 13.5,
     color: C.ink40,
   },
   toggleLabelActive: {
@@ -162,4 +173,19 @@ const styles = StyleSheet.create({
     color: C.ink,
   },
   pressed: { opacity: 0.55 },
+  body: {
+    flex: 1,
+    marginTop: 20,
+    marginHorizontal: -20, // graph goes edge-to-edge
+  },
+  placeholder: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  placeholderText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 14,
+    color: C.ink40,
+  },
 });
