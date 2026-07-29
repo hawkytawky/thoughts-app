@@ -8,12 +8,13 @@ import {
   NOTE_SANS_MEDIUM,
   NOTE_SERIF,
 } from "@/components/NoteUI";
+import { OverviewGraph } from "@/components/overview/OverviewGraph";
 
 type OverviewView = "base" | "all" | "time";
 
 const VIEWS: { id: OverviewView; label: string }[] = [
   { id: "base", label: "base" },
-  { id: "all", label: "all" },
+  { id: "all", label: "network" },
   { id: "time", label: "time" },
 ];
 
@@ -80,6 +81,20 @@ export default function OverviewScreen() {
             );
           })}
         </View>
+
+        <View style={styles.body}>
+          {activeView === "all" ? (
+            <OverviewGraph />
+          ) : (
+            <View style={styles.placeholder}>
+              <Text style={styles.placeholderText}>
+                {activeView === "base"
+                  ? "Base-Statistiken folgen."
+                  : "Gedankenfluss über Zeit folgt."}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
       <AppSidebar
@@ -128,33 +143,26 @@ const styles = StyleSheet.create({
     color: C.ink,
   },
   toggle: {
-    alignSelf: "flex-start",
-    marginTop: 24,
-    padding: 3,
+    marginTop: 20,
+    marginHorizontal: -20,
     flexDirection: "row",
-    borderRadius: 12,
-    backgroundColor: "rgba(234,242,248,0.72)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(191,217,236,0.72)",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(191,217,236,0.45)",
   },
   toggleItem: {
-    minWidth: 72,
-    height: 34,
-    paddingHorizontal: 17,
-    borderRadius: 9,
+    flex: 1,
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
   },
   toggleItemActive: {
-    backgroundColor: C.card,
-    shadowColor: C.skyDeep,
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    borderBottomWidth: 2,
+    borderBottomColor: C.ink,
+    marginBottom: -StyleSheet.hairlineWidth,
   },
   toggleLabel: {
     fontFamily: NOTE_SANS,
-    fontSize: 13,
+    fontSize: 13.5,
     color: C.ink40,
   },
   toggleLabelActive: {
@@ -162,4 +170,19 @@ const styles = StyleSheet.create({
     color: C.ink,
   },
   pressed: { opacity: 0.55 },
+  body: {
+    flex: 1,
+    marginTop: 20,
+    marginHorizontal: -20, // graph goes edge-to-edge
+  },
+  placeholder: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  placeholderText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 14,
+    color: C.ink40,
+  },
 });
