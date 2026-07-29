@@ -101,6 +101,7 @@ export default function OverviewScreen() {
         active="overview"
         insets={insets}
         onClose={() => setSidebarOpen(false)}
+        onOpen={() => setSidebarOpen(true)}
         visible={sidebarOpen}
       />
     </View>
