@@ -18,7 +18,6 @@ import {
 import { InstrumentSans_500Medium } from "@expo-google-fonts/instrument-sans";
 import { type Href, useRouter } from "expo-router";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   FadeInDown,
   FadeOutDown,
@@ -270,7 +269,6 @@ export function TimeFlow({
   status: "loading" | "error" | "ready";
 }) {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [focusedCluster, setFocusedCluster] = useState(-1);
@@ -659,7 +657,7 @@ export function TimeFlow({
         <Animated.View
           entering={FadeInDown.duration(180)}
           exiting={FadeOutDown.duration(140)}
-          style={[styles.cardWrap, { bottom: insets.bottom + 12 }]}
+          style={styles.cardWrap}
         >
           <Pressable
             accessibilityLabel={`${selectedTopic?.label ?? "Thema"}: ${selected.title}. Thought öffnen`}
@@ -687,7 +685,7 @@ export function TimeFlow({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.paper, overflow: "hidden" },
+  root: { flex: 1, backgroundColor: "transparent", overflow: "hidden" },
   center: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
@@ -713,6 +711,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 16,
     right: 16,
+    bottom: 12,
   },
   card: {
     paddingHorizontal: 15,

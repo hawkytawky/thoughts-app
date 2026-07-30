@@ -560,7 +560,7 @@ export default function ThoughtsFeedScreen() {
       <View
         style={[
           styles.header,
-          { paddingTop: insets.top + 2, paddingBottom: 2 },
+          { paddingTop: Math.max(insets.top - 4, 0), paddingBottom: 2 },
         ]}
       >
         <Text style={styles.brand}>thoughts</Text>

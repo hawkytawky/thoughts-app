@@ -131,7 +131,15 @@ function AppShell() {
       {appIsAvailable ? <LocationPermissionBootstrap /> : null}
       {appIsAvailable ? <RecordingDeepLinkBootstrap /> : null}
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="index"
+          options={{
+            animation: "fade",
+            animationDuration: 220,
+            gestureEnabled: false,
+            headerShown: false,
+          }}
+        />
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen
@@ -144,9 +152,22 @@ function AppShell() {
         />
         <Stack.Screen
           name="overview"
-          options={{ gestureEnabled: false, headerShown: false }}
+          options={{
+            animation: "fade",
+            animationDuration: 220,
+            gestureEnabled: false,
+            headerShown: false,
+          }}
         />
-        <Stack.Screen name="profile" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="profile"
+          options={{
+            animation: "fade",
+            animationDuration: 220,
+            gestureEnabled: false,
+            headerShown: false,
+          }}
+        />
         <Stack.Screen
           name="thoughts/index"
           options={{ gestureEnabled: false, headerShown: false }}

@@ -19,7 +19,6 @@ import {
 } from "@shopify/react-native-skia";
 import { InstrumentSans_500Medium } from "@expo-google-fonts/instrument-sans";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   Easing,
   LinearTransition,
@@ -126,17 +125,18 @@ export function OverviewGraph({
   filterDate = null,
   graph,
   onRetry,
+  showHint = true,
   status,
 }: {
   filterDate?: string | null;
   graph: Graph | null;
   onRetry: () => void;
+  showHint?: boolean;
   status: "loading" | "error" | "ready";
 }) {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const insets = useSafeAreaInsets();
 
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
@@ -563,7 +563,7 @@ export function OverviewGraph({
         </View>
       </GestureDetector>
 
-      {status === "ready" && nodes.length > 0 ? (
+      {showHint && status === "ready" && nodes.length > 0 ? (
         <View pointerEvents="none" style={styles.hintRow}>
           <Text style={styles.hint}>
             {filterDate
@@ -609,7 +609,6 @@ export function OverviewGraph({
             key={selected.idx}
             style={[
               styles.sheet,
-              { paddingBottom: insets.bottom + 8 },
               cardStyle,
             ]}
             entering={SlideInDown.duration(240)}
@@ -646,7 +645,7 @@ export function OverviewGraph({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.paper, overflow: "hidden" },
+  root: { flex: 1, backgroundColor: "transparent", overflow: "hidden" },
   hintRow: {
     position: "absolute",
     top: 8,
@@ -693,6 +692,7 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     paddingHorizontal: 20,
     paddingTop: 8,
+    paddingBottom: 18,
     shadowColor: C.ink,
     shadowOpacity: 0.1,
     shadowRadius: 18,

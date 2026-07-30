@@ -9,7 +9,6 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
 import {
@@ -26,7 +25,6 @@ function providerLabel(provider: string | undefined): string {
 }
 
 export default function ProfileScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const recording = useActiveRecording();
   const { deleteAccount, signOut, user } = useAuth();
@@ -79,25 +77,14 @@ export default function ProfileScreen() {
           styles.content,
           {
             paddingBottom: 170,
-            paddingTop: insets.top + 8,
+            paddingTop: Math.max(insets.top - 4, 0),
           },
         ]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.appBar}>
-          <Pressable
-            accessibilityLabel="Zurück"
-            accessibilityRole="button"
-            hitSlop={10}
-            onPress={() => router.back()}
-            style={({ pressed }) => [
-              styles.backButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Ionicons name="chevron-back" size={21} color={C.ink60} />
-          </Pressable>
           <Text style={styles.brand}>thoughts</Text>
+          <Text style={styles.pageLabel}>account</Text>
         </View>
 
         <View style={styles.profileHeader}>
@@ -191,22 +178,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   appBar: {
-    minHeight: 38,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-  },
-  backButton: {
-    width: 28,
-    height: 28,
-    marginLeft: -5,
-    alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
   },
   brand: {
     fontFamily: NOTE_SERIF,
-    fontSize: 12,
-    color: C.ink40,
+    fontSize: 18,
+    letterSpacing: 0.1,
+    color: "#1D3B4F",
+  },
+  pageLabel: {
+    fontFamily: NOTE_SERIF,
+    fontSize: 13.5,
+    color: "#6E8A9C",
   },
   profileHeader: {
     marginTop: 42,

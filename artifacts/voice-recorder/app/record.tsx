@@ -956,7 +956,8 @@ function RecorderScreen() {
   }, [captureLocation, startRecording]);
 
   const isActive = screenState === "recording";
-  const paddingTop = insets.top + (Platform.OS === "web" ? 52 : 5);
+  const paddingTop =
+    Math.max(insets.top - 4, 0) + (Platform.OS === "web" ? 52 : 0);
   const paddingBottom = insets.bottom + (Platform.OS === "web" ? 30 : 28);
 
   const shellStyle = [styles.root, { paddingTop, paddingBottom }];
@@ -1147,19 +1148,20 @@ const styles = StyleSheet.create({
     transform: [{ translateY: -16 }],
   },
   topBar: {
-    minHeight: 38,
+    minHeight: 44,
+    marginHorizontal: -10,
     flexDirection: "row",
     alignItems: "center",
   },
   archiveButton: {
-    minHeight: 36,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 6,
   },
   brand: {
     fontFamily: SERIF,
-    fontSize: 13,
+    fontSize: 18,
+    letterSpacing: 0.1,
     color: "rgba(255,255,255,0.72)",
   },
   status: {
