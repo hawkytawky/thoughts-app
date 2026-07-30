@@ -38,30 +38,11 @@ import {
   NOTE_SERIF,
   noteCategoryColor,
 } from "@/components/NoteUI";
-import { fetchGraph, type Graph, type GraphNode } from "@/lib/visualizations";
+import { type Graph, type GraphNode } from "@/lib/visualizations";
 
 const PAD = 46;
 const MIN_SCALE = 0.6;
 const MAX_SCALE = 4;
-
-// Well-separated categorical hues so neighbouring themes never read as the same
-// colour. Assigned per cluster (by order) on the JS thread.
-// Muted, low-saturation hues — separated enough to tell themes apart, but
-// dimmed to keep the map calm and paper-like.
-const CLUSTER_PALETTE = [
-  "#6E8CA8", // dusty blue
-  "#B08A72", // muted clay
-  "#7E9A80", // sage
-  "#9487A8", // soft lavender
-  "#BBA36A", // soft ochre
-  "#6FA0A0", // muted teal
-  "#B08498", // dusty rose
-  "#8990A8", // periwinkle slate
-  "#9A9670", // olive tan
-  "#AD8078", // soft terracotta
-  "#7C97B4", // powder blue
-  "#93A277", // moss
-];
 
 // High-contrast label drawn on top of the coloured dot.
 const KEYWORD_INK = "#FBFAF7";
@@ -143,13 +124,15 @@ function declutter(pos: Pos[]): void {
 
 export function OverviewGraph({
   filterDate = null,
+  graph,
+  onRetry,
+  status,
 }: {
   filterDate?: string | null;
+  graph: Graph | null;
+  onRetry: () => void;
+  status: "loading" | "error" | "ready";
 }) {
-  const [graph, setGraph] = useState<Graph | null>(null);
-  const [status, setStatus] = useState<"loading" | "error" | "ready">(
-    "loading",
-  );
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -178,17 +161,6 @@ export function OverviewGraph({
   // array means "no filter", which the worklet treats as everything visible.
   const matchFlagsSV = useSharedValue<number[]>([]);
 
-  const load = () => {
-    setStatus("loading");
-    fetchGraph("network")
-      .then((g) => {
-        setGraph(g);
-        setStatus("ready");
-      })
-      .catch(() => setStatus("error"));
-  };
-  useEffect(load, []);
-
   const nodes = graph?.nodes ?? [];
   const edges = graph?.edges ?? [];
   const clusters = graph?.clusters ?? [];
@@ -196,10 +168,9 @@ export function OverviewGraph({
   const layout = useMemo(() => {
     const w = Math.max(0, size.w - PAD * 2);
     const h = Math.max(0, size.h - PAD * 2);
-    const clusterIndex = new Map(clusters.map((c, i) => [c.id, i]));
+    const clusterById = new Map(clusters.map((cluster) => [cluster.id, cluster]));
     const pos: Pos[] = nodes.map((n) => {
-      const ci = clusterIndex.get(n.cluster) ?? 0;
-      const fill = CLUSTER_PALETTE[ci % CLUSTER_PALETTE.length];
+      const fill = clusterById.get(n.cluster)?.color ?? C.ink40;
       return {
         idx: n.idx,
         cx: PAD + n.x * w,
@@ -211,7 +182,7 @@ export function OverviewGraph({
       };
     });
     if (pos.length && w > 0 && h > 0) declutter(pos);
-    const centroids = clusters.map((c, ci) => {
+    const centroids = clusters.map((c) => {
       const pts = pos.filter((_, i) => nodes[i].cluster === c.id);
       const cx = pts.reduce((s, p) => s + p.cx, 0) / (pts.length || 1);
       const cy = pts.reduce((s, p) => s + p.cy, 0) / (pts.length || 1);
@@ -219,7 +190,7 @@ export function OverviewGraph({
         ...c,
         cx,
         cy,
-        paletteColor: CLUSTER_PALETTE[ci % CLUSTER_PALETTE.length],
+        paletteColor: c.color,
       };
     });
     return { pos, centroids };
@@ -615,7 +586,7 @@ export function OverviewGraph({
           <Text style={styles.stateText}>
             Die Karte konnte nicht geladen werden.
           </Text>
-          <Pressable onPress={load} style={styles.retry} hitSlop={8}>
+          <Pressable onPress={onRetry} style={styles.retry} hitSlop={8}>
             <Text style={styles.retryText}>Erneut versuchen</Text>
           </Pressable>
         </View>

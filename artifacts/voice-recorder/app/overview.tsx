@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppMenuGlyph, AppSidebar } from "@/components/AppSidebar";
 import { DayPicker } from "@/components/DayPicker";
@@ -19,7 +20,9 @@ import {
   NOTE_SERIF,
 } from "@/components/NoteUI";
 import { OverviewGraph } from "@/components/overview/OverviewGraph";
+import { TimeFlow } from "@/components/overview/TimeFlow";
 import { formatApiDate } from "@/lib/featured-note";
+import { fetchGraph, type Graph } from "@/lib/visualizations";
 
 type OverviewView = "base" | "network" | "time";
 
@@ -47,7 +50,27 @@ export default function OverviewScreen() {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [filterDate, setFilterDate] = useState<string | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [graph, setGraph] = useState<Graph | null>(null);
+  const [graphStatus, setGraphStatus] = useState<
+    "loading" | "error" | "ready"
+  >("loading");
   const scrollRef = useRef<ScrollView>(null);
+
+  const loadGraph = useCallback(() => {
+    setGraphStatus("loading");
+    fetchGraph("network")
+      .then((nextGraph) => {
+        setGraph(nextGraph);
+        setGraphStatus("ready");
+      })
+      .catch(() => setGraphStatus("error"));
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadGraph();
+    }, [loadGraph]),
+  );
 
   const goTo = (index: number) => {
     setActiveIndex(index);
@@ -172,14 +195,19 @@ export default function OverviewScreen() {
               </View>
             </View>
             <View style={[styles.page, { width: size.w, height: size.h }]}>
-              <OverviewGraph filterDate={filterDate} />
+              <OverviewGraph
+                filterDate={filterDate}
+                graph={graph}
+                onRetry={loadGraph}
+                status={graphStatus}
+              />
             </View>
             <View style={[styles.page, { width: size.w, height: size.h }]}>
-              <View style={styles.placeholder}>
-                <Text style={styles.placeholderText}>
-                  Gedankenfluss über Zeit folgt.
-                </Text>
-              </View>
+              <TimeFlow
+                graph={graph}
+                onRetry={loadGraph}
+                status={graphStatus}
+              />
             </View>
           </ScrollView>
         ) : null}

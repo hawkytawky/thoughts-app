@@ -34,7 +34,6 @@ import {
   type ThoughtCard,
   fetchNoteProcessingState,
   fetchNotesForDate,
-  fetchThoughtDayCounts,
   formatApiDate,
   formatDuration,
   retryNoteProcessing,
@@ -42,10 +41,7 @@ import {
 import {
   type FeedBootstrap,
   consumeFeedBootstrapPrefetch,
-  initialMonths,
   loadFeedBootstrap,
-  monthKey,
-  previousMonth,
   readFeedCache,
   todayKey,
   writeFeedCache,
@@ -59,10 +55,6 @@ import {
   removePendingThought,
 } from "@/lib/pending-thoughts";
 import { useActiveRecording } from "@/lib/active-recording";
-
-// How many empty months in a row we tolerate before assuming there is no
-// older history left to page through.
-const MAX_EMPTY_HISTORY_MONTHS = 4;
 
 type TimelineEntry =
   | {
@@ -81,31 +73,18 @@ type TimelineEntry =
       id: string;
       kind: "loading";
       recordedAt: string;
-    }
-  | {
-      id: string;
-      kind: "day-row";
-      date: string;
-      count: number;
-      expanded: boolean;
     };
 
-type DaySection = {
+type TimelineSection = {
   kind: "day";
   date: string;
   count: number;
   expanded: boolean;
+  // Today's thoughts stand on their own — the date already lives in the
+  // header, so that section renders without a day row.
+  showHeader: boolean;
   data: TimelineEntry[];
 };
-
-type MonthSection = {
-  kind: "month";
-  month: string;
-  count: number;
-  data: TimelineEntry[];
-};
-
-type TimelineSection = DaySection | MonthSection;
 
 function typeLabel(type: string): string {
   const labels: Record<string, string> = {
@@ -159,16 +138,6 @@ function dayDate(dateKey: string): string {
   }).format(dayKeyToDate(dateKey));
 }
 
-function monthHeading(month: string): string {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const date = new Date(year, monthNumber - 1, 1);
-  const label = new Intl.DateTimeFormat("de-DE", {
-    month: "long",
-    year: "numeric",
-  }).format(date);
-  return label.charAt(0).toUpperCase() + label.slice(1);
-}
-
 function topDate(dateKey: string): string {
   const date = dayKeyToDate(dateKey);
   const formatted = new Intl.DateTimeFormat("de-DE", {
@@ -211,7 +180,6 @@ function buildSections({
   expandedDays,
   filterDate,
   loadingDays,
-  openMonths,
   pendingThoughts,
 }: {
   dayCounts: Map<string, number>;
@@ -219,25 +187,20 @@ function buildSections({
   expandedDays: Set<string>;
   filterDate: string | null;
   loadingDays: Set<string>;
-  openMonths: Set<string>;
   pendingThoughts: PendingThought[];
 }): TimelineSection[] {
   const today = todayKey();
   const yesterday = yesterdayKey();
-  // Today and yesterday always get their own row; everything older is
-  // grouped by month until the user drills into a specific month.
-  const pinnedDays = new Set([today, yesterday]);
 
-  // Every day the calendar knows about, plus today/yesterday so they always
-  // have a home even before their first thought exists.
-  const dayKeys = new Set<string>([today, yesterday, ...dayCounts.keys()]);
   const pendingForToday = pendingThoughts.filter(
     (pending) => formatApiDate(new Date(pending.createdAt)) === today,
   );
 
-  function buildDaySection(date: string): DaySection {
+  function buildDaySection(date: string): TimelineSection {
     const notes = dayNotes.get(date) ?? [];
-    const expanded = expandedDays.has(date);
+    // Today is never collapsed — without a day row there would be no way
+    // back open.
+    const expanded = date === today || expandedDays.has(date);
     const includePending = date === today && pendingForToday.length > 0;
     const pendingCount = includePending
       ? pendingEntries(
@@ -272,72 +235,24 @@ function buildSections({
       }
     }
 
-    return { kind: "day", date, count, expanded, data };
+    return {
+      kind: "day",
+      date,
+      count,
+      expanded,
+      showHeader: date !== today,
+      data,
+    };
   }
 
   // Date filter narrows the whole feed to the single picked day.
   if (filterDate) return [buildDaySection(filterDate)];
 
-  const pinnedSections = [...pinnedDays]
-    .sort((left, right) => right.localeCompare(left))
+  // The feed itself only ever shows today and yesterday; older days are
+  // reachable through the date picker in the header.
+  return [today, yesterday]
     .map(buildDaySection)
-    .filter(
-      (section) =>
-        section.count > 0 || section.date === today || section.expanded,
-    );
-
-  // Only days with thoughts get a home in a month group; empty calendar
-  // days elsewhere don't need to exist as far as the feed is concerned.
-  const olderDayKeys = [...dayKeys]
-    .filter((date) => !pinnedDays.has(date) && (dayCounts.get(date) ?? 0) > 0)
-    .sort((left, right) => right.localeCompare(left));
-
-  const monthGroups = new Map<string, string[]>();
-  for (const date of olderDayKeys) {
-    const month = monthKey(date);
-    const group = monthGroups.get(month) ?? [];
-    group.push(date);
-    monthGroups.set(month, group);
-  }
-
-  const monthSections: MonthSection[] = [...monthGroups.keys()]
-    .sort((left, right) => right.localeCompare(left))
-    .map((month) => {
-      const days = monthGroups.get(month) ?? [];
-      const count = days.reduce(
-        (sum, date) => sum + (dayCounts.get(date) ?? 0),
-        0,
-      );
-      // An open month lists its days only. Nothing is fetched until a day
-      // is tapped — that is what keeps opening a month instant.
-      const data: TimelineEntry[] = [];
-      if (openMonths.has(month)) {
-        for (const date of days) {
-          const expanded = expandedDays.has(date);
-          data.push({
-            id: `day-${date}`,
-            kind: "day-row",
-            date,
-            count: dayCounts.get(date) ?? 0,
-            expanded,
-          });
-          if (!expanded) continue;
-          const notes = dayNotes.get(date);
-          if (notes) {
-            data.push(...noteEntries(notes));
-          } else {
-            data.push({
-              id: `loading-${date}`,
-              kind: "loading",
-              recordedAt: date,
-            });
-          }
-        }
-      }
-      return { kind: "month", month, count, data };
-    });
-
-  return [...pinnedSections, ...monthSections];
+    .filter((section) => section.count > 0 || section.date === today);
 }
 
 function ThoughtCardRow({
@@ -355,9 +270,7 @@ function ThoughtCardRow({
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
     >
       <View style={styles.cardTop}>
-        <Text
-          style={[styles.kind, { color: noteCategoryColor(note.type) }]}
-        >
+        <Text style={[styles.kind, { color: noteCategoryColor(note.type) }]}>
           {typeLabel(note.type)}
         </Text>
         <Text style={styles.duration}>
@@ -417,19 +330,16 @@ function PendingThoughtRow({
   );
 }
 
-// One row shape for every day in the feed — the pinned Today/Yesterday
-// sections and the days listed inside an open month both render this.
+// The collapsible row every day but today gets in the feed.
 function DayRow({
   count,
   date,
   expanded,
-  nested = false,
   onToggle,
 }: {
   count: number;
   date: string;
   expanded: boolean;
-  nested?: boolean;
   onToggle: () => void;
 }) {
   const countLabel = count === 1 ? "1 thought" : `${count} thoughts`;
@@ -441,7 +351,6 @@ function DayRow({
       onPress={onToggle}
       style={({ pressed }) => [
         styles.dayHeader,
-        nested && styles.dayHeaderNested,
         pressed && styles.dayHeaderPressed,
       ]}
     >
@@ -458,38 +367,6 @@ function DayRow({
   );
 }
 
-function MonthHeader({
-  section,
-  onToggle,
-}: {
-  section: MonthSection;
-  onToggle: () => void;
-}) {
-  const countLabel =
-    section.count === 1 ? "1 thought" : `${section.count} thoughts`;
-  return (
-    <Pressable
-      accessibilityLabel={`${monthHeading(section.month)}, ${countLabel}. Zum Aufklappen tippen`}
-      accessibilityRole="button"
-      accessibilityState={{ expanded: false }}
-      onPress={onToggle}
-      style={({ pressed }) => [
-        styles.monthHeader,
-        pressed && styles.dayHeaderPressed,
-      ]}
-    >
-      <Ionicons
-        name="chevron-forward"
-        size={12}
-        color={C.ink40}
-        style={styles.dayChevron}
-      />
-      <Text style={styles.monthName}>{monthHeading(section.month)}</Text>
-      <Text style={styles.dayCount}>{countLabel}</Text>
-    </Pressable>
-  );
-}
-
 export default function ThoughtsFeedScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -500,7 +377,6 @@ export default function ThoughtsFeedScreen() {
     new Map(),
   );
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
-  const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
   const [filterDate, setFilterDate] = useState<string | null>(null);
   const [loadingDays, setLoadingDays] = useState<Set<string>>(new Set());
   const [failedDays, setFailedDays] = useState<Set<string>>(new Set());
@@ -510,14 +386,10 @@ export default function ThoughtsFeedScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Guards against duplicate fetches for the same day / month across renders.
+  // Guards against duplicate fetches for the same day across renders.
   const inFlightDays = useRef(new Set<string>());
-  const oldestMonthLoaded = useRef<string | null>(null);
-  const emptyHistoryMonths = useRef(0);
-  const historyExhausted = useRef(false);
   // Snapshot of loaded notes so the focus effect can dedupe without re-subscribing.
   const dayNotesRef = useRef(dayNotes);
   useEffect(() => {
@@ -532,7 +404,6 @@ export default function ThoughtsFeedScreen() {
         expandedDays,
         filterDate,
         loadingDays,
-        openMonths,
         pendingThoughts,
       }),
     [
@@ -541,9 +412,13 @@ export default function ThoughtsFeedScreen() {
       expandedDays,
       filterDate,
       loadingDays,
-      openMonths,
       pendingThoughts,
     ],
+  );
+
+  // Nothing to show at all — no cards, and no collapsed day worth opening.
+  const feedEmpty = sections.every(
+    (section) => section.data.length === 0 && section.count === 0,
   );
 
   const loadDay = useCallback(async (date: string) => {
@@ -580,16 +455,12 @@ export default function ThoughtsFeedScreen() {
   // Applies a bootstrap payload (fresh or cached) to the feed state.
   const applyBootstrap = useCallback((data: FeedBootstrap) => {
     const today = todayKey();
-    const [, prevMonth] = initialMonths();
-
-    oldestMonthLoaded.current = prevMonth;
-    emptyHistoryMonths.current = 0;
-    historyExhausted.current = false;
     inFlightDays.current.clear();
 
     setDayCounts(new Map(data.counts));
     setDayNotes(new Map(data.notes));
-    setExpandedDays(new Set(data.notes.map(([date]) => date)));
+    // Yesterday's notes are prefetched but stay collapsed until tapped.
+    setExpandedDays(new Set([today]));
     setLoadingDays(new Set());
     setFailedDays(new Set());
     setVisibleDate(today);
@@ -639,36 +510,6 @@ export default function ThoughtsFeedScreen() {
     };
   }, [applyBootstrap, loadInitial]);
 
-  const loadMoreHistory = useCallback(async () => {
-    if (loadingMore || historyExhausted.current) return;
-    const oldest = oldestMonthLoaded.current;
-    if (!oldest) return;
-    const target = previousMonth(oldest);
-    setLoadingMore(true);
-    try {
-      const monthCounts = await fetchThoughtDayCounts(target);
-      oldestMonthLoaded.current = target;
-      if (monthCounts.length === 0) {
-        emptyHistoryMonths.current += 1;
-        if (emptyHistoryMonths.current >= MAX_EMPTY_HISTORY_MONTHS) {
-          historyExhausted.current = true;
-        }
-      } else {
-        emptyHistoryMonths.current = 0;
-        setDayCounts((current) => {
-          const next = new Map(current);
-          for (const { date, count } of monthCounts) next.set(date, count);
-          return next;
-        });
-      }
-    } catch {
-      // Stop paging on error; a pull-to-refresh can recover.
-      historyExhausted.current = true;
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [loadingMore]);
-
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -693,15 +534,6 @@ export default function ThoughtsFeedScreen() {
     },
     [dayNotes, loadDay],
   );
-
-  const toggleMonth = useCallback((month: string) => {
-    setOpenMonths((current) => {
-      const next = new Set(current);
-      if (next.has(month)) next.delete(month);
-      else next.add(month);
-      return next;
-    });
-  }, []);
 
   const retryProcessing = useCallback(async (thought: PendingThought) => {
     if (!thought.remotePath) return;
@@ -952,14 +784,10 @@ export default function ThoughtsFeedScreen() {
           ref={listRef}
           contentContainerStyle={[
             styles.listContent,
-            { paddingBottom: insets.bottom + 92 },
+            { paddingBottom: insets.bottom + 104 },
           ]}
           initialNumToRender={12}
           keyExtractor={(item) => item.id}
-          onEndReached={() => {
-            if (!filterDate) void loadMoreHistory();
-          }}
-          onEndReachedThreshold={0.5}
           onRefresh={() => void refresh()}
           onScrollToIndexFailed={() => {
             // Section may still be measuring; the next viewability pass recovers.
@@ -983,17 +811,6 @@ export default function ThoughtsFeedScreen() {
                 />
               );
             }
-            if (item.kind === "day-row") {
-              return (
-                <DayRow
-                  count={item.count}
-                  date={item.date}
-                  expanded={item.expanded}
-                  nested
-                  onToggle={() => toggleDay(item.date)}
-                />
-              );
-            }
             const failed = failedDays.has(item.recordedAt);
             return (
               <Pressable
@@ -1014,39 +831,29 @@ export default function ThoughtsFeedScreen() {
           }}
           renderSectionFooter={() => <View style={styles.sectionFooter} />}
           renderSectionHeader={({ section }) =>
-            section.kind === "month" ? (
-              <MonthHeader
-                onToggle={() => toggleMonth(section.month)}
-                section={section}
-              />
-            ) : (
+            section.showHeader ? (
               <DayRow
                 count={section.count}
                 date={section.date}
                 expanded={section.expanded}
                 onToggle={() => toggleDay(section.date)}
               />
-            )
+            ) : null
           }
           sections={sections}
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>
-                {filterDate
-                  ? `Keine thoughts am ${dayDate(filterDate)}`
-                  : "Noch keine thoughts"}
-              </Text>
-            </View>
-          }
-          ListFooterComponent={
-            loadingMore ? (
-              <ActivityIndicator
-                color={C.sky}
-                size="small"
-                style={styles.footerLoading}
-              />
+          ListHeaderComponent={
+            // Sections always carry a footer, so ListEmptyComponent never
+            // fires; the header slot is what an empty feed can use instead.
+            feedEmpty ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyTitle}>
+                  {filterDate
+                    ? `Keine thoughts am ${dayDate(filterDate)}`
+                    : "Noch keine thoughts"}
+                </Text>
+              </View>
             ) : null
           }
           viewabilityConfig={viewabilityConfig}
@@ -1056,7 +863,7 @@ export default function ThoughtsFeedScreen() {
       <LinearGradient
         pointerEvents="none"
         colors={["rgba(249,249,248,0)", C.paper]}
-        style={[styles.bottomFade, { height: insets.bottom + 64 }]}
+        style={[styles.bottomFade, { height: insets.bottom + 78 }]}
       />
 
       {!activeRecording.active && (
@@ -1071,7 +878,7 @@ export default function ThoughtsFeedScreen() {
           ]}
         >
           <View style={styles.recordButtonGlass}>
-            <Ionicons name="mic" size={20} color={C.card} />
+            <Ionicons name="mic" size={26} color={C.card} />
           </View>
         </Pressable>
       )}
@@ -1185,29 +992,10 @@ const styles = StyleSheet.create({
     color: C.ink40,
   },
   dayLoading: { paddingVertical: 14, alignItems: "center" },
-  // Days listed inside an open month sit one step in from the month row.
-  dayHeaderNested: { paddingLeft: 17, backgroundColor: "transparent" },
   dayLoadError: {
     fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 11,
     color: C.ink40,
-  },
-  monthHeader: {
-    minHeight: 40,
-    marginHorizontal: -3,
-    paddingHorizontal: 3,
-    paddingTop: 10,
-    paddingBottom: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "rgba(249,249,248,0.96)",
-  },
-  monthName: {
-    fontFamily: NOTE_SERIF,
-    fontSize: 13,
-    lineHeight: 17,
-    color: C.ink70,
   },
   sectionFooter: { height: 2 },
   card: {
@@ -1284,13 +1072,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: C.ink60,
   },
-  footerLoading: { marginVertical: 18 },
   recordButtonOuter: {
     position: "absolute",
     right: 20,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 66,
+    height: 66,
+    borderRadius: 33,
     shadowColor: C.ink,
     shadowOpacity: 0.3,
     shadowRadius: 14,
@@ -1299,7 +1086,7 @@ const styles = StyleSheet.create({
   },
   recordButtonGlass: {
     flex: 1,
-    borderRadius: 26,
+    borderRadius: 33,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",

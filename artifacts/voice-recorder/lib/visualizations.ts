@@ -11,6 +11,8 @@ export type GraphNode = {
   title: string;
   subtitle: string;
   summary: string;
+  capturedAt: string;
+  wordCount: number;
   date: string;
   dateLabel: string;
   keyword: string;
@@ -27,11 +29,31 @@ export type GraphCluster = {
 
 export type GraphEdge = { source: number; target: number; weight: number };
 
+export type TimeTopicVolume = {
+  cluster: number;
+  wordCount: number;
+  thoughtCount: number;
+};
+
+export type TimeDayVolume = {
+  date: string;
+  wordCount: number;
+  thoughtCount: number;
+  topics: TimeTopicVolume[];
+};
+
+export type TimeProjection = {
+  timezone: string;
+  maxDailyWordCount: number;
+  days: TimeDayVolume[];
+};
+
 export type Graph = {
   meta: { nodes: number; clusters: number; model?: string | null };
   clusters: GraphCluster[];
   nodes: GraphNode[];
   edges: GraphEdge[];
+  time: TimeProjection;
   generatedAt?: string | null;
 };
 
