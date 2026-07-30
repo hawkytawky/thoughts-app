@@ -9,19 +9,92 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
 import {
-  NOTE_COLORS as C,
   NOTE_SANS,
   NOTE_SANS_MEDIUM,
   NOTE_SERIF,
 } from "@/components/NoteUI";
 import { useActiveRecording } from "@/lib/active-recording";
-import { useAuth } from "@/lib/auth";
+import { type Gender, useAuth } from "@/lib/auth";
+
+const COLORS = {
+  ink: "#1D3B4F",
+  inkSoft: "#6E8A9C",
+  inkFaint: "#9FB2BD",
+  deep: "#2E5E8C",
+  hair: "#DDE5E9",
+  card: "#FFFFFF",
+  danger: "#9B5F5A",
+};
 
 function providerLabel(provider: string | undefined): string {
-  return provider === "entra" ? "Microsoft Entra" : provider || "—";
+  const labels: Record<string, string> = {
+    apple: "Apple",
+    entra: "Microsoft Entra",
+    google: "Google",
+  };
+  if (!provider) return "Nicht verfügbar";
+  return labels[provider.toLocaleLowerCase()] ?? provider;
+}
+
+function genderLabel(gender: Gender | null | undefined): string {
+  const labels: Record<Gender, string> = {
+    female: "weiblich",
+    male: "männlich",
+    diverse: "divers",
+    prefer_not_to_say: "keine Angabe",
+  };
+  return gender ? labels[gender] : "Nicht hinterlegt";
+}
+
+function birthDateLabel(value: string | null | undefined): string {
+  if (!value) return "Nicht hinterlegt";
+  const date = new Date(`${value.slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return "Nicht hinterlegt";
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
+function displayName(user: {
+  display_name: string | null;
+  given_name: string | null;
+  family_name: string | null;
+} | null): string {
+  if (!user) return "Dein Account";
+  const fullName = [user.given_name, user.family_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return fullName || user.display_name || "Dein Account";
+}
+
+function SectionLabel({ children }: { children: string }) {
+  return <Text style={styles.sectionLabel}>{children}</Text>;
+}
+
+function InfoRow({
+  label,
+  value,
+  last = false,
+}: {
+  label: string;
+  value: string;
+  last?: boolean;
+}) {
+  return (
+    <View style={[styles.infoRow, !last && styles.rowDivider]}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text numberOfLines={1} style={styles.infoValue}>
+        {value}
+      </Text>
+    </View>
+  );
 }
 
 export default function ProfileScreen() {
@@ -29,7 +102,17 @@ export default function ProfileScreen() {
   const recording = useActiveRecording();
   const { deleteAccount, signOut, user } = useAuth();
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const performSignOut = async () => {
+    setIsSigningOut(true);
+    try {
+      await signOut();
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
 
   const performDeletion = async () => {
     setError(null);
@@ -72,6 +155,12 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.root}>
+      <LinearGradient
+        colors={["#DBE3E8", "#E7EBEC", "#EAEDED"]}
+        locations={[0, 0.46, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -87,81 +176,84 @@ export default function ProfileScreen() {
           <Text style={styles.pageLabel}>account</Text>
         </View>
 
-        <View style={styles.profileHeader}>
-          <View style={styles.avatar}>
-            <Ionicons name="person-outline" size={27} color={C.skyDeep} />
-          </View>
-          <Text style={styles.title}>{user?.display_name || "Dein Profil"}</Text>
-          <Text style={styles.subtitle}>
-            Sicher angemeldet und mit deinen thoughts verbunden.
+        <View style={styles.identity}>
+          <Text numberOfLines={2} style={styles.name}>
+            {displayName(user)}
+          </Text>
+          <Text numberOfLines={1} style={styles.email}>
+            {user?.email || "Keine E-Mail-Adresse hinterlegt"}
           </Text>
         </View>
 
-        <View style={styles.infoCard}>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Name</Text>
-            <Text numberOfLines={1} style={styles.infoValue}>
-              {user?.display_name || "Nicht hinterlegt"}
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Anmeldung</Text>
-            <Text style={styles.infoValue}>
-              {providerLabel(user?.auth_provider)}
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Account-ID</Text>
-            <Text numberOfLines={1} style={styles.accountId}>
-              {user?.user_id || "—"}
-            </Text>
-          </View>
+        <SectionLabel>PERSÖNLICH</SectionLabel>
+        <View style={styles.card}>
+          <InfoRow
+            label="Geburtsdatum"
+            value={birthDateLabel(user?.date_of_birth)}
+          />
+          <InfoRow
+            label="Angabe"
+            value={genderLabel(user?.gender)}
+            last
+          />
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          disabled={isDeleting}
-          onPress={() => void signOut()}
-          style={({ pressed }) => [
-            styles.signOutButton,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Ionicons name="log-out-outline" size={18} color={C.ink60} />
-          <Text style={styles.signOutText}>abmelden</Text>
-        </Pressable>
-
-        <View style={styles.dangerZone}>
-          <Text style={styles.dangerLabel}>Account löschen</Text>
-          <Text style={styles.dangerCopy}>
-            Entfernt deinen Account und alle damit verbundenen Daten dauerhaft
-            aus thoughts.
-          </Text>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+        <SectionLabel>ANMELDUNG</SectionLabel>
+        <View style={styles.card}>
+          <InfoRow
+            label="Verbunden mit"
+            value={providerLabel(user?.auth_provider)}
+          />
           <Pressable
             accessibilityRole="button"
-            disabled={isDeleting}
-            onPress={confirmDeletion}
+            disabled={isDeleting || isSigningOut}
+            onPress={() => void performSignOut()}
             style={({ pressed }) => [
-              styles.deleteButton,
-              pressed && styles.deleteButtonPressed,
-              isDeleting && styles.disabled,
+              styles.actionRow,
+              pressed && styles.pressed,
             ]}
           >
-            {isDeleting ? (
-              <ActivityIndicator color="#9B5F5A" />
+            <Text style={styles.actionLabel}>Abmelden</Text>
+            {isSigningOut ? (
+              <ActivityIndicator size="small" color={COLORS.inkSoft} />
             ) : (
-              <>
-                <Ionicons name="trash-outline" size={17} color="#9B5F5A" />
-                <Text style={styles.deleteText}>
-                  Account und Daten löschen
-                </Text>
-              </>
+              <Ionicons
+                name="arrow-forward"
+                size={17}
+                color={COLORS.inkFaint}
+              />
             )}
           </Pressable>
         </View>
+
+        <SectionLabel>DATEN</SectionLabel>
+        <View style={styles.card}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={isDeleting || isSigningOut}
+            onPress={confirmDeletion}
+            style={({ pressed }) => [
+              styles.actionRow,
+              pressed && styles.dangerPressed,
+            ]}
+          >
+            <View style={styles.dangerCopy}>
+              <Text style={styles.dangerTitle}>Account und Daten löschen</Text>
+              <Text style={styles.dangerHint}>Dauerhaft und unwiderruflich</Text>
+            </View>
+            {isDeleting ? (
+              <ActivityIndicator size="small" color={COLORS.danger} />
+            ) : (
+              <Ionicons
+                name="arrow-forward"
+                size={17}
+                color="rgba(155,95,90,0.62)"
+              />
+            )}
+          </Pressable>
+        </View>
+
+        {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
       <BottomTabBar active="account" />
     </View>
@@ -169,10 +261,7 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: C.paper,
-  },
+  root: { flex: 1, backgroundColor: "#E7EBEC" },
   content: {
     flexGrow: 1,
     paddingHorizontal: 20,
@@ -187,146 +276,105 @@ const styles = StyleSheet.create({
     fontFamily: NOTE_SERIF,
     fontSize: 18,
     letterSpacing: 0.1,
-    color: "#1D3B4F",
+    color: COLORS.ink,
   },
   pageLabel: {
     fontFamily: NOTE_SERIF,
     fontSize: 13.5,
-    color: "#6E8A9C",
+    color: COLORS.inkSoft,
   },
-  profileHeader: {
-    marginTop: 42,
-    alignItems: "center",
+  identity: {
+    paddingTop: 42,
+    paddingBottom: 38,
   },
-  avatar: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: C.skyLight,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: C.border,
-  },
-  title: {
-    marginTop: 18,
+  name: {
+    maxWidth: 330,
     fontFamily: NOTE_SERIF,
-    fontSize: 29,
-    lineHeight: 34,
-    color: C.ink,
-    textAlign: "center",
+    fontSize: 31,
+    lineHeight: 36,
+    color: COLORS.ink,
   },
-  subtitle: {
-    maxWidth: 280,
+  email: {
     marginTop: 7,
     fontFamily: NOTE_SANS,
     fontSize: 13,
-    lineHeight: 20,
-    color: C.ink60,
-    textAlign: "center",
+    lineHeight: 18,
+    color: COLORS.inkSoft,
   },
-  infoCard: {
-    marginTop: 36,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    backgroundColor: C.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: C.border,
+  sectionLabel: {
+    marginTop: 20,
+    marginBottom: 7,
+    marginLeft: 3,
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 9.5,
+    letterSpacing: 1.35,
+    color: COLORS.inkFaint,
+  },
+  card: {
+    paddingHorizontal: 17,
+    borderRadius: 20,
+    backgroundColor: COLORS.card,
+    shadowColor: COLORS.ink,
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
   infoRow: {
     minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
-    gap: 18,
+    gap: 16,
+  },
+  rowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.hair,
   },
   infoLabel: {
-    width: 84,
+    flex: 1,
     fontFamily: NOTE_SANS,
-    fontSize: 12,
-    color: C.ink40,
+    fontSize: 12.5,
+    color: COLORS.inkSoft,
   },
   infoValue: {
-    flex: 1,
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 13,
-    color: C.ink70,
-    textAlign: "right",
-  },
-  accountId: {
-    flex: 1,
+    maxWidth: "58%",
     fontFamily: NOTE_SANS,
-    fontSize: 11,
-    color: C.ink40,
+    fontSize: 12.5,
+    color: COLORS.ink,
     textAlign: "right",
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginLeft: 102,
-    backgroundColor: C.divider,
-  },
-  signOutButton: {
-    minHeight: 50,
-    marginTop: 14,
-    borderRadius: 13,
+  actionRow: {
+    minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 9,
-    backgroundColor: C.skyLight,
+    justifyContent: "space-between",
+    gap: 14,
   },
-  signOutText: {
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 14,
-    color: C.ink60,
-  },
-  dangerZone: {
-    marginTop: "auto",
-    paddingTop: 52,
-  },
-  dangerLabel: {
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 12,
-    color: "#9B5F5A",
-  },
-  dangerCopy: {
-    maxWidth: 330,
-    marginTop: 7,
+  actionLabel: {
     fontFamily: NOTE_SANS,
-    fontSize: 12,
-    lineHeight: 19,
-    color: C.ink40,
+    fontSize: 13.5,
+    color: COLORS.ink,
+  },
+  dangerCopy: { flex: 1, paddingVertical: 12 },
+  dangerTitle: {
+    fontFamily: NOTE_SANS,
+    fontSize: 13.5,
+    color: COLORS.danger,
+  },
+  dangerHint: {
+    marginTop: 3,
+    fontFamily: NOTE_SANS,
+    fontSize: 10.5,
+    color: "rgba(155,95,90,0.68)",
   },
   error: {
     marginTop: 10,
+    paddingHorizontal: 4,
     fontFamily: NOTE_SANS,
     fontSize: 12,
     lineHeight: 18,
-    color: "#9B5F5A",
+    color: COLORS.danger,
   },
-  deleteButton: {
-    minHeight: 48,
-    marginTop: 16,
-    borderRadius: 13,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(155,95,90,0.45)",
-    backgroundColor: "rgba(255,255,255,0.6)",
-  },
-  deleteButtonPressed: {
-    backgroundColor: "rgba(226,194,184,0.28)",
-  },
-  deleteText: {
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 13,
-    color: "#9B5F5A",
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  pressed: {
-    opacity: 0.58,
-  },
+  pressed: { opacity: 0.55 },
+  dangerPressed: { opacity: 0.58 },
 });
