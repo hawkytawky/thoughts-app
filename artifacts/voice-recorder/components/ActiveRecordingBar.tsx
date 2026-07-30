@@ -87,7 +87,7 @@ export function ActiveRecordingBar() {
   return (
     <View
       pointerEvents="box-none"
-      style={[styles.container, { bottom: insets.bottom + 6 }]}
+      style={[styles.container, { bottom: insets.bottom + 88 }]}
     >
       <Pressable
         accessibilityRole="button"

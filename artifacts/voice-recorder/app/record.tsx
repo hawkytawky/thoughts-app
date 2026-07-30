@@ -832,7 +832,7 @@ function RecorderScreen() {
       );
       setAmplitudes(INITIAL_AMPLITUDES);
       setDurationMs(0);
-      router.replace("/thoughts" as Href);
+      router.replace("/" as Href);
     }
   }, [router]);
 
@@ -878,7 +878,7 @@ function RecorderScreen() {
           (previousState === "background" || previousState === "inactive");
         previousState = nextState;
         if (isReturning && screenStateRef.current === "saved") {
-          router.replace("/thoughts" as Href);
+          router.replace("/" as Href);
         }
       },
     );
@@ -895,7 +895,7 @@ function RecorderScreen() {
   useEffect(() => {
     if (screenState !== "saved") return;
     const timeout = setTimeout(
-      () => router.replace("/thoughts" as Href),
+      () => router.replace("/" as Href),
       1_000,
     );
     return () => clearTimeout(timeout);
@@ -1005,7 +1005,7 @@ function RecorderScreen() {
           ) : (
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.replace("/thoughts" as Href)}
+              onPress={() => router.replace("/" as Href)}
               style={({ pressed }) => [
                 styles.recordAgainButton,
                 pressed && styles.pressed,
@@ -1089,7 +1089,7 @@ function RecorderScreen() {
           accessibilityRole="button"
           accessibilityLabel="Gespeicherte Gedanken öffnen"
           hitSlop={8}
-          onPress={() => router.push("/thoughts" as Href)}
+          onPress={() => router.push("/" as Href)}
           style={({ pressed }) => [
             styles.archiveButton,
             pressed && styles.pressed,

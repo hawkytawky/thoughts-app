@@ -11,7 +11,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AppMenuGlyph, AppSidebar } from "@/components/AppSidebar";
+import { BottomTabBar } from "@/components/BottomTabBar";
 import { DayPicker } from "@/components/DayPicker";
 import {
   NOTE_COLORS as C,
@@ -46,7 +46,6 @@ function filterLabel(dateKey: string): string {
 export default function OverviewScreen() {
   const insets = useSafeAreaInsets();
   const [activeIndex, setActiveIndex] = useState(0);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [filterDate, setFilterDate] = useState<string | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -86,21 +85,7 @@ export default function OverviewScreen() {
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <View style={styles.topBar}>
-          <View style={styles.brandGroup}>
-            <Pressable
-              accessibilityLabel="Menü öffnen"
-              accessibilityRole="button"
-              hitSlop={10}
-              onPress={() => setSidebarOpen(true)}
-              style={({ pressed }) => [
-                styles.menuButton,
-                pressed && styles.controlPressed,
-              ]}
-            >
-              <AppMenuGlyph />
-            </Pressable>
-            <Text style={styles.brand}>thoughts</Text>
-          </View>
+          <Text style={styles.brand}>thoughts</Text>
           {activeIndex === NETWORK_INDEX ? (
             <View style={styles.dateGroup}>
               <Pressable
@@ -222,13 +207,7 @@ export default function OverviewScreen() {
         value={new Date(`${filterDate ?? formatApiDate(new Date())}T12:00:00`)}
         visible={datePickerOpen}
       />
-      <AppSidebar
-        active="overview"
-        insets={insets}
-        onClose={() => setSidebarOpen(false)}
-        onOpen={() => setSidebarOpen(true)}
-        visible={sidebarOpen}
-      />
+      <BottomTabBar active="memory" />
     </View>
   );
 }
@@ -241,18 +220,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-  },
-  brandGroup: {
-    height: 40,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  menuButton: {
-    width: 20,
-    height: 40,
-    alignItems: "flex-start",
-    justifyContent: "center",
   },
   brand: {
     fontFamily: NOTE_SERIF,

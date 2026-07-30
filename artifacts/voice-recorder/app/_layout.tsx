@@ -17,6 +17,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/instrument-sans";
 import {
+  Newsreader_300Light_Italic,
   Newsreader_400Regular,
   Newsreader_400Regular_Italic,
 } from "@expo-google-fonts/newsreader";
@@ -133,7 +134,14 @@ function AppShell() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-        <Stack.Screen name="record" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="record"
+          options={{
+            animation: "slide_from_bottom",
+            headerShown: false,
+            presentation: "modal",
+          }}
+        />
         <Stack.Screen
           name="overview"
           options={{ gestureEnabled: false, headerShown: false }}
@@ -161,6 +169,7 @@ export default function RootLayout() {
     InstrumentSans_400Regular_Italic,
     InstrumentSans_500Medium,
     InstrumentSans_600SemiBold,
+    Newsreader_300Light_Italic,
     Newsreader_400Regular,
     Newsreader_400Regular_Italic,
   });

@@ -11,6 +11,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BottomTabBar } from "@/components/BottomTabBar";
 import {
   NOTE_COLORS as C,
   NOTE_SANS,
@@ -77,7 +78,7 @@ export default function ProfileScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingBottom: insets.bottom + 36,
+            paddingBottom: 170,
             paddingTop: insets.top + 8,
           },
         ]}
@@ -175,6 +176,7 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
       </ScrollView>
+      <BottomTabBar active="account" />
     </View>
   );
 }
