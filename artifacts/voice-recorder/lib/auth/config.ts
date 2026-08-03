@@ -5,9 +5,12 @@ export const authConfig = {
 } as const;
 
 export function getAuthConfigurationError(): string | null {
+  const { Platform } = require("react-native");
   const missing = [
     ["EXPO_PUBLIC_THOUGHTS_API_URL", authConfig.apiUrl],
-    ["EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID", authConfig.googleIosClientId],
+    ...(Platform.OS === "ios"
+      ? [["EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID", authConfig.googleIosClientId]]
+      : []),
     ["EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID", authConfig.googleWebClientId],
   ]
     .filter(([, value]) => !value)

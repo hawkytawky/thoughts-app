@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -78,27 +79,29 @@ export default function SignInScreen() {
             <Text style={styles.error}>{error}</Text>
           </View>
         ) : null}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Mit Apple anmelden"
-          disabled={activeProvider !== null || unavailable}
-          onPress={() => void handleSignIn("apple")}
-          style={({ pressed }) => [
-            styles.appleButton,
-            pressed && styles.appleButtonPressed,
-            (activeProvider !== null || unavailable) &&
-              styles.appleButtonDisabled,
-          ]}
-        >
-          {activeProvider === "apple" ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <>
-              <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
-              <Text style={styles.appleButtonText}>Mit Apple fortfahren</Text>
-            </>
-          )}
-        </Pressable>
+        {Platform.OS === "ios" && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Mit Apple anmelden"
+            disabled={activeProvider !== null || unavailable}
+            onPress={() => void handleSignIn("apple")}
+            style={({ pressed }) => [
+              styles.appleButton,
+              pressed && styles.appleButtonPressed,
+              (activeProvider !== null || unavailable) &&
+                styles.appleButtonDisabled,
+            ]}
+          >
+            {activeProvider === "apple" ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
+                <Text style={styles.appleButtonText}>Mit Apple fortfahren</Text>
+              </>
+            )}
+          </Pressable>
+        )}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Mit Google anmelden"
