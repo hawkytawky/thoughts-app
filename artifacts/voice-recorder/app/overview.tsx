@@ -272,6 +272,8 @@ export default function OverviewScreen() {
     () => graphForPeriod(graph, period),
     [graph, period],
   );
+  const networkGraph = period === "today" ? graph : visibleGraph;
+  const networkFilterDate = period === "today" ? dateKeyDaysAgo(0) : null;
   const noData = status === "ready" && (visibleGraph?.nodes.length ?? 0) === 0;
   const periodLabel = PERIODS.find(({ id }) => id === period)?.label ?? "Gesamt";
 
@@ -399,7 +401,8 @@ export default function OverviewScreen() {
                   >
                     {lens === "network" ? (
                       <OverviewGraph
-                        graph={visibleGraph}
+                        filterDate={networkFilterDate}
+                        graph={networkGraph}
                         onRetry={loadGraph}
                         showHint={false}
                         status="ready"

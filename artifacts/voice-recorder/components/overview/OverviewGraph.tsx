@@ -239,8 +239,9 @@ export function OverviewGraph({
 
   const matchCount = useMemo(() => {
     if (!filterDate) return 0;
-    return nodes.filter((n) => (n.date ?? "").slice(0, 10) === filterDate)
-      .length;
+    return nodes.filter(
+      (n) => (n.date || n.capturedAt).slice(0, 10) === filterDate,
+    ).length;
   }, [filterDate, nodes]);
 
   useEffect(() => {
@@ -249,7 +250,7 @@ export function OverviewGraph({
       return;
     }
     matchFlagsSV.value = nodes.map((n) =>
-      (n.date ?? "").slice(0, 10) === filterDate ? 1 : 0,
+      (n.date || n.capturedAt).slice(0, 10) === filterDate ? 1 : 0,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterDate, graph]);
