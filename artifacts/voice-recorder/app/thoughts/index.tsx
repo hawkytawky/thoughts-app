@@ -134,6 +134,19 @@ function sortedNotes(notes: ThoughtCard[]): ThoughtCard[] {
   );
 }
 
+function mergeNotes(
+  current: ThoughtCard[],
+  incoming: ThoughtCard[],
+): ThoughtCard[] {
+  const incomingPaths = new Set(
+    incoming.map(({ relativePath }) => relativePath),
+  );
+  return sortedNotes([
+    ...incoming,
+    ...current.filter(({ relativePath }) => !incomingPaths.has(relativePath)),
+  ]);
+}
+
 function ThoughtCardRow({
   animateEntrance,
   note,
@@ -282,9 +295,13 @@ export default function ThoughtsFeedScreen() {
 
   const applyBootstrap = useCallback((data: FeedBootstrap) => {
     inFlightDays.current.clear();
-    setDayNotes(
-      new Map(data.notes.map(([date, notes]) => [date, sortedNotes(notes)])),
-    );
+    setDayNotes((current) => {
+      const next = new Map(current);
+      for (const [date, notes] of data.notes) {
+        next.set(date, mergeNotes(current.get(date) ?? [], notes));
+      }
+      return next;
+    });
     setLoadingDays(new Set());
     setFailedDays(new Set());
   }, []);
@@ -321,7 +338,10 @@ export default function ThoughtsFeedScreen() {
     try {
       const { notes } = await fetchNotesForDate(date);
       setDayNotes((current) =>
-        new Map(current).set(date, sortedNotes(notes)),
+        new Map(current).set(
+          date,
+          mergeNotes(current.get(date) ?? [], notes),
+        ),
       );
     } catch {
       setFailedDays((current) => new Set(current).add(date));
@@ -437,37 +457,22 @@ export default function ThoughtsFeedScreen() {
           }
 
           if (!active) return;
-          setPendingThoughts(stillPending);
           if (completedNotes.length > 0) {
-            const existing = dayNotesRef.current.get(today) ?? [];
-            const known = new Set(existing.map(({ relativePath }) => relativePath));
-            const fresh = completedNotes.filter(
-              ({ relativePath }) => !known.has(relativePath),
+            setNewNoteIds(
+              (current) =>
+                new Set([
+                  ...current,
+                  ...completedNotes.map(({ relativePath }) => relativePath),
+                ]),
             );
-            if (fresh.length > 0) {
-              setNewNoteIds(
-                (current) =>
-                  new Set([
-                    ...current,
-                    ...fresh.map(({ relativePath }) => relativePath),
-                  ]),
-              );
-              setDayNotes((current) => {
-                const currentNotes = current.get(today) ?? [];
-                const currentKnown = new Set(
-                  currentNotes.map(({ relativePath }) => relativePath),
-                );
-                const additions = fresh.filter(
-                  ({ relativePath }) => !currentKnown.has(relativePath),
-                );
-                if (additions.length === 0) return current;
-                return new Map(current).set(
-                  today,
-                  sortedNotes([...additions, ...currentNotes]),
-                );
-              });
-            }
+            setDayNotes((current) =>
+              new Map(current).set(
+                today,
+                mergeNotes(current.get(today) ?? [], completedNotes),
+              ),
+            );
           }
+          setPendingThoughts(stillPending);
           for (const id of completedIds) await removePendingThought(id);
         } finally {
           refreshingPending = false;
