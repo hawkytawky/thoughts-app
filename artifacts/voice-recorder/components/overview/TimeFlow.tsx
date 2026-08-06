@@ -86,6 +86,8 @@ type ChipDraw = {
   cluster: number;
   cx: number;
   cy: number;
+  width: number;
+  height: number;
   color: string;
   label: string;
 };
@@ -251,6 +253,8 @@ function buildLayout(
       cluster: band.cluster,
       cx: (widest.x0 + widest.x1) / 2,
       cy: widest.y,
+      width: cluster.label.length * 7 + 20,
+      height: 24,
       color: cluster.color,
       label: cluster.label,
     });
@@ -296,13 +300,19 @@ export function TimeFlow({
 
   useEffect(() => {
     bandsSV.value = layout.bands;
-    chipsSV.value = layout.chips;
+    const metrics = clusterFont?.getMetrics();
+    chipsSV.value = layout.chips.map((chip) => ({
+      ...chip,
+      width:
+        (clusterFont?.measureText(chip.label).width ?? chip.width - 20) + 20,
+      height: metrics ? -metrics.ascent + metrics.descent + 8 : chip.height,
+    }));
     daysSV.value = layout.days;
     dotsSV.value = layout.dots;
     scale.value = 1;
     translateY.value = 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout]);
+  }, [layout, clusterFont]);
 
   useEffect(() => {
     focusedClusterSV.value = focusedCluster;
@@ -362,6 +372,34 @@ export function TimeFlow({
     .onEnd((event) => {
       const currentScale = scale.value;
       const currentTranslate = translateY.value;
+      const chips = chipsSV.value;
+      const chipAlpha = lerp(currentScale, 1.15, 1.65, 1, 0);
+      if (chipAlpha > 0.05) {
+        for (let i = chips.length - 1; i >= 0; i--) {
+          const chip = chips[i];
+          const screenY = currentTranslate + chip.cy * currentScale;
+          const centerX = clamp(
+            chip.cx,
+            LEFT_PAD + chip.width / 2,
+            size.width - 5 - chip.width / 2,
+          );
+          const hitPadding = 8;
+          if (
+            event.x >= centerX - chip.width / 2 - hitPadding &&
+            event.x <= centerX + chip.width / 2 + hitPadding &&
+            event.y >= screenY - chip.height / 2 - hitPadding &&
+            event.y <= screenY + chip.height / 2 + hitPadding
+          ) {
+            if (focusedClusterSV.value === chip.cluster) {
+              runOnJS(clearFocus)();
+            } else {
+              runOnJS(choose)(-1, chip.cluster);
+            }
+            return;
+          }
+        }
+      }
+
       const dots = dotsSV.value;
       let bestNode = -1;
       let bestDistance = Infinity;
@@ -564,8 +602,8 @@ export function TimeFlow({
           const screenY = currentTranslate + chip.cy * currentScale;
           if (screenY < -20 || screenY > height + 20) continue;
           const textWidth = clusterFont.measureText(chip.label).width;
-          const chipWidth = textWidth + 20;
-          const chipHeight = textHeight + 8;
+          const chipWidth = chip.width;
+          const chipHeight = chip.height;
           const centerX = clamp(
             chip.cx,
             LEFT_PAD + chipWidth / 2,
