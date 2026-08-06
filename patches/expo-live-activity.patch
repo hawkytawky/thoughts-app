@@ -1,0 +1,62 @@
+diff --git a/ios-files/LiveActivityView.swift b/ios-files/LiveActivityView.swift
+index 1a00e9214108233e2dbb454f48af9b9ae89107e8..7cc5dcdf02a306a2e5df47aeac60c337caca8d54 100644
+--- a/ios-files/LiveActivityView.swift
++++ b/ios-files/LiveActivityView.swift
+@@ -209,8 +209,11 @@ import WidgetKit
+ 
+             if effectiveStretch {
+               if let date = contentState.timerEndDateInMilliseconds {
+-                ProgressView(timerInterval: Date.toTimerInterval(miliseconds: date))
+-                  .tint(progressViewTint)
++                // Patched: count up from the date instead of filling a bar
++                // toward an end that an open-ended recording does not have.
++                Text(Date(timeIntervalSince1970: date / 1000), style: .timer)
++                  .font(.title2)
++                  .fontWeight(.semibold)
+                   .modifier(ConditionalForegroundViewModifier(color: attributes.progressViewLabelColor))
+               } else if let progress = contentState.progress {
+                 ProgressView(value: progress)
+@@ -230,8 +233,10 @@ import WidgetKit
+ 
+         if !effectiveStretch {
+           if let date = contentState.timerEndDateInMilliseconds {
+-            ProgressView(timerInterval: Date.toTimerInterval(miliseconds: date))
+-              .tint(progressViewTint)
++            // Patched: see above - elapsed time rather than a progress bar.
++            Text(Date(timeIntervalSince1970: date / 1000), style: .timer)
++              .font(.title2)
++              .fontWeight(.semibold)
+               .modifier(ConditionalForegroundViewModifier(color: attributes.progressViewLabelColor))
+           } else if let progress = contentState.progress {
+             ProgressView(value: progress)
+diff --git a/ios-files/LiveActivityWidget.swift b/ios-files/LiveActivityWidget.swift
+index 24cd8c570468d63790c01e1b7865c005c4c5a5de..3aa9771c9bfef0e02830c955387e8ab84ff4d08b 100644
+--- a/ios-files/LiveActivityWidget.swift
++++ b/ios-files/LiveActivityWidget.swift
+@@ -111,7 +111,11 @@ struct LiveActivityWidget: Widget {
+     progressViewTint: String?
+   ) -> some View {
+     if timerType == .digital {
+-      Text(timerInterval: Date.toTimerInterval(miliseconds: endDate))
++      // Patched: treat the date as a stopwatch START so the timer counts up
++      // from it. The upstream `Text(timerInterval:)` builds `now...endDate`,
++      // which can only count down toward a known end - an open-ended
++      // recording has no such end.
++      Text(Date(timeIntervalSince1970: endDate / 1000), style: .timer)
+         .font(.system(size: 15))
+         .minimumScaleFactor(0.8)
+         .fontWeight(.semibold)
+@@ -149,9 +153,11 @@ struct LiveActivityWidget: Widget {
+   }
+ 
+   private func dynamicIslandExpandedBottom(endDate: Double, progressViewTint: String?) -> some View {
+-    ProgressView(timerInterval: Date.toTimerInterval(miliseconds: endDate))
++    // Patched: a progress bar needs a known end. Show the elapsed time instead.
++    Text(Date(timeIntervalSince1970: endDate / 1000), style: .timer)
++      .font(.title2)
++      .fontWeight(.semibold)
+       .foregroundStyle(.white)
+-      .tint(progressViewTint.map { Color(hex: $0) })
+       .padding(.top, 5)
+   }
+ 

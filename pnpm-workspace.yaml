@@ -71,3 +71,6 @@ overrides:
 
 allowBuilds:
   esbuild: true
+
+patchedDependencies:
+  expo-live-activity: patches/expo-live-activity.patch

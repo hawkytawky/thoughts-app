@@ -9,8 +9,15 @@ import {
   View,
 } from "react-native";
 import { type Href, usePathname, useRouter } from "expo-router";
+import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useActiveRecording } from "@/lib/active-recording";
+import {
+  requestStopRecording,
+  useActiveRecording,
+} from "@/lib/active-recording";
+
+// Matches the recorder screen so the bar reads as the same surface.
+const RECORDER_BLUE = "#2E5E8C";
 
 function formatTime(ms: number) {
   const seconds = Math.floor(ms / 1_000);
@@ -87,20 +94,32 @@ export function ActiveRecordingBar() {
   return (
     <View
       pointerEvents="box-none"
-      style={[styles.container, { bottom: insets.bottom + 88 }]}
+      // Clears the tab bar so navigating to another tab stays possible.
+      style={[styles.container, { bottom: insets.bottom + 68 }]}
     >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Aufnahme läuft, ${formatTime(durationMs)}. Aufnahme öffnen`}
-        onPress={() => router.dismissTo("/record" as Href)}
-        style={({ pressed }) => [styles.bar, pressed && styles.pressed]}
-      >
-        <View style={styles.state}>
+      <View style={styles.bar}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Aufnahme läuft, ${formatTime(durationMs)}. Aufnahme öffnen`}
+          onPress={() => router.dismissTo("/record" as Href)}
+          style={({ pressed }) => [styles.open, pressed && styles.pressed]}
+        >
           <RecordingDot />
-          <Text style={styles.label}>Aufnahme läuft</Text>
-        </View>
-        <Text style={styles.timer}>{formatTime(durationMs)}</Text>
-      </Pressable>
+          <Text style={styles.timer}>{formatTime(durationMs)}</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Aufnahme beenden"
+          hitSlop={8}
+          onPress={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            requestStopRecording();
+          }}
+          style={({ pressed }) => [styles.stop, pressed && styles.stopPressed]}
+        >
+          <View style={styles.stopSquare} />
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -113,40 +132,57 @@ const styles = StyleSheet.create({
   },
   bar: {
     minHeight: 58,
-    paddingHorizontal: 20,
+    paddingLeft: 20,
+    paddingRight: 8,
     borderRadius: 29,
-    backgroundColor: "#5C7048",
+    backgroundColor: RECORDER_BLUE,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(235,231,218,0.28)",
+    borderColor: "rgba(255,255,255,0.28)",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    shadowColor: "#10180F",
-    shadowOpacity: 0.2,
+    shadowColor: "#132A38",
+    shadowOpacity: 0.28,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 7 },
     elevation: 8,
   },
-  state: { flexDirection: "row", alignItems: "center", gap: 10 },
+  open: {
+    flex: 1,
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   dot: {
     width: 9,
     height: 9,
     borderRadius: 5,
     backgroundColor: "#D96C63",
   },
-  label: {
-    fontFamily: "System",
-    fontSize: 13,
-    color: "rgba(235,231,218,0.84)",
-  },
   timer: {
-    minWidth: 48,
     fontFamily: "System",
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "500",
     fontVariant: ["tabular-nums"],
-    color: "#EBE7DA",
-    textAlign: "right",
+    color: "rgba(255,255,255,0.94)",
   },
-  pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
+  stop: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.52)",
+    backgroundColor: "rgba(255,255,255,0.14)",
+  },
+  stopSquare: {
+    width: 15,
+    height: 15,
+    borderRadius: 4,
+    backgroundColor: "rgba(255,255,255,0.94)",
+  },
+  stopPressed: { opacity: 0.78, transform: [{ scale: 0.95 }] },
+  pressed: { opacity: 0.78 },
 });

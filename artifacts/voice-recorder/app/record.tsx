@@ -19,7 +19,7 @@ import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { type Href, useRouter } from "expo-router";
+import { type Href, useFocusEffect, useRouter } from "expo-router";
 import {
   addPendingThought,
   markPendingThoughtUploaded,
@@ -27,11 +27,16 @@ import {
 import {
   clearActiveRecording,
   publishActiveRecording,
+  registerRecorderControls,
 } from "@/lib/active-recording";
 import {
   ensureLocationPermission,
   LOCATION_ENABLED_KEY,
 } from "@/lib/location-permission";
+import {
+  startRecordingActivity,
+  stopRecordingActivity,
+} from "@/lib/live-activity";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   NOTE_SERIF as SERIF,
@@ -501,6 +506,9 @@ function RecorderScreen() {
   const locationEnabledRef = useRef(false);
   const currentLocationRef = useRef<RecordingLocation | null>(null);
   const screenStateRef = useRef<ScreenState>("requesting");
+  const isFocusedRef = useRef(true);
+  const stopRecordingRef = useRef<() => Promise<void>>(async () => {});
+  const startNextRecordingRef = useRef<() => void>(() => {});
   const smoothedLevelRef = useRef(0);
   const levelHistoryRef = useRef<number[]>(
     Array.from({ length: WAVE_HISTORY_POINTS }, () => 0),
@@ -616,6 +624,9 @@ function RecorderScreen() {
           await Audio.setAudioModeAsync({
             allowsRecordingIOS: true,
             playsInSilentModeIOS: true,
+            // Paired with the UIBackgroundModes "audio" entitlement so leaving
+            // the app does not cut the recording short.
+            staysActiveInBackground: true,
             interruptionModeIOS: InterruptionModeIOS.DoNotMix,
           });
           const created = await Audio.Recording.createAsync(
@@ -639,6 +650,9 @@ function RecorderScreen() {
       if (!recording) throw new Error("Die Audio-Session ist nicht verfügbar.");
       recordingRef.current = recording;
       setScreenState("recording");
+      // Anchored to the real start so the Dynamic Island stays accurate even
+      // if this screen is suspended moments later.
+      startRecordingActivity(Date.now());
       if (locationEnabledRef.current) {
         // Never carry a coordinate from an older note into this recording.
         currentLocationRef.current = null;
@@ -765,6 +779,7 @@ function RecorderScreen() {
     if (!recording) return;
 
     setScreenState("stopping");
+    stopRecordingActivity();
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const sourceUri = recording.getURI();
     try {
@@ -811,6 +826,7 @@ function RecorderScreen() {
 
     recordingRef.current = null;
     setScreenState("discarding");
+    stopRecordingActivity();
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const uri = recording.getURI();
     try {
@@ -855,6 +871,32 @@ function RecorderScreen() {
     screenStateRef.current = screenState;
   }, [screenState]);
 
+  // Stopping via the recording bar finishes this screen while the user is on
+  // another route. The auto-navigation below must not yank them off it.
+  useFocusEffect(
+    useCallback(() => {
+      isFocusedRef.current = true;
+      return () => {
+        isFocusedRef.current = false;
+      };
+    }, []),
+  );
+
+  // stopRecording is rebuilt on every metering tick, so the controls are
+  // registered once and read the current callbacks through refs.
+  useEffect(() => {
+    stopRecordingRef.current = stopRecording;
+    startNextRecordingRef.current = startNextRecording;
+  }, [startNextRecording, stopRecording]);
+
+  useEffect(() => {
+    registerRecorderControls({
+      stop: () => void stopRecordingRef.current(),
+      startNext: () => startNextRecordingRef.current(),
+    });
+    return () => registerRecorderControls(null);
+  }, []);
+
   useEffect(() => {
     if (screenState === "recording") {
       publishActiveRecording(durationMs);
@@ -877,7 +919,11 @@ function RecorderScreen() {
           nextState === "active" &&
           (previousState === "background" || previousState === "inactive");
         previousState = nextState;
-        if (isReturning && screenStateRef.current === "saved") {
+        if (
+          isReturning &&
+          isFocusedRef.current &&
+          screenStateRef.current === "saved"
+        ) {
           router.replace("/" as Href);
         }
       },
@@ -893,7 +939,7 @@ function RecorderScreen() {
   }, [router, startNextRecording]);
 
   useEffect(() => {
-    if (screenState !== "saved") return;
+    if (screenState !== "saved" || !isFocusedRef.current) return;
     const timeout = setTimeout(
       () => router.replace("/" as Href),
       1_000,
@@ -951,6 +997,8 @@ function RecorderScreen() {
 
     return () => {
       clearActiveRecording();
+      // Never leave an activity stranded in the Island after the recorder goes.
+      stopRecordingActivity();
       void recordingRef.current?.stopAndUnloadAsync().catch(() => {});
     };
   }, [captureLocation, startRecording]);
@@ -1088,14 +1136,21 @@ function RecorderScreen() {
       <View style={styles.topBar}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Gespeicherte Gedanken öffnen"
+          accessibilityLabel="Zurück zu den Gedanken"
           hitSlop={8}
+          // Pushing keeps this screen mounted so the recording survives the
+          // navigation; going back would unmount it and stop the audio.
           onPress={() => router.push("/" as Href)}
           style={({ pressed }) => [
             styles.archiveButton,
             pressed && styles.pressed,
           ]}
         >
+          <Ionicons
+            name="chevron-back"
+            size={20}
+            color="rgba(255,255,255,0.72)"
+          />
           <Text style={styles.brand}>thoughts</Text>
         </Pressable>
       </View>
@@ -1155,8 +1210,11 @@ const styles = StyleSheet.create({
   },
   archiveButton: {
     minHeight: 44,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 2,
+    marginLeft: -4,
   },
   brand: {
     fontFamily: SERIF,

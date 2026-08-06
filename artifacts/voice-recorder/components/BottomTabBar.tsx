@@ -6,7 +6,10 @@ import * as Haptics from "expo-haptics";
 import { type Href, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NOTE_SANS } from "@/components/NoteUI";
-import { useActiveRecording } from "@/lib/active-recording";
+import {
+  requestStartNextRecording,
+  useActiveRecording,
+} from "@/lib/active-recording";
 
 const COLORS = {
   active: "#2E5E8C",
@@ -81,9 +84,19 @@ export function RecordingActionButton({
 
   const openRecorder = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (activeRecording.active) router.dismissTo("/record" as Href);
-    else router.push("/record" as Href);
-  }, [activeRecording.active, router]);
+    if (activeRecording.active) {
+      router.dismissTo("/record" as Href);
+      return;
+    }
+    // A finished recorder can still sit in the stack. Reuse it instead of
+    // pushing a second copy on top.
+    if (activeRecording.recorderMounted) {
+      router.dismissTo("/record" as Href);
+      requestStartNextRecording();
+      return;
+    }
+    router.push("/record" as Href);
+  }, [activeRecording.active, activeRecording.recorderMounted, router]);
 
   const recording = state === "recording";
 
@@ -121,6 +134,9 @@ export function RecordingActionButton({
 
 export function BottomTabBar({ active }: { active: TabId }) {
   const insets = useSafeAreaInsets();
+  // While recording, the recording bar above carries the stop control, so the
+  // mic button would be a redundant second entry point.
+  const { active: isRecording } = useActiveRecording();
 
   return (
     <View
@@ -148,9 +164,11 @@ export function BottomTabBar({ active }: { active: TabId }) {
           ))}
         </View>
       </View>
-      <View pointerEvents="box-none" style={styles.micPosition}>
-        <RecordingActionButton state="idle" />
-      </View>
+      {isRecording ? null : (
+        <View pointerEvents="box-none" style={styles.micPosition}>
+          <RecordingActionButton state="idle" />
+        </View>
+      )}
     </View>
   );
 }
