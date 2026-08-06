@@ -37,11 +37,17 @@ import {
   NOTE_SERIF,
   noteCategoryColor,
 } from "@/components/NoteUI";
-import { type Graph, type GraphNode } from "@/lib/visualizations";
+import {
+  type Graph,
+  type GraphCluster,
+  type GraphNode,
+} from "@/lib/visualizations";
 
 const PAD = 46;
 const MIN_SCALE = 0.6;
 const MAX_SCALE = 4;
+const CLUSTER_CHIP_HEIGHT = 24;
+const CLUSTER_CHIP_PAD_X = 10;
 
 // High-contrast label drawn on top of the coloured dot.
 const KEYWORD_INK = "#FBFAF7";
@@ -81,6 +87,7 @@ type NodeDraw = {
   cx: number;
   cy: number;
   r: number;
+  cluster: number;
   color: string;
   tcolor: string;
   keyword: string;
@@ -88,7 +95,15 @@ type NodeDraw = {
 
 type EdgeDraw = { source: number; target: number; weight: number };
 
-type ClusterDraw = { cx: number; cy: number; label: string; tcolor: string };
+type ClusterDraw = {
+  id: number;
+  cx: number;
+  cy: number;
+  width: number;
+  height: number;
+  label: string;
+  tcolor: string;
+};
 
 // Gentle repulsion so dots stop overlapping, anchored to keep clusters in
 // place. Runs once per (graph, size) on the JS thread — cheap for our sizes.
@@ -102,7 +117,7 @@ function declutter(pos: Pos[]): void {
         let dx = b.cx - a.cx;
         let dy = b.cy - a.cy;
         const d = Math.hypot(dx, dy) || 0.01;
-        const min = a.r + b.r + 13;
+        const min = a.r + b.r + 20;
         if (d < min) {
           const push = (min - d) / 2;
           dx /= d;
@@ -136,6 +151,9 @@ export function OverviewGraph({
 }) {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [selected, setSelected] = useState<GraphNode | null>(null);
+  const [selectedCluster, setSelectedCluster] = useState<GraphCluster | null>(
+    null,
+  );
   const [expanded, setExpanded] = useState(false);
 
   const tx = useSharedValue(0);
@@ -155,6 +173,7 @@ export function OverviewGraph({
   const edgesSV = useSharedValue<EdgeDraw[]>([]);
   const clustersSV = useSharedValue<ClusterDraw[]>([]);
   const selectedIdxSV = useSharedValue<number>(-1);
+  const selectedClusterIdSV = useSharedValue<number>(-1);
   const neighborFlagsSV = useSharedValue<number[]>([]);
   const dragIdx = useSharedValue<number>(-1);
   // 1 per node when a date filter is active and that node matches; empty
@@ -165,10 +184,20 @@ export function OverviewGraph({
   const edges = graph?.edges ?? [];
   const clusters = graph?.clusters ?? [];
 
+  useEffect(() => {
+    setSelectedCluster((current) =>
+      current
+        ? (graph?.clusters.find((cluster) => cluster.id === current.id) ?? null)
+        : null,
+    );
+  }, [graph]);
+
   const layout = useMemo(() => {
     const w = Math.max(0, size.w - PAD * 2);
     const h = Math.max(0, size.h - PAD * 2);
-    const clusterById = new Map(clusters.map((cluster) => [cluster.id, cluster]));
+    const clusterById = new Map(
+      clusters.map((cluster) => [cluster.id, cluster]),
+    );
     const pos: Pos[] = nodes.map((n) => {
       const fill = clusterById.get(n.cluster)?.color ?? C.ink40;
       return {
@@ -202,6 +231,7 @@ export function OverviewGraph({
       cx: p.cx,
       cy: p.cy,
       r: p.r,
+      cluster: nodes[p.idx]?.cluster ?? -1,
       color: p.color,
       tcolor: p.tcolor,
       keyword: p.keyword,
@@ -212,14 +242,24 @@ export function OverviewGraph({
       weight: e.weight,
     }));
     clustersSV.value = layout.centroids.map((c) => ({
+      id: c.id,
       cx: c.cx,
       cy: c.cy,
+      width:
+        (clusterFont?.measureText(c.label).width ?? c.label.length * 7) +
+        CLUSTER_CHIP_PAD_X * 2,
+      height: CLUSTER_CHIP_HEIGHT,
       label: c.label,
       tcolor: c.paletteColor,
     }));
     dragIdx.value = -1;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout]);
+  }, [layout, clusterFont]);
+
+  useEffect(() => {
+    selectedClusterIdSV.value = selectedCluster?.id ?? -1;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCluster]);
 
   // focus: selected node + neighbours → 0/1 flags for per-node/edge dimming.
   useEffect(() => {
@@ -260,6 +300,22 @@ export function OverviewGraph({
     setSelected(i >= 0 ? nodes[i] : null);
   };
 
+  const selectClusterById = (id: number) => {
+    setExpanded(false);
+    setSelected(null);
+    setSelectedCluster((current) =>
+      current?.id === id
+        ? null
+        : (clusters.find((cluster) => cluster.id === id) ?? null),
+    );
+  };
+
+  const clearSelection = () => {
+    setExpanded(false);
+    setSelected(null);
+    setSelectedCluster(null);
+  };
+
   const collapseOrClose = () => {
     if (expanded) setExpanded(false);
     else setSelected(null);
@@ -275,13 +331,33 @@ export function OverviewGraph({
   // (in base coords) or pan the whole canvas.
   const pan = Gesture.Pan()
     .onBegin((e) => {
+      const s = scale.value;
+      const cs = clustersSV.value;
+      if (lerpClamp(s, 1.15, 1.65, 1, 0) > 0.05) {
+        for (let i = cs.length - 1; i >= 0; i--) {
+          const cluster = cs[i];
+          const sx = tx.value + cluster.cx * s;
+          const sy = ty.value + cluster.cy * s;
+          if (
+            e.x >= sx - cluster.width / 2 - 6 &&
+            e.x <= sx + cluster.width / 2 + 6 &&
+            e.y >= sy - cluster.height / 2 - 6 &&
+            e.y <= sy + cluster.height / 2 + 6
+          ) {
+            dragIdx.value = -1;
+            return;
+          }
+        }
+      }
       const bx = (e.x - tx.value) / scale.value;
       const by = (e.y - ty.value) / scale.value;
       const ns = nodesSV.value;
+      const clusterFocus = selectedClusterIdSV.value;
       let best = -1;
       let bestD = Infinity;
       for (let i = 0; i < ns.length; i++) {
         const p = ns[i];
+        if (clusterFocus >= 0 && p.cluster !== clusterFocus) continue;
         const d = (p.cx - bx) ** 2 + (p.cy - by) ** 2;
         const hit = (p.r + 8) ** 2;
         if (d < hit && d < bestD) {
@@ -326,13 +402,38 @@ export function OverviewGraph({
   const tap = Gesture.Tap()
     .maxDistance(12)
     .onEnd((e) => {
+      const s = scale.value;
+      const px = tx.value;
+      const py = ty.value;
+      const cs = clustersSV.value;
+      const clusterAlpha = lerpClamp(s, 1.15, 1.65, 1, 0);
+      if (clusterAlpha > 0.05) {
+        for (let i = cs.length - 1; i >= 0; i--) {
+          const cluster = cs[i];
+          const sx = px + cluster.cx * s;
+          const sy = py + cluster.cy * s;
+          const hitPad = 6;
+          if (
+            e.x >= sx - cluster.width / 2 - hitPad &&
+            e.x <= sx + cluster.width / 2 + hitPad &&
+            e.y >= sy - cluster.height / 2 - hitPad &&
+            e.y <= sy + cluster.height / 2 + hitPad
+          ) {
+            runOnJS(selectClusterById)(cluster.id);
+            return;
+          }
+        }
+      }
+
       const bx = (e.x - tx.value) / scale.value;
       const by = (e.y - ty.value) / scale.value;
       const ns = nodesSV.value;
+      const clusterFocus = selectedClusterIdSV.value;
       let best = -1;
       let bestD = Infinity;
       for (let i = 0; i < ns.length; i++) {
         const p = ns[i];
+        if (clusterFocus >= 0 && p.cluster !== clusterFocus) continue;
         const d = (p.cx - bx) ** 2 + (p.cy - by) ** 2;
         const hit = Math.max(p.r + 8, 16) ** 2;
         if (d < hit && d < bestD) {
@@ -340,7 +441,8 @@ export function OverviewGraph({
           best = i;
         }
       }
-      runOnJS(selectByIndex)(best);
+      if (best >= 0) runOnJS(selectByIndex)(best);
+      else runOnJS(clearSelection)();
     });
 
   const canvasGesture = Gesture.Simultaneous(pan, pinch, tap);
@@ -378,6 +480,7 @@ export function OverviewGraph({
       const es = edgesSV.value;
       const cs = clustersSV.value;
       const selIdx = selectedIdxSV.value;
+      const clusterFocus = selectedClusterIdSV.value;
       const flags = neighborFlagsSV.value;
       const match = matchFlagsSV.value;
       const filtering = match.length > 0;
@@ -448,16 +551,31 @@ export function OverviewGraph({
         const b = e.target;
         if (a >= n || b >= n) continue;
         const incident = selIdx >= 0 && (a === selIdx || b === selIdx);
-        let op = 0.14 + 0.2 * e.weight;
+        const normalizedWeight = clamp((e.weight - 0.3) / 0.7, 0, 1);
+        const insideFocusedCluster =
+          clusterFocus >= 0 &&
+          ns[a].cluster === clusterFocus &&
+          ns[b].cluster === clusterFocus;
+        let op = 0.13 + 0.28 * normalizedWeight;
         let c = col(C.border);
-        let sw = 0.7;
+        let sw = 0.75 + 1.75 * normalizedWeight;
+        if (clusterFocus >= 0) {
+          if (insideFocusedCluster) {
+            op = 0.2 + 0.38 * normalizedWeight;
+            c = col(ns[a].color);
+            sw = 1 + 2 * normalizedWeight;
+          } else {
+            op = 0.018;
+            sw = 0.6;
+          }
+        }
         if (selIdx >= 0) {
           if (incident) {
-            op = 0.22 + 0.3 * e.weight;
+            op = 0.28 + 0.42 * normalizedWeight;
             c = col(ns[a].color);
-            sw = 0.7;
+            sw = 1.25 + 2.25 * normalizedWeight;
           } else {
-            op = 0.035;
+            op = insideFocusedCluster ? 0.05 : 0.02;
           }
         }
         // A date filter keeps an edge lit only while it touches a match.
@@ -472,8 +590,10 @@ export function OverviewGraph({
       for (let i = 0; i < n; i++) {
         const node = ns[i];
         const dim =
-          (selIdx >= 0 && flags.length > i && flags[i] === 0) || !matches(i);
-        const alpha = dim ? 0.14 : selIdx < 0 && !filtering ? 0.9 : 0.95;
+          (clusterFocus >= 0 && node.cluster !== clusterFocus) ||
+          (selIdx >= 0 && flags.length > i && flags[i] === 0) ||
+          !matches(i);
+        const alpha = dim ? 0.07 : selIdx < 0 && !filtering ? 0.92 : 0.97;
         shadowPaint.setAlphaf(dim ? 0.04 : 0.1);
         canvas.drawCircle(dcx[i], dcy[i] + 1.6, node.r, shadowPaint);
         ringPaint.setAlphaf(alpha);
@@ -501,25 +621,32 @@ export function OverviewGraph({
         const m = cFont.getMetrics();
         const asc = -m.ascent;
         const desc = m.descent;
-        const textH = asc + desc;
-        const padX = 10;
-        const padY = 4;
         for (let i = 0; i < cs.length; i++) {
           const c = cs[i];
+          const active = clusterFocus === c.id;
+          const dim = clusterFocus >= 0 && !active;
+          const pillAlpha = clusterA * (dim ? 0.18 : 1);
           const sx = px + c.cx * s;
           const sy = py + c.cy * s;
           const w = cFont.measureText(c.label).width;
-          const chipW = w + padX * 2;
-          const chipH = textH + padY * 2;
-          const rect = Skia.XYWHRect(sx - chipW / 2, sy - chipH / 2, chipW, chipH);
+          const chipW = c.width;
+          const chipH = c.height;
+          const rect = Skia.XYWHRect(
+            sx - chipW / 2,
+            sy - chipH / 2,
+            chipW,
+            chipH,
+          );
           const rrect = Skia.RRectXY(rect, chipH / 2, chipH / 2);
-          chipFill.setAlphaf(0.92 * clusterA);
+          chipFill.setColor(active ? col(c.tcolor) : col(C.card));
+          chipFill.setAlphaf((active ? 0.18 : 0.92) * pillAlpha);
           canvas.drawRRect(rrect, chipFill);
           chipStroke.setColor(col(c.tcolor));
-          chipStroke.setAlphaf(0.9 * clusterA);
+          chipStroke.setStrokeWidth(active ? 1.8 : 1);
+          chipStroke.setAlphaf(0.9 * pillAlpha);
           canvas.drawRRect(rrect, chipStroke);
           textPaint.setColor(col(C.ink));
-          textPaint.setAlphaf(clusterA);
+          textPaint.setAlphaf(pillAlpha);
           canvas.drawText(
             c.label,
             sx - w / 2,
@@ -535,7 +662,9 @@ export function OverviewGraph({
         for (let i = 0; i < n; i++) {
           const node = ns[i];
           const dim =
-            (selIdx >= 0 && flags.length > i && flags[i] === 0) || !matches(i);
+            (clusterFocus >= 0 && node.cluster !== clusterFocus) ||
+            (selIdx >= 0 && flags.length > i && flags[i] === 0) ||
+            !matches(i);
           const a2 = keywordA * (dim ? 0.2 : 1);
           if (a2 < 0.01) continue;
           const sx = px + dcx[i] * s;
@@ -608,10 +737,7 @@ export function OverviewGraph({
         <GestureDetector gesture={cardPan}>
           <Animated.View
             key={selected.idx}
-            style={[
-              styles.sheet,
-              cardStyle,
-            ]}
+            style={[styles.sheet, cardStyle]}
             entering={SlideInDown.duration(240)}
             exiting={SlideOutDown.duration(180)}
             layout={LinearTransition.duration(220)}
@@ -640,6 +766,44 @@ export function OverviewGraph({
             </Text>
           </Animated.View>
         </GestureDetector>
+      ) : selectedCluster ? (
+        <Animated.View
+          key={`cluster-${selectedCluster.id}`}
+          style={styles.sheet}
+          entering={SlideInDown.duration(240)}
+          exiting={SlideOutDown.duration(180)}
+          layout={LinearTransition.duration(220)}
+        >
+          <View style={styles.handle} />
+          <View style={styles.clusterHeader}>
+            <View style={styles.clusterTitleRow}>
+              <View
+                style={[
+                  styles.clusterDot,
+                  { backgroundColor: selectedCluster.color },
+                ]}
+              />
+              <Text style={styles.clusterLabel}>{selectedCluster.label}</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Themenbeschreibung schließen"
+              hitSlop={10}
+              onPress={() => setSelectedCluster(null)}
+            >
+              <Text style={styles.closeButton}>×</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.clusterCount}>
+            {selectedCluster.count === 1
+              ? "1 Gedanke"
+              : `${selectedCluster.count} Gedanken`}
+          </Text>
+          <Text style={styles.clusterDescription}>
+            {selectedCluster.description ??
+              "Für dieses Thema wird gerade eine kurze Beschreibung erstellt."}
+          </Text>
+        </Animated.View>
       ) : null}
     </View>
   );
@@ -741,5 +905,48 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: C.ink70,
     marginTop: 2,
+  },
+  clusterHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  clusterTitleRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  clusterDot: {
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    marginRight: 9,
+  },
+  clusterLabel: {
+    flex: 1,
+    fontFamily: NOTE_SERIF,
+    fontSize: 22,
+    lineHeight: 28,
+    color: C.ink,
+  },
+  closeButton: {
+    fontFamily: NOTE_SANS,
+    fontSize: 26,
+    lineHeight: 28,
+    color: C.ink40,
+  },
+  clusterCount: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 12,
+    color: C.ink40,
+    marginTop: 5,
+  },
+  clusterDescription: {
+    fontFamily: NOTE_SANS,
+    fontSize: 14.5,
+    lineHeight: 22,
+    color: C.ink70,
+    marginTop: 10,
   },
 });

@@ -22,6 +22,7 @@ export type GraphNode = {
 export type GraphCluster = {
   id: number;
   label: string;
+  description?: string | null;
   color: string;
   textColor: string;
   count: number;
@@ -62,7 +63,9 @@ export type GraphSurface = "network" | "base" | "time";
 export async function fetchGraph(
   surface: GraphSurface = "network",
 ): Promise<Graph> {
-  const response = await backendFetch(`/visualizations/graph?surface=${surface}`);
+  const response = await backendFetch(
+    `/visualizations/graph?surface=${surface}`,
+  );
   if (!response.ok) {
     throw new Error(
       `Der Graph konnte nicht geladen werden (${response.status}).`,
