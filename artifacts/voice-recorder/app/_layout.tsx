@@ -147,9 +147,9 @@ function AppShell() {
           options={{
             animation: "slide_from_bottom",
             headerShown: false,
-            // Full screen instead of a sheet card: the iOS modal presentation
-            // leaves a gap at the top that exposes the feed behind it.
-            presentation: "fullScreenModal",
+            // Deliberately a plain card, not a modal. A modal presentation
+            // renders in its own native window, which both insets the screens
+            // pushed on top of it and hides the root-level recording bar.
           }}
         />
         <Stack.Screen

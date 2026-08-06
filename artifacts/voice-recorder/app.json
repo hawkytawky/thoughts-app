@@ -16,7 +16,12 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.otto.thoughts",
-      "buildNumber": "3"
+      "buildNumber": "3",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
     },
     "android": {
       "package": "com.otto.thoughts"
@@ -46,7 +51,8 @@
         {
           "iosUrlScheme": "com.googleusercontent.apps.660632473974-ee1pilng805otr2ta2d6s83v7iq7q6dl"
         }
-      ]
+      ],
+      "./plugins/withModularHeaders"
     ],
     "experiments": {
       "typedRoutes": true,
