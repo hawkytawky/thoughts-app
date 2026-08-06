@@ -117,7 +117,7 @@ function declutter(pos: Pos[]): void {
         let dx = b.cx - a.cx;
         let dy = b.cy - a.cy;
         const d = Math.hypot(dx, dy) || 0.01;
-        const min = a.r + b.r + 20;
+        const min = a.r + b.r + 26;
         if (d < min) {
           const push = (min - d) / 2;
           dx /= d;
