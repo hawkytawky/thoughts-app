@@ -1,6 +1,13 @@
 import { backendFetch } from "@/lib/auth";
 
-const API_TIMEZONE = "Europe/Berlin";
+export const API_TIMEZONE = "Europe/Berlin";
+
+const apiDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: API_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 export type NoteLocation = {
   latitude: number;
@@ -313,10 +320,26 @@ export function parseApiTimestamp(value: string): Date {
 
 export function formatApiDate(date: Date): string {
   const safe = Number.isNaN(date.getTime()) ? new Date() : date;
-  const year = safe.getFullYear();
-  const month = String(safe.getMonth() + 1).padStart(2, "0");
-  const day = String(safe.getDate()).padStart(2, "0");
+  const parts = apiDateFormatter.formatToParts(safe);
+  const year = parts.find(({ type }) => type === "year")?.value;
+  const month = parts.find(({ type }) => type === "month")?.value;
+  const day = parts.find(({ type }) => type === "day")?.value;
+  if (!year || !month || !day) return "";
   return `${year}-${month}-${day}`;
+}
+
+export function apiDateKeyFromTimestamp(value: string): string {
+  return formatApiDate(parseApiTimestamp(value));
+}
+
+export function shiftApiDateKey(dateKey: string, days: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return formatApiDate(new Date());
+  const [, year, month, day] = match;
+  const shifted = new Date(
+    Date.UTC(Number(year), Number(month) - 1, Number(day) + days, 12),
+  );
+  return shifted.toISOString().slice(0, 10);
 }
 
 export function formatDuration(seconds: number): string {

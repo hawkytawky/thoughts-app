@@ -6,6 +6,7 @@ import React, {
   useState,
 } from "react";
 import {
+  AppState,
   FlatList,
   Pressable,
   StyleSheet,
@@ -35,10 +36,12 @@ import {
 } from "@/components/NoteUI";
 import {
   type ThoughtCard,
+  apiDateKeyFromTimestamp,
   fetchNoteProcessingState,
   fetchNotesForDate,
   formatApiDate,
   formatDuration,
+  parseApiTimestamp,
   retryNoteProcessing,
 } from "@/lib/featured-note";
 import {
@@ -129,22 +132,12 @@ function topDate(dateKey: string): string {
 }
 
 function sortedNotes(notes: ThoughtCard[]): ThoughtCard[] {
-  return [...notes].sort((left, right) =>
-    right.recordedAt.localeCompare(left.recordedAt),
-  );
-}
-
-function mergeNotes(
-  current: ThoughtCard[],
-  incoming: ThoughtCard[],
-): ThoughtCard[] {
-  const incomingPaths = new Set(
-    incoming.map(({ relativePath }) => relativePath),
-  );
-  return sortedNotes([
-    ...incoming,
-    ...current.filter(({ relativePath }) => !incomingPaths.has(relativePath)),
-  ]);
+  return [...notes].sort((left, right) => {
+    const timeDifference =
+      parseApiTimestamp(right.recordedAt).getTime() -
+      parseApiTimestamp(left.recordedAt).getTime();
+    return timeDifference || right.relativePath.localeCompare(left.relativePath);
+  });
 }
 
 function ThoughtCardRow({
@@ -278,6 +271,9 @@ export default function ThoughtsFeedScreen() {
   const [dayNotes, setDayNotes] = useState<Map<string, ThoughtCard[]>>(
     new Map(),
   );
+  const [optimisticNotes, setOptimisticNotes] = useState<
+    Map<string, ThoughtCard[]>
+  >(new Map());
   const [loadingDays, setLoadingDays] = useState<Set<string>>(new Set());
   const [failedDays, setFailedDays] = useState<Set<string>>(new Set());
   const [pendingThoughts, setPendingThoughts] = useState<PendingThought[]>([]);
@@ -287,23 +283,34 @@ export default function ThoughtsFeedScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlightDays = useRef(new Set<string>());
-  const dayNotesRef = useRef(dayNotes);
+  const latestDayRequestAt = useRef(new Map<string, number>());
+  const initialSyncComplete = useRef(false);
+  const selectedDateRef = useRef(selectedDate);
+  const currentTodayRef = useRef(todayKey());
 
   useEffect(() => {
-    dayNotesRef.current = dayNotes;
-  }, [dayNotes]);
+    selectedDateRef.current = selectedDate;
+  }, [selectedDate]);
 
   const applyBootstrap = useCallback((data: FeedBootstrap) => {
-    inFlightDays.current.clear();
     setDayNotes((current) => {
       const next = new Map(current);
       for (const [date, notes] of data.notes) {
-        next.set(date, mergeNotes(current.get(date) ?? [], notes));
+        if (
+          data.requestedAt < (latestDayRequestAt.current.get(date) ?? 0)
+        ) {
+          continue;
+        }
+        latestDayRequestAt.current.set(date, data.requestedAt);
+        next.set(date, sortedNotes(notes));
       }
       return next;
     });
-    setLoadingDays(new Set());
-    setFailedDays(new Set());
+    setFailedDays((current) => {
+      const next = new Set(current);
+      for (const [date] of data.notes) next.delete(date);
+      return next;
+    });
   }, []);
 
   const loadInitial = useCallback(
@@ -315,10 +322,12 @@ export default function ThoughtsFeedScreen() {
           loadFeedBootstrap());
         applyBootstrap(data);
         void writeFeedCache(data);
+        return data;
       } catch (caught) {
         setError(
           caught instanceof Error ? caught.message : "Unbekannter Fehler",
         );
+        return null;
       } finally {
         if (!silent) setInitialLoading(false);
       }
@@ -328,7 +337,9 @@ export default function ThoughtsFeedScreen() {
 
   const loadDay = useCallback(async (date: string) => {
     if (inFlightDays.current.has(date)) return;
+    const requestedAt = Date.now();
     inFlightDays.current.add(date);
+    latestDayRequestAt.current.set(date, requestedAt);
     setLoadingDays((current) => new Set(current).add(date));
     setFailedDays((current) => {
       const next = new Set(current);
@@ -337,12 +348,24 @@ export default function ThoughtsFeedScreen() {
     });
     try {
       const { notes } = await fetchNotesForDate(date);
+      if (latestDayRequestAt.current.get(date) !== requestedAt) return;
       setDayNotes((current) =>
-        new Map(current).set(
-          date,
-          mergeNotes(current.get(date) ?? [], notes),
-        ),
+        new Map(current).set(date, sortedNotes(notes)),
       );
+      const confirmedPaths = new Set(
+        notes.map(({ relativePath }) => relativePath),
+      );
+      setOptimisticNotes((current) => {
+        const optimisticForDay = current.get(date);
+        if (!optimisticForDay) return current;
+        const remaining = optimisticForDay.filter(
+          ({ relativePath }) => !confirmedPaths.has(relativePath),
+        );
+        const next = new Map(current);
+        if (remaining.length > 0) next.set(date, remaining);
+        else next.delete(date);
+        return next;
+      });
     } catch {
       setFailedDays((current) => new Set(current).add(date));
     } finally {
@@ -363,15 +386,52 @@ export default function ThoughtsFeedScreen() {
       if (cached) {
         applyBootstrap(cached);
         setInitialLoading(false);
-        await loadInitial({ silent: true });
+        const data = await loadInitial({ silent: true });
+        const selected = selectedDateRef.current;
+        if (!data?.notes.some(([date]) => date === selected)) {
+          await loadDay(selected);
+        }
       } else {
-        await loadInitial();
+        const data = await loadInitial();
+        const selected = selectedDateRef.current;
+        if (!data?.notes.some(([date]) => date === selected)) {
+          await loadDay(selected);
+        }
       }
+      if (!cancelled) initialSyncComplete.current = true;
     })();
     return () => {
       cancelled = true;
     };
-  }, [applyBootstrap, loadInitial]);
+  }, [applyBootstrap, loadDay, loadInitial]);
+
+  const refreshVisibleDay = useCallback(() => {
+    const nextToday = todayKey();
+    const previousToday = currentTodayRef.current;
+    let date = selectedDateRef.current;
+    if (date === previousToday && date !== nextToday) {
+      date = nextToday;
+      selectedDateRef.current = nextToday;
+      setSelectedDate(nextToday);
+    }
+    currentTodayRef.current = nextToday;
+    void loadDay(date);
+  }, [loadDay]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (initialSyncComplete.current) refreshVisibleDay();
+    }, [refreshVisibleDay]),
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && initialSyncComplete.current) {
+        refreshVisibleDay();
+      }
+    });
+    return () => subscription.remove();
+  }, [refreshVisibleDay]);
 
   const retryProcessing = useCallback(async (thought: PendingThought) => {
     if (!thought.remotePath) return;
@@ -414,8 +474,6 @@ export default function ThoughtsFeedScreen() {
       let active = true;
       let refreshingPending = false;
       let timer: ReturnType<typeof setInterval> | undefined;
-      const today = todayKey();
-
       const refreshProcessing = async () => {
         if (refreshingPending) return;
         refreshingPending = true;
@@ -465,12 +523,24 @@ export default function ThoughtsFeedScreen() {
                   ...completedNotes.map(({ relativePath }) => relativePath),
                 ]),
             );
-            setDayNotes((current) =>
-              new Map(current).set(
-                today,
-                mergeNotes(current.get(today) ?? [], completedNotes),
-              ),
-            );
+            setOptimisticNotes((current) => {
+              const next = new Map(current);
+              for (const note of completedNotes) {
+                const date = apiDateKeyFromTimestamp(note.recordedAt);
+                const notes = next.get(date) ?? [];
+                next.set(
+                  date,
+                  sortedNotes([
+                    note,
+                    ...notes.filter(
+                      ({ relativePath }) =>
+                        relativePath !== note.relativePath,
+                    ),
+                  ]),
+                );
+              }
+              return next;
+            });
           }
           setPendingThoughts(stillPending);
           for (const id of completedIds) await removePendingThought(id);
@@ -492,7 +562,18 @@ export default function ThoughtsFeedScreen() {
   );
 
   const entries = useMemo<FeedEntry[]>(() => {
-    const notes = dayNotes.get(selectedDate) ?? [];
+    const notesByPath = new Map<string, ThoughtCard>();
+    for (const note of optimisticNotes.get(selectedDate) ?? []) {
+      if (apiDateKeyFromTimestamp(note.recordedAt) === selectedDate) {
+        notesByPath.set(note.relativePath, note);
+      }
+    }
+    for (const note of dayNotes.get(selectedDate) ?? []) {
+      if (apiDateKeyFromTimestamp(note.recordedAt) === selectedDate) {
+        notesByPath.set(note.relativePath, note);
+      }
+    }
+    const notes = sortedNotes([...notesByPath.values()]);
     const result: FeedEntry[] = notes.map((note) => ({
       id: note.relativePath,
       kind: "note",
@@ -500,30 +581,33 @@ export default function ThoughtsFeedScreen() {
       note,
     }));
 
-    if (isTodayKey(selectedDate)) {
-      const knownPaths = new Set(notes.map(({ relativePath }) => relativePath));
-      for (const pending of pendingThoughts) {
-        if (pending.remotePath && knownPaths.has(pending.remotePath)) continue;
-        result.push({
-          id: `pending-${pending.id}`,
-          kind: "pending",
-          recordedAt: pending.createdAt,
-          pending,
-        });
-      }
+    const knownPaths = new Set(notes.map(({ relativePath }) => relativePath));
+    for (const pending of pendingThoughts) {
+      if (apiDateKeyFromTimestamp(pending.createdAt) !== selectedDate) continue;
+      if (pending.remotePath && knownPaths.has(pending.remotePath)) continue;
+      result.push({
+        id: `pending-${pending.id}`,
+        kind: "pending",
+        recordedAt: pending.createdAt,
+        pending,
+      });
     }
 
-    return result.sort((left, right) =>
-      right.recordedAt.localeCompare(left.recordedAt),
-    );
-  }, [dayNotes, pendingThoughts, selectedDate]);
+    return result.sort((left, right) => {
+      const timeDifference =
+        parseApiTimestamp(right.recordedAt).getTime() -
+        parseApiTimestamp(left.recordedAt).getTime();
+      return timeDifference || right.id.localeCompare(left.id);
+    });
+  }, [dayNotes, optimisticNotes, pendingThoughts, selectedDate]);
 
   const selectDate = useCallback(
     (date: Date) => {
       const selected = formatApiDate(date);
       setDatePickerOpen(false);
       setSelectedDate(selected);
-      if (!dayNotesRef.current.has(selected)) void loadDay(selected);
+      selectedDateRef.current = selected;
+      void loadDay(selected);
     },
     [loadDay],
   );

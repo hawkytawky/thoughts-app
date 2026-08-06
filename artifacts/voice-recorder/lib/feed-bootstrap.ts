@@ -4,17 +4,20 @@ import {
   fetchNotesForDate,
   fetchThoughtDayCounts,
   formatApiDate,
+  shiftApiDateKey,
 } from "@/lib/featured-note";
 
 // Shares the "@thoughts/" prefix so clearLocalUserData() wipes it on sign-out
 // and account deletion — a cached feed must never outlive its account.
-const CACHE_KEY = "@thoughts/feed-bootstrap-v1";
+const CACHE_KEY = "@thoughts/feed-bootstrap-v2";
+const LEGACY_CACHE_KEY = "@thoughts/feed-bootstrap-v1";
 
 // Cached notes are only a paint-first placeholder; anything older than this is
 // dropped rather than shown, since a stale feed is worse than a brief spinner.
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export type FeedBootstrap = {
+  requestedAt: number;
   counts: [string, number][];
   notes: [string, ThoughtCard[]][];
 };
@@ -26,9 +29,7 @@ export function todayKey(): string {
 }
 
 export function yesterdayKey(): string {
-  const date = new Date();
-  date.setDate(date.getDate() - 1);
-  return formatApiDate(date);
+  return shiftApiDateKey(todayKey(), -1);
 }
 
 export function monthKey(dateKey: string): string {
@@ -37,8 +38,9 @@ export function monthKey(dateKey: string): string {
 
 export function previousMonth(month: string): string {
   const [year, monthNumber] = month.split("-").map(Number);
-  const date = new Date(year, monthNumber - 2, 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const previousYear = monthNumber === 1 ? year - 1 : year;
+  const previousMonthNumber = monthNumber === 1 ? 12 : monthNumber - 1;
+  return `${previousYear}-${String(previousMonthNumber).padStart(2, "0")}`;
 }
 
 // Merge the two months we always want counts for so `yesterday` is covered
@@ -49,6 +51,7 @@ export function initialMonths(): [string, string] {
 }
 
 export async function loadFeedBootstrap(): Promise<FeedBootstrap> {
+  const requestedAt = Date.now();
   const today = todayKey();
   const yesterday = yesterdayKey();
   const [currentMonth, prevMonth] = initialMonths();
@@ -67,6 +70,7 @@ export async function loadFeedBootstrap(): Promise<FeedBootstrap> {
   }
 
   return {
+    requestedAt,
     counts: [...counts],
     notes: [
       [today, todayNotes.notes],
@@ -108,13 +112,24 @@ export async function readFeedCache(): Promise<FeedBootstrap | null> {
     const raw = await AsyncStorage.getItem(CACHE_KEY);
     if (!raw) return null;
     const cached = JSON.parse(raw) as CachedBootstrap;
-    if (!cached?.savedAt || !Array.isArray(cached.counts)) return null;
+    if (
+      !cached?.savedAt ||
+      !cached.requestedAt ||
+      !Array.isArray(cached.counts) ||
+      !Array.isArray(cached.notes)
+    ) {
+      return null;
+    }
     if (Date.now() - cached.savedAt > CACHE_MAX_AGE_MS) return null;
     // A cache written on an earlier day would paint yesterday's notes under
     // today's heading, so treat a date rollover as a miss.
     const cachedDays = cached.notes.map(([date]) => date);
     if (!cachedDays.includes(todayKey())) return null;
-    return { counts: cached.counts, notes: cached.notes };
+    return {
+      requestedAt: cached.requestedAt,
+      counts: cached.counts,
+      notes: cached.notes,
+    };
   } catch {
     return null;
   }
@@ -126,7 +141,7 @@ export async function readFeedCache(): Promise<FeedBootstrap | null> {
 export async function clearFeedCache(): Promise<void> {
   prefetch = null;
   try {
-    await AsyncStorage.removeItem(CACHE_KEY);
+    await AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY]);
   } catch {
     // Nothing to do; a failed clear must not block signing out.
   }
