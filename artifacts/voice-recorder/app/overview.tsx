@@ -272,8 +272,12 @@ export default function OverviewScreen() {
     () => graphForPeriod(graph, period),
     [graph, period],
   );
-  const networkGraph = period === "today" ? graph : visibleGraph;
-  const networkFilterDate = period === "today" ? dateKeyDaysAgo(0) : null;
+  const networkFilterNodeIndices = useMemo(() => {
+    if (!graph || period === "all") return null;
+    return graph.nodes
+      .filter((node) => periodIncludes(nodeDate(node), period))
+      .map((node) => node.idx);
+  }, [graph, period]);
   const noData = status === "ready" && (visibleGraph?.nodes.length ?? 0) === 0;
   const periodLabel = PERIODS.find(({ id }) => id === period)?.label ?? "Gesamt";
 
@@ -389,7 +393,7 @@ export default function OverviewScreen() {
                       <Text style={styles.retryText}>Erneut versuchen</Text>
                     </Pressable>
                   </View>
-                ) : noData ? (
+                ) : noData && lens !== "network" ? (
                   <EmptyMessage>
                     In diesem Zeitraum nichts aufgenommen.
                   </EmptyMessage>
@@ -401,8 +405,8 @@ export default function OverviewScreen() {
                   >
                     {lens === "network" ? (
                       <OverviewGraph
-                        filterDate={networkFilterDate}
-                        graph={networkGraph}
+                        filterNodeIndices={networkFilterNodeIndices}
+                        graph={graph}
                         onRetry={loadGraph}
                         showHint={false}
                         status="ready"

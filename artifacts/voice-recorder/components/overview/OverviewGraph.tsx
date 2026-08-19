@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   LayoutChangeEvent,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -44,8 +45,16 @@ import {
 } from "@/lib/visualizations";
 
 const PAD = 46;
-const MIN_SCALE = 0.6;
+const INITIAL_SCALE = 0.78;
+const MIN_SCALE = 0.36;
 const MAX_SCALE = 4;
+const FIT_MARGIN_HORIZONTAL = 32;
+const FIT_MARGIN_TOP = 36;
+const FIT_MARGIN_BOTTOM = 112;
+const CLUSTER_GAP = 48;
+const FILTER_CONTEXT_NODE_ALPHA = 0.13;
+const FILTER_CONTEXT_EDGE_ALPHA = 0.025;
+const FILTER_BRIDGE_EDGE_ALPHA = 0.1;
 const CLUSTER_CHIP_HEIGHT = 24;
 const CLUSTER_CHIP_PAD_X = 10;
 
@@ -70,8 +79,164 @@ function lerpClamp(
   return y0 + (y1 - y0) * t;
 }
 
+function nodeDateKey(node: GraphNode): string {
+  return node.date || node.capturedAt.slice(0, 10);
+}
+
+function thoughtDateLabel(node: GraphNode): string {
+  if (node.dateLabel) return node.dateLabel;
+  const date = nodeDateKey(node);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "";
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(`${date}T12:00:00`));
+}
+
+function localDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function TopicDensityTimeline({
+  clusterId,
+  color,
+  nodes,
+}: {
+  clusterId: number;
+  color: string;
+  nodes: GraphNode[];
+}) {
+  const timeline = useMemo(() => {
+    const validDates = nodes
+      .map(nodeDateKey)
+      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+      .sort();
+    if (validDates.length === 0) return null;
+
+    const firstThought = new Date(`${validDates[0]}T12:00:00`);
+    const start = new Date(
+      firstThought.getFullYear(),
+      firstThought.getMonth(),
+      1,
+      12,
+    );
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+
+    const days: string[] = [];
+    for (const cursor = new Date(start); cursor <= today; ) {
+      days.push(localDateKey(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    const countsByDay = new Map<string, number>();
+    for (const node of nodes) {
+      if (node.cluster !== clusterId) continue;
+      const key = nodeDateKey(node);
+      countsByDay.set(key, (countsByDay.get(key) ?? 0) + 1);
+    }
+
+    const bucketSize = Math.max(1, Math.ceil(days.length / 180));
+    const buckets: number[] = [];
+    for (let index = 0; index < days.length; index += bucketSize) {
+      let count = 0;
+      for (let offset = 0; offset < bucketSize; offset++) {
+        const day = days[index + offset];
+        if (!day) break;
+        count += countsByDay.get(day) ?? 0;
+      }
+      buckets.push(count);
+    }
+
+    const months: Array<{ key: string; label: string; days: number }> = [];
+    for (
+      const cursor = new Date(start);
+      cursor <= today;
+      cursor.setMonth(cursor.getMonth() + 1)
+    ) {
+      const monthStart = new Date(
+        cursor.getFullYear(),
+        cursor.getMonth(),
+        1,
+        12,
+      );
+      const nextMonth = new Date(
+        cursor.getFullYear(),
+        cursor.getMonth() + 1,
+        1,
+        12,
+      );
+      const visibleEnd = nextMonth > today ? today : nextMonth;
+      const visibleDays = Math.max(
+        1,
+        Math.round(
+          (visibleEnd.getTime() - monthStart.getTime()) / 86_400_000,
+        ) + (nextMonth > today ? 1 : 0),
+      );
+      months.push({
+        key: `${cursor.getFullYear()}-${cursor.getMonth()}`,
+        label: new Intl.DateTimeFormat("de-DE", { month: "short" }).format(
+          cursor,
+        ),
+        days: visibleDays,
+      });
+    }
+
+    return {
+      buckets,
+      maxCount: Math.max(1, ...buckets),
+      months,
+      labelStep: Math.max(1, Math.ceil(months.length / 8)),
+    };
+  }, [clusterId, nodes]);
+
+  if (!timeline) return null;
+
+  return (
+    <View style={styles.timeline}>
+      <Text style={styles.timelineTitle}>VERLAUF</Text>
+      <View style={styles.timelinePlot}>
+        {timeline.buckets.map((count, index) => (
+          <View key={index} style={styles.timelineBucket}>
+            {count > 0 ? (
+              <View
+                style={[
+                  styles.timelineBar,
+                  {
+                    backgroundColor: color,
+                    height: 4 + (count / timeline.maxCount) * 22,
+                    opacity: 0.38 + (count / timeline.maxCount) * 0.48,
+                  },
+                ]}
+              />
+            ) : null}
+          </View>
+        ))}
+      </View>
+      <View style={styles.timelineMonths}>
+        {timeline.months.map((month, index) => (
+          <View
+            key={month.key}
+            style={[styles.timelineMonth, { flex: month.days }]}
+          >
+            {index % timeline.labelStep === 0 ||
+            index === timeline.months.length - 1 ? (
+              <Text style={styles.timelineMonthLabel}>{month.label}</Text>
+            ) : null}
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 type Pos = {
   idx: number;
+  cluster: number;
   cx: number;
   cy: number;
   r: number;
@@ -136,14 +301,211 @@ function declutter(pos: Pos[]): void {
   }
 }
 
+// Preserve each topic's internal shape, then lay out the topic-level graph.
+// Cross-topic connections create attraction; repulsion and collision merely
+// keep the islands readable. The resulting distance therefore carries meaning.
+function arrangeClusterIslands(pos: Pos[], edges: EdgeDraw[]): void {
+  const groups = new Map<number, Pos[]>();
+  for (const point of pos) {
+    const group = groups.get(point.cluster) ?? [];
+    group.push(point);
+    groups.set(point.cluster, group);
+  }
+
+  const islands = Array.from(groups.entries()).map(([id, points]) => {
+    const originalX =
+      points.reduce((sum, point) => sum + point.cx, 0) / points.length;
+    const originalY =
+      points.reduce((sum, point) => sum + point.cy, 0) / points.length;
+    let maxDistance = 0;
+    for (const point of points) {
+      maxDistance = Math.max(
+        maxDistance,
+        Math.hypot(point.cx - originalX, point.cy - originalY),
+      );
+    }
+
+    // Very dispersed backend coordinates are gently compacted per topic;
+    // their direction and relative ordering remain intact.
+    const targetSpread = 34 + Math.sqrt(points.length) * 20;
+    const compression = Math.min(1, targetSpread / Math.max(1, maxDistance));
+    for (const point of points) {
+      point.cx = originalX + (point.cx - originalX) * compression;
+      point.cy = originalY + (point.cy - originalY) * compression;
+    }
+    declutter(points);
+
+    const centerX =
+      points.reduce((sum, point) => sum + point.cx, 0) / points.length;
+    const centerY =
+      points.reduce((sum, point) => sum + point.cy, 0) / points.length;
+    const radius = points.reduce(
+      (largest, point) =>
+        Math.max(
+          largest,
+          Math.hypot(point.cx - centerX, point.cy - centerY) + point.r,
+        ),
+      0,
+    );
+
+    return {
+      id,
+      points,
+      originalX,
+      originalY,
+      cx: centerX,
+      cy: centerY,
+      radius,
+      vx: 0,
+      vy: 0,
+    };
+  });
+
+  const clusterByNode = new Map(pos.map((point) => [point.idx, point.cluster]));
+  const islandById = new Map(islands.map((island, index) => [island.id, index]));
+  const pairKey = (a: number, b: number) =>
+    a < b ? `${a}:${b}` : `${b}:${a}`;
+  const rawAffinity = new Map<string, number>();
+  for (const edge of edges) {
+    const sourceCluster = clusterByNode.get(edge.source);
+    const targetCluster = clusterByNode.get(edge.target);
+    if (
+      sourceCluster == null ||
+      targetCluster == null ||
+      sourceCluster === targetCluster
+    ) {
+      continue;
+    }
+    const key = pairKey(sourceCluster, targetCluster);
+    rawAffinity.set(key, (rawAffinity.get(key) ?? 0) + edge.weight);
+  }
+
+  const affinity = new Map<string, number>();
+  let strongestAffinity = 0;
+  for (const [key, weight] of rawAffinity) {
+    const [aId, bId] = key.split(":").map(Number);
+    const a = islands[islandById.get(aId) ?? -1];
+    const b = islands[islandById.get(bId) ?? -1];
+    if (!a || !b) continue;
+    const normalized = weight / Math.sqrt(a.points.length * b.points.length);
+    affinity.set(key, normalized);
+    strongestAffinity = Math.max(strongestAffinity, normalized);
+  }
+  if (strongestAffinity > 0) {
+    for (const [key, value] of affinity) {
+      affinity.set(key, value / strongestAffinity);
+    }
+  }
+
+  for (let iteration = 0; iteration < 180; iteration++) {
+    const fx = islands.map(
+      (island) => (island.originalX - island.cx) * 0.0015,
+    );
+    const fy = islands.map(
+      (island) => (island.originalY - island.cy) * 0.0015,
+    );
+
+    for (let i = 0; i < islands.length; i++) {
+      for (let j = i + 1; j < islands.length; j++) {
+        const a = islands[i];
+        const b = islands[j];
+        let dx = b.cx - a.cx;
+        let dy = b.cy - a.cy;
+        let distance = Math.hypot(dx, dy);
+        if (distance < 0.01) {
+          const angle = ((a.id * 37 + b.id * 61) % 360) * (Math.PI / 180);
+          dx = Math.cos(angle);
+          dy = Math.sin(angle);
+          distance = 1;
+        }
+        const nx = dx / distance;
+        const ny = dy / distance;
+        const minimumDistance = a.radius + b.radius + CLUSTER_GAP;
+        let separationForce = Math.min(2.4, 4200 / (distance * distance));
+        if (distance < minimumDistance) {
+          separationForce += (minimumDistance - distance) * 0.12;
+        }
+        fx[i] -= nx * separationForce;
+        fy[i] -= ny * separationForce;
+        fx[j] += nx * separationForce;
+        fy[j] += ny * separationForce;
+
+        const relationship = affinity.get(pairKey(a.id, b.id)) ?? 0;
+        if (relationship > 0) {
+          const preferredDistance =
+            minimumDistance + (1 - relationship) * 72;
+          const spring =
+            (distance - preferredDistance) *
+            (0.01 + relationship * 0.025);
+          fx[i] += nx * spring;
+          fy[i] += ny * spring;
+          fx[j] -= nx * spring;
+          fy[j] -= ny * spring;
+        }
+      }
+    }
+
+    for (let i = 0; i < islands.length; i++) {
+      const island = islands[i];
+      island.vx = (island.vx + fx[i]) * 0.72;
+      island.vy = (island.vy + fy[i]) * 0.72;
+      const speed = Math.hypot(island.vx, island.vy);
+      if (speed > 10) {
+        island.vx = (island.vx / speed) * 10;
+        island.vy = (island.vy / speed) * 10;
+      }
+      island.cx += island.vx;
+      island.cy += island.vy;
+    }
+  }
+
+  // Final collision pass is only a readability guard; it does not determine
+  // where related clusters want to sit.
+  for (let iteration = 0; iteration < 32; iteration++) {
+    for (let i = 0; i < islands.length; i++) {
+      for (let j = i + 1; j < islands.length; j++) {
+        const a = islands[i];
+        const b = islands[j];
+        let dx = b.cx - a.cx;
+        let dy = b.cy - a.cy;
+        const distance = Math.hypot(dx, dy) || 0.01;
+        const minimumDistance = a.radius + b.radius + CLUSTER_GAP;
+        if (distance >= minimumDistance) continue;
+        const push = (minimumDistance - distance) / 2;
+        dx /= distance;
+        dy /= distance;
+        a.cx -= dx * push;
+        a.cy -= dy * push;
+        b.cx += dx * push;
+        b.cy += dy * push;
+      }
+    }
+  }
+
+  for (const island of islands) {
+    const centerX =
+      island.points.reduce((sum, point) => sum + point.cx, 0) /
+      island.points.length;
+    const centerY =
+      island.points.reduce((sum, point) => sum + point.cy, 0) /
+      island.points.length;
+    const offsetX = island.cx - centerX;
+    const offsetY = island.cy - centerY;
+    for (const point of island.points) {
+      point.cx += offsetX;
+      point.cy += offsetY;
+    }
+  }
+}
+
 export function OverviewGraph({
-  filterDate = null,
+  filterNodeIndices = null,
   graph,
   onRetry,
   showHint = true,
   status,
 }: {
-  filterDate?: string | null;
+  filterNodeIndices?: readonly number[] | null;
   graph: Graph | null;
   onRetry: () => void;
   showHint?: boolean;
@@ -158,7 +520,7 @@ export function OverviewGraph({
 
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
-  const scale = useSharedValue(1);
+  const scale = useSharedValue(INITIAL_SCALE);
   const prevScale = useSharedValue(1);
 
   // Peek shows a few lines; expanded shows the whole thought. The card hugs
@@ -202,6 +564,7 @@ export function OverviewGraph({
       const fill = clusterById.get(n.cluster)?.color ?? C.ink40;
       return {
         idx: n.idx,
+        cluster: n.cluster,
         cx: PAD + n.x * w,
         cy: PAD + n.y * h,
         r: n.size,
@@ -210,7 +573,7 @@ export function OverviewGraph({
         keyword: n.keyword,
       };
     });
-    if (pos.length && w > 0 && h > 0) declutter(pos);
+    if (pos.length && w > 0 && h > 0) arrangeClusterIslands(pos, edges);
     const centroids = clusters.map((c) => {
       const pts = pos.filter((_, i) => nodes[i].cluster === c.id);
       const cx = pts.reduce((s, p) => s + p.cx, 0) / (pts.length || 1);
@@ -231,7 +594,7 @@ export function OverviewGraph({
       cx: p.cx,
       cy: p.cy,
       r: p.r,
-      cluster: nodes[p.idx]?.cluster ?? -1,
+      cluster: p.cluster,
       color: p.color,
       tcolor: p.tcolor,
       keyword: p.keyword,
@@ -277,23 +640,18 @@ export function OverviewGraph({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, graph]);
 
-  const matchCount = useMemo(() => {
-    if (!filterDate) return 0;
-    return nodes.filter(
-      (n) => (n.date || n.capturedAt).slice(0, 10) === filterDate,
-    ).length;
-  }, [filterDate, nodes]);
-
+  const matchCount = filterNodeIndices?.length ?? 0;
   useEffect(() => {
-    if (!filterDate) {
+    if (filterNodeIndices == null) {
       matchFlagsSV.value = [];
       return;
     }
-    matchFlagsSV.value = nodes.map((n) =>
-      (n.date || n.capturedAt).slice(0, 10) === filterDate ? 1 : 0,
+    const matchingIndices = new Set(filterNodeIndices);
+    matchFlagsSV.value = nodes.map((node) =>
+      matchingIndices.has(node.idx) ? 1 : 0,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterDate, graph]);
+  }, [filterNodeIndices, graph]);
 
   const selectByIndex = (i: number) => {
     setExpanded(false);
@@ -303,6 +661,7 @@ export function OverviewGraph({
   const selectClusterById = (id: number) => {
     setExpanded(false);
     setSelected(null);
+    dragY.value = 0;
     setSelectedCluster((current) =>
       current?.id === id
         ? null
@@ -325,6 +684,54 @@ export function OverviewGraph({
     const { width, height } = e.nativeEvent.layout;
     setSize({ w: width, h: height });
   };
+
+  useEffect(() => {
+    if (size.w <= 0 || size.h <= 0) return;
+
+    if (layout.pos.length === 0) {
+      scale.value = INITIAL_SCALE;
+      prevScale.value = 1;
+      tx.value = (size.w * (1 - INITIAL_SCALE)) / 2;
+      ty.value = (size.h * (1 - INITIAL_SCALE)) / 2;
+      return;
+    }
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const node of layout.pos) {
+      minX = Math.min(minX, node.cx - node.r);
+      maxX = Math.max(maxX, node.cx + node.r);
+      minY = Math.min(minY, node.cy - node.r);
+      maxY = Math.max(maxY, node.cy + node.r);
+    }
+
+    const graphWidth = Math.max(1, maxX - minX);
+    const graphHeight = Math.max(1, maxY - minY);
+    const availableHeight = Math.max(
+      1,
+      size.h - FIT_MARGIN_TOP - FIT_MARGIN_BOTTOM,
+    );
+    const fitScale = Math.min(
+      (size.w - FIT_MARGIN_HORIZONTAL * 2) / graphWidth,
+      availableHeight / graphHeight,
+    );
+    const nextScale = clamp(
+      Math.min(INITIAL_SCALE, fitScale * 0.94),
+      MIN_SCALE,
+      INITIAL_SCALE,
+    );
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    scale.value = nextScale;
+    prevScale.value = 1;
+    tx.value = size.w / 2 - centerX * nextScale;
+    ty.value =
+      FIT_MARGIN_TOP + availableHeight / 2 - centerY * nextScale;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, size.w, size.h]);
 
   // ---- canvas gestures ----
   // Pan doubles as node-drag: grab a node on begin, then either move that node
@@ -466,6 +873,22 @@ export function OverviewGraph({
       }
     });
 
+  const clusterPan = Gesture.Pan()
+    .onChange((e) => {
+      dragY.value = clamp(dragY.value + e.changeY * 0.5, 0, 90);
+    })
+    .onEnd((e) => {
+      const y = dragY.value;
+      const v = e.velocityY;
+      dragY.value = withTiming(0, {
+        duration: 160,
+        easing: Easing.out(Easing.quad),
+      });
+      if (y > 32 || v > 650) {
+        runOnJS(setSelectedCluster)(null);
+      }
+    });
+
   // Imperative Skia picture, redrawn every frame on the UI thread (clock tick).
   const picture = useDerivedValue(() =>
     createPicture((canvas) => {
@@ -578,8 +1001,17 @@ export function OverviewGraph({
             op = insideFocusedCluster ? 0.05 : 0.02;
           }
         }
-        // A date filter keeps an edge lit only while it touches a match.
-        if (filtering && !matches(a) && !matches(b)) op = Math.min(op, 0.03);
+        // Keep the whole topology visible under a date filter. Connections
+        // outside the selected period recede, but still provide spatial context.
+        if (filtering) {
+          const aMatches = matches(a);
+          const bMatches = matches(b);
+          if (!aMatches && !bMatches) {
+            op = Math.min(op, FILTER_CONTEXT_EDGE_ALPHA);
+          } else if (!aMatches || !bMatches) {
+            op = Math.min(op, FILTER_BRIDGE_EDGE_ALPHA);
+          }
+        }
         edgePaint.setColor(c);
         edgePaint.setAlphaf(op);
         edgePaint.setStrokeWidth(sw);
@@ -589,12 +1021,18 @@ export function OverviewGraph({
       // 2) nodes — soft shadow, paper ring, colored dot; dim non-neighbours.
       for (let i = 0; i < n; i++) {
         const node = ns[i];
-        const dim =
+        const focusDim =
           (clusterFocus >= 0 && node.cluster !== clusterFocus) ||
-          (selIdx >= 0 && flags.length > i && flags[i] === 0) ||
-          !matches(i);
-        const alpha = dim ? 0.07 : selIdx < 0 && !filtering ? 0.92 : 0.97;
-        shadowPaint.setAlphaf(dim ? 0.04 : 0.1);
+          (selIdx >= 0 && flags.length > i && flags[i] === 0);
+        const filterContext = filtering && !matches(i);
+        const alpha = focusDim
+          ? 0.07
+          : filterContext
+            ? FILTER_CONTEXT_NODE_ALPHA
+            : selIdx < 0 && !filtering
+              ? 0.92
+              : 0.97;
+        shadowPaint.setAlphaf(focusDim ? 0.04 : filterContext ? 0.02 : 0.1);
         canvas.drawCircle(dcx[i], dcy[i] + 1.6, node.r, shadowPaint);
         ringPaint.setAlphaf(alpha);
         canvas.drawCircle(dcx[i], dcy[i], node.r + 1, ringPaint);
@@ -623,6 +1061,16 @@ export function OverviewGraph({
         const desc = m.descent;
         for (let i = 0; i < cs.length; i++) {
           const c = cs[i];
+          if (filtering) {
+            let clusterHasMatch = false;
+            for (let j = 0; j < n; j++) {
+              if (ns[j].cluster === c.id && matches(j)) {
+                clusterHasMatch = true;
+                break;
+              }
+            }
+            if (!clusterHasMatch) continue;
+          }
           const active = clusterFocus === c.id;
           const dim = clusterFocus >= 0 && !active;
           const pillAlpha = clusterA * (dim ? 0.18 : 1);
@@ -661,11 +1109,13 @@ export function OverviewGraph({
       if (kFont && keywordA > 0.01) {
         for (let i = 0; i < n; i++) {
           const node = ns[i];
-          const dim =
+          const focusDim =
             (clusterFocus >= 0 && node.cluster !== clusterFocus) ||
-            (selIdx >= 0 && flags.length > i && flags[i] === 0) ||
-            !matches(i);
-          const a2 = keywordA * (dim ? 0.2 : 1);
+            (selIdx >= 0 && flags.length > i && flags[i] === 0);
+          const filterContext = filtering && !matches(i);
+          const a2 =
+            keywordA *
+            (filterContext ? 0 : focusDim ? 0.2 : 1);
           if (a2 < 0.01) continue;
           const sx = px + dcx[i] * s;
           const sy = py + dcy[i] * s;
@@ -696,7 +1146,7 @@ export function OverviewGraph({
       {showHint && status === "ready" && nodes.length > 0 ? (
         <View pointerEvents="none" style={styles.hintRow}>
           <Text style={styles.hint}>
-            {filterDate
+            {filterNodeIndices != null
               ? matchCount === 1
                 ? "1 Gedanke an diesem Tag"
                 : `${matchCount} Gedanken an diesem Tag`
@@ -737,7 +1187,12 @@ export function OverviewGraph({
         <GestureDetector gesture={cardPan}>
           <Animated.View
             key={selected.idx}
-            style={[styles.sheet, cardStyle]}
+            style={[
+              styles.sheet,
+              cardStyle,
+              expanded && styles.expandedSheet,
+              expanded && { maxHeight: Math.max(220, size.h - 12) },
+            ]}
             entering={SlideInDown.duration(240)}
             exiting={SlideOutDown.duration(180)}
             layout={LinearTransition.duration(220)}
@@ -753,57 +1208,70 @@ export function OverviewGraph({
                 />
                 <Text style={styles.typeLabel}>{selected.type}</Text>
               </View>
-              {selected.dateLabel ? (
-                <Text style={styles.cardDate}>{selected.dateLabel}</Text>
+              {thoughtDateLabel(selected) ? (
+                <Text style={styles.cardDate}>
+                  {thoughtDateLabel(selected)}
+                </Text>
               ) : null}
             </View>
             <Text style={styles.cardTitle}>{selected.title}</Text>
-            <Text
-              style={styles.cardBody}
-              numberOfLines={expanded ? undefined : 4}
-            >
-              {selected.summary || selected.subtitle}
-            </Text>
+            {expanded ? (
+              <ScrollView
+                style={[
+                  styles.cardBodyScroll,
+                  { maxHeight: Math.max(120, size.h - 170) },
+                ]}
+                contentContainerStyle={styles.cardBodyScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={styles.cardBody}>
+                  {selected.summary || selected.subtitle}
+                </Text>
+              </ScrollView>
+            ) : (
+              <Text style={styles.cardBody} numberOfLines={4}>
+                {selected.summary || selected.subtitle}
+              </Text>
+            )}
           </Animated.View>
         </GestureDetector>
       ) : selectedCluster ? (
-        <Animated.View
-          key={`cluster-${selectedCluster.id}`}
-          style={styles.sheet}
-          entering={SlideInDown.duration(240)}
-          exiting={SlideOutDown.duration(180)}
-          layout={LinearTransition.duration(220)}
-        >
-          <View style={styles.handle} />
-          <View style={styles.clusterHeader}>
-            <View style={styles.clusterTitleRow}>
-              <View
-                style={[
-                  styles.clusterDot,
-                  { backgroundColor: selectedCluster.color },
-                ]}
-              />
-              <Text style={styles.clusterLabel}>{selectedCluster.label}</Text>
+        <GestureDetector gesture={clusterPan}>
+          <Animated.View
+            key={`cluster-${selectedCluster.id}`}
+            style={[styles.sheet, styles.clusterSheet, cardStyle]}
+            entering={SlideInDown.duration(240)}
+            exiting={SlideOutDown.duration(180)}
+            layout={LinearTransition.duration(220)}
+          >
+            <View style={styles.handle} />
+            <View style={styles.clusterHeader}>
+              <View style={styles.clusterTitleRow}>
+                <View
+                  style={[
+                    styles.clusterDot,
+                    { backgroundColor: selectedCluster.color },
+                  ]}
+                />
+                <Text style={styles.clusterLabel}>{selectedCluster.label}</Text>
+              </View>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Themenbeschreibung schließen"
-              hitSlop={10}
-              onPress={() => setSelectedCluster(null)}
-            >
-              <Text style={styles.closeButton}>×</Text>
-            </Pressable>
-          </View>
-          <Text style={styles.clusterCount}>
-            {selectedCluster.count === 1
-              ? "1 Gedanke"
-              : `${selectedCluster.count} Gedanken`}
-          </Text>
-          <Text style={styles.clusterDescription}>
-            {selectedCluster.description ??
-              "Für dieses Thema wird gerade eine kurze Beschreibung erstellt."}
-          </Text>
-        </Animated.View>
+            <Text style={styles.clusterCount}>
+              {selectedCluster.count === 1
+                ? "1 Gedanke"
+                : `${selectedCluster.count} Gedanken`}
+            </Text>
+            <Text style={styles.clusterDescription}>
+              {selectedCluster.description ??
+                "Für dieses Thema wird gerade eine kurze Beschreibung erstellt."}
+            </Text>
+            <TopicDensityTimeline
+              clusterId={selectedCluster.id}
+              color={selectedCluster.color}
+              nodes={nodes}
+            />
+          </Animated.View>
+        </GestureDetector>
       ) : null}
     </View>
   );
@@ -847,12 +1315,11 @@ const styles = StyleSheet.create({
   retryText: { fontFamily: NOTE_SANS_MEDIUM, fontSize: 13, color: C.skyDeep },
   sheet: {
     position: "absolute",
-    left: 0,
-    right: 0,
+    left: 4,
+    right: 4,
     bottom: 0,
     backgroundColor: C.card,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
+    borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: C.border,
     paddingHorizontal: 20,
@@ -864,6 +1331,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -5 },
     elevation: 8,
   },
+  expandedSheet: { overflow: "hidden" },
+  clusterSheet: { paddingTop: 8 },
   handle: {
     width: 38,
     height: 4,
@@ -906,6 +1375,8 @@ const styles = StyleSheet.create({
     color: C.ink70,
     marginTop: 2,
   },
+  cardBodyScroll: { flexGrow: 0, flexShrink: 1 },
+  cardBodyScrollContent: { paddingBottom: 6 },
   clusterHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -930,12 +1401,6 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     color: C.ink,
   },
-  closeButton: {
-    fontFamily: NOTE_SANS,
-    fontSize: 26,
-    lineHeight: 28,
-    color: C.ink40,
-  },
   clusterCount: {
     fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 12,
@@ -948,5 +1413,39 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: C.ink70,
     marginTop: 10,
+  },
+  timeline: { marginTop: 20 },
+  timelineTitle: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 10,
+    letterSpacing: 0.8,
+    color: C.ink40,
+    marginBottom: 8,
+  },
+  timelinePlot: {
+    height: 30,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.border,
+  },
+  timelineBucket: {
+    flex: 1,
+    height: 28,
+    justifyContent: "flex-end",
+    alignItems: "center",
+  },
+  timelineBar: { width: "72%", minWidth: 1, borderRadius: 2 },
+  timelineMonths: { flexDirection: "row", height: 21 },
+  timelineMonth: {
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: C.border,
+    paddingLeft: 3,
+    paddingTop: 4,
+  },
+  timelineMonthLabel: {
+    fontFamily: NOTE_SANS,
+    fontSize: 9.5,
+    color: C.ink40,
   },
 });
