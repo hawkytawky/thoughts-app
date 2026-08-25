@@ -106,7 +106,7 @@ function TopicDensityTimeline({
   color,
   nodes,
 }: {
-  clusterId: number;
+  clusterId: string;
   color: string;
   nodes: GraphNode[];
 }) {
@@ -236,7 +236,7 @@ function TopicDensityTimeline({
 
 type Pos = {
   idx: number;
-  cluster: number;
+  cluster: string;
   cx: number;
   cy: number;
   r: number;
@@ -252,16 +252,23 @@ type NodeDraw = {
   cx: number;
   cy: number;
   r: number;
-  cluster: number;
+  cluster: string;
   color: string;
   tcolor: string;
   keyword: string;
 };
 
 type EdgeDraw = { source: number; target: number; weight: number };
+type SecondaryEdgeDraw = {
+  source: number;
+  targetX: number;
+  targetY: number;
+  relevance: number;
+  color: string;
+};
 
 type ClusterDraw = {
-  id: number;
+  id: string;
   cx: number;
   cy: number;
   width: number;
@@ -305,7 +312,7 @@ function declutter(pos: Pos[]): void {
 // Cross-topic connections create attraction; repulsion and collision merely
 // keep the islands readable. The resulting distance therefore carries meaning.
 function arrangeClusterIslands(pos: Pos[], edges: EdgeDraw[]): void {
-  const groups = new Map<number, Pos[]>();
+  const groups = new Map<string, Pos[]>();
   for (const point of pos) {
     const group = groups.get(point.cluster) ?? [];
     group.push(point);
@@ -363,7 +370,7 @@ function arrangeClusterIslands(pos: Pos[], edges: EdgeDraw[]): void {
 
   const clusterByNode = new Map(pos.map((point) => [point.idx, point.cluster]));
   const islandById = new Map(islands.map((island, index) => [island.id, index]));
-  const pairKey = (a: number, b: number) =>
+  const pairKey = (a: string, b: string) =>
     a < b ? `${a}:${b}` : `${b}:${a}`;
   const rawAffinity = new Map<string, number>();
   for (const edge of edges) {
@@ -383,7 +390,7 @@ function arrangeClusterIslands(pos: Pos[], edges: EdgeDraw[]): void {
   const affinity = new Map<string, number>();
   let strongestAffinity = 0;
   for (const [key, weight] of rawAffinity) {
-    const [aId, bId] = key.split(":").map(Number);
+    const [aId, bId] = key.split(":");
     const a = islands[islandById.get(aId) ?? -1];
     const b = islands[islandById.get(bId) ?? -1];
     if (!a || !b) continue;
@@ -413,7 +420,7 @@ function arrangeClusterIslands(pos: Pos[], edges: EdgeDraw[]): void {
         let dy = b.cy - a.cy;
         let distance = Math.hypot(dx, dy);
         if (distance < 0.01) {
-          const angle = ((a.id * 37 + b.id * 61) % 360) * (Math.PI / 180);
+          const angle = ((i * 37 + j * 61) % 360) * (Math.PI / 180);
           dx = Math.cos(angle);
           dy = Math.sin(angle);
           distance = 1;
@@ -533,9 +540,10 @@ export function OverviewGraph({
   const clusterFont = useFont(InstrumentSans_500Medium, 12);
   const nodesSV = useSharedValue<NodeDraw[]>([]);
   const edgesSV = useSharedValue<EdgeDraw[]>([]);
+  const secondaryEdgesSV = useSharedValue<SecondaryEdgeDraw[]>([]);
   const clustersSV = useSharedValue<ClusterDraw[]>([]);
   const selectedIdxSV = useSharedValue<number>(-1);
-  const selectedClusterIdSV = useSharedValue<number>(-1);
+  const selectedClusterIdSV = useSharedValue<string | null>(null);
   const neighborFlagsSV = useSharedValue<number[]>([]);
   const dragIdx = useSharedValue<number>(-1);
   // 1 per node when a date filter is active and that node matches; empty
@@ -544,9 +552,15 @@ export function OverviewGraph({
 
   const nodes = graph?.nodes ?? [];
   const edges = graph?.edges ?? [];
+  const secondaryEdges = graph?.secondaryTopicEdges ?? [];
   const clusters = graph?.clusters ?? [];
 
   useEffect(() => {
+    setSelected((current) =>
+      current
+        ? (graph?.nodes.find((node) => node.id === current.id) ?? null)
+        : null,
+    );
     setSelectedCluster((current) =>
       current
         ? (graph?.clusters.find((cluster) => cluster.id === current.id) ?? null)
@@ -560,28 +574,42 @@ export function OverviewGraph({
     const clusterById = new Map(
       clusters.map((cluster) => [cluster.id, cluster]),
     );
+    const worldPoints = [
+      ...clusters.map((cluster) => ({
+        x: cluster.anchorX,
+        y: cluster.anchorY,
+      })),
+      ...nodes.map((node) => ({ x: node.x, y: node.y })),
+    ];
+    const minX = Math.min(...worldPoints.map(({ x }) => x), 0);
+    const maxX = Math.max(...worldPoints.map(({ x }) => x), 1);
+    const minY = Math.min(...worldPoints.map(({ y }) => y), 0);
+    const maxY = Math.max(...worldPoints.map(({ y }) => y), 1);
+    const projectX = (x: number) => PAD + ((x - minX) / (maxX - minX || 1)) * w;
+    const projectY = (y: number) => PAD + ((y - minY) / (maxY - minY || 1)) * h;
     const pos: Pos[] = nodes.map((n) => {
       const fill = clusterById.get(n.cluster)?.color ?? C.ink40;
       return {
         idx: n.idx,
         cluster: n.cluster,
-        cx: PAD + n.x * w,
-        cy: PAD + n.y * h,
+        cx: projectX(n.x),
+        cy: projectY(n.y),
         r: n.size,
         color: fill,
         tcolor: fill,
         keyword: n.keyword,
       };
     });
-    if (pos.length && w > 0 && h > 0) arrangeClusterIslands(pos, edges);
+    if (pos.length && w > 0 && h > 0) {
+      for (const cluster of clusters) {
+        declutter(pos.filter((point) => point.cluster === cluster.id));
+      }
+    }
     const centroids = clusters.map((c) => {
-      const pts = pos.filter((_, i) => nodes[i].cluster === c.id);
-      const cx = pts.reduce((s, p) => s + p.cx, 0) / (pts.length || 1);
-      const cy = pts.reduce((s, p) => s + p.cy, 0) / (pts.length || 1);
       return {
         ...c,
-        cx,
-        cy,
+        cx: projectX(c.anchorX),
+        cy: projectY(c.anchorY),
         paletteColor: c.color,
       };
     });
@@ -604,6 +632,21 @@ export function OverviewGraph({
       target: e.target,
       weight: e.weight,
     }));
+    const centroidById = new Map(
+      layout.centroids.map((cluster) => [cluster.id, cluster]),
+    );
+    secondaryEdgesSV.value = secondaryEdges.flatMap((edge) => {
+      const target = centroidById.get(edge.targetTopicId);
+      return target
+        ? [{
+            source: edge.source,
+            targetX: target.cx,
+            targetY: target.cy,
+            relevance: edge.relevance,
+            color: target.color,
+          }]
+        : [];
+    });
     clustersSV.value = layout.centroids.map((c) => ({
       id: c.id,
       cx: c.cx,
@@ -620,7 +663,7 @@ export function OverviewGraph({
   }, [layout, clusterFont]);
 
   useEffect(() => {
-    selectedClusterIdSV.value = selectedCluster?.id ?? -1;
+    selectedClusterIdSV.value = selectedCluster?.id ?? null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCluster]);
 
@@ -658,7 +701,7 @@ export function OverviewGraph({
     setSelected(i >= 0 ? nodes[i] : null);
   };
 
-  const selectClusterById = (id: number) => {
+  const selectClusterById = (id: string) => {
     setExpanded(false);
     setSelected(null);
     dragY.value = 0;
@@ -764,7 +807,7 @@ export function OverviewGraph({
       let bestD = Infinity;
       for (let i = 0; i < ns.length; i++) {
         const p = ns[i];
-        if (clusterFocus >= 0 && p.cluster !== clusterFocus) continue;
+        if (clusterFocus !== null && p.cluster !== clusterFocus) continue;
         const d = (p.cx - bx) ** 2 + (p.cy - by) ** 2;
         const hit = (p.r + 8) ** 2;
         if (d < hit && d < bestD) {
@@ -840,7 +883,7 @@ export function OverviewGraph({
       let bestD = Infinity;
       for (let i = 0; i < ns.length; i++) {
         const p = ns[i];
-        if (clusterFocus >= 0 && p.cluster !== clusterFocus) continue;
+        if (clusterFocus !== null && p.cluster !== clusterFocus) continue;
         const d = (p.cx - bx) ** 2 + (p.cy - by) ** 2;
         const hit = Math.max(p.r + 8, 16) ** 2;
         if (d < hit && d < bestD) {
@@ -901,6 +944,7 @@ export function OverviewGraph({
       const py = ty.value;
       const ns = nodesSV.value;
       const es = edgesSV.value;
+      const secondary = secondaryEdgesSV.value;
       const cs = clustersSV.value;
       const selIdx = selectedIdxSV.value;
       const clusterFocus = selectedClusterIdSV.value;
@@ -968,6 +1012,23 @@ export function OverviewGraph({
       canvas.scale(s, s);
 
       // 1) edges — track drifted endpoints, dim on focus.
+      for (let i = 0; i < secondary.length; i++) {
+        const edge = secondary[i];
+        if (edge.source >= n) continue;
+        const source = ns[edge.source];
+        const dimmed =
+          clusterFocus !== null && source.cluster !== clusterFocus;
+        edgePaint.setColor(col(edge.color));
+        edgePaint.setAlphaf(dimmed ? 0.015 : 0.07 + edge.relevance * 0.11);
+        edgePaint.setStrokeWidth(0.6 + edge.relevance * 0.8);
+        canvas.drawLine(
+          dcx[edge.source],
+          dcy[edge.source],
+          edge.targetX,
+          edge.targetY,
+          edgePaint,
+        );
+      }
       for (let i = 0; i < es.length; i++) {
         const e = es[i];
         const a = e.source;
@@ -976,13 +1037,13 @@ export function OverviewGraph({
         const incident = selIdx >= 0 && (a === selIdx || b === selIdx);
         const normalizedWeight = clamp((e.weight - 0.3) / 0.7, 0, 1);
         const insideFocusedCluster =
-          clusterFocus >= 0 &&
+          clusterFocus !== null &&
           ns[a].cluster === clusterFocus &&
           ns[b].cluster === clusterFocus;
         let op = 0.13 + 0.28 * normalizedWeight;
         let c = col(C.border);
         let sw = 0.75 + 1.75 * normalizedWeight;
-        if (clusterFocus >= 0) {
+        if (clusterFocus !== null) {
           if (insideFocusedCluster) {
             op = 0.2 + 0.38 * normalizedWeight;
             c = col(ns[a].color);
@@ -1022,7 +1083,7 @@ export function OverviewGraph({
       for (let i = 0; i < n; i++) {
         const node = ns[i];
         const focusDim =
-          (clusterFocus >= 0 && node.cluster !== clusterFocus) ||
+          (clusterFocus !== null && node.cluster !== clusterFocus) ||
           (selIdx >= 0 && flags.length > i && flags[i] === 0);
         const filterContext = filtering && !matches(i);
         const alpha = focusDim
@@ -1072,7 +1133,7 @@ export function OverviewGraph({
             if (!clusterHasMatch) continue;
           }
           const active = clusterFocus === c.id;
-          const dim = clusterFocus >= 0 && !active;
+          const dim = clusterFocus !== null && !active;
           const pillAlpha = clusterA * (dim ? 0.18 : 1);
           const sx = px + c.cx * s;
           const sy = py + c.cy * s;
@@ -1110,7 +1171,7 @@ export function OverviewGraph({
         for (let i = 0; i < n; i++) {
           const node = ns[i];
           const focusDim =
-            (clusterFocus >= 0 && node.cluster !== clusterFocus) ||
+            (clusterFocus !== null && node.cluster !== clusterFocus) ||
             (selIdx >= 0 && flags.length > i && flags[i] === 0);
           const filterContext = filtering && !matches(i);
           const a2 =

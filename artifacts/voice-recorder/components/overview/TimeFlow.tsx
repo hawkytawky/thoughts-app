@@ -66,13 +66,13 @@ function lerp(
 
 type BandSample = { x0: number; x1: number; y: number };
 type BandDraw = {
-  cluster: number;
+  cluster: string;
   color: string;
   samples: BandSample[];
 };
 type DotDraw = {
   nodeIndex: number;
-  cluster: number;
+  cluster: string;
   cx: number;
   cy: number;
   color: string;
@@ -83,7 +83,7 @@ type DayDraw = {
   detailLabel: string;
 };
 type ChipDraw = {
-  cluster: number;
+  cluster: string;
   cx: number;
   cy: number;
   width: number;
@@ -134,10 +134,10 @@ function buildLayout(
   const days = graph.time?.days ?? [];
   if (width <= 0 || height <= 0 || days.length === 0) return EMPTY_LAYOUT;
 
-  const clusters = new Map<number, GraphCluster>(
+  const clusters = new Map<string, GraphCluster>(
     graph.clusters.map((cluster) => [cluster.id, cluster]),
   );
-  const totalWords = new Map<number, number>();
+  const totalWords = new Map<string, number>();
   for (const day of days) {
     for (const topic of day.topics) {
       totalWords.set(
@@ -149,15 +149,15 @@ function buildLayout(
   const order = [...clusters.keys()].sort(
     (left, right) =>
       (totalWords.get(right) ?? 0) - (totalWords.get(left) ?? 0) ||
-      left - right,
+      left.localeCompare(right),
   );
 
   const availableWidth = Math.max(1, width - LEFT_PAD - RIGHT_PAD);
   const maxWords = Math.max(1, graph.time.maxDailyWordCount);
   const centerX = LEFT_PAD + availableWidth / 2;
   const step = Math.max(1, (height - TOP_PAD - BOTTOM_PAD) / days.length);
-  const samplesByCluster = new Map<number, BandSample[]>();
-  const dayCenters = new Map<string, Map<number, number>>();
+  const samplesByCluster = new Map<string, BandSample[]>();
+  const dayCenters = new Map<string, Map<string, number>>();
   order.forEach((cluster) => samplesByCluster.set(cluster, []));
 
   days.forEach((day, dayIndex) => {
@@ -166,7 +166,7 @@ function buildLayout(
     );
     const dayWidth = (availableWidth * day.wordCount) / maxWords;
     let cursor = centerX - dayWidth / 2;
-    const centers = new Map<number, number>();
+    const centers = new Map<string, number>();
     const y = TOP_PAD + (dayIndex + 0.5) * step;
 
     for (const cluster of order) {
@@ -275,12 +275,12 @@ export function TimeFlow({
   const router = useRouter();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [selected, setSelected] = useState<GraphNode | null>(null);
-  const [focusedCluster, setFocusedCluster] = useState(-1);
+  const [focusedCluster, setFocusedCluster] = useState<string | null>(null);
 
   const scale = useSharedValue(1);
   const translateY = useSharedValue(0);
   const previousPinchScale = useSharedValue(1);
-  const focusedClusterSV = useSharedValue(-1);
+  const focusedClusterSV = useSharedValue<string | null>(null);
   const selectedNodeSV = useSharedValue(-1);
   const bandsSV = useSharedValue<BandDraw[]>([]);
   const chipsSV = useSharedValue<ChipDraw[]>([]);
@@ -319,14 +319,14 @@ export function TimeFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedCluster]);
 
-  const choose = (nodeIndex: number, cluster: number) => {
+  const choose = (nodeIndex: number, cluster: string | null) => {
     setFocusedCluster(cluster);
     setSelected(nodeIndex >= 0 ? (graph?.nodes[nodeIndex] ?? null) : null);
     selectedNodeSV.value = nodeIndex;
   };
 
   const clearFocus = () => {
-    setFocusedCluster(-1);
+    setFocusedCluster(null);
     setSelected(null);
     selectedNodeSV.value = -1;
   };
@@ -415,7 +415,7 @@ export function TimeFlow({
       }
       if (bestNode >= 0) {
         const dot = dots.find((candidate) => candidate.nodeIndex === bestNode);
-        runOnJS(choose)(bestNode, dot?.cluster ?? -1);
+        runOnJS(choose)(bestNode, dot?.cluster ?? null);
         return;
       }
 
@@ -521,7 +521,7 @@ export function TimeFlow({
         bandPaint.setColor(color(band.color));
         const bandAlpha = lerp(currentScale, 1.05, 2.4, 0.68, 0.42);
         bandPaint.setAlphaf(
-          focus < 0 || focus === band.cluster ? bandAlpha : 0.1,
+          focus === null || focus === band.cluster ? bandAlpha : 0.1,
         );
         canvas.drawPath(path, bandPaint);
         canvas.drawPath(path, separatorPaint);
@@ -564,7 +564,7 @@ export function TimeFlow({
         const dot = dots[i];
         const screenY = currentTranslate + dot.cy * currentScale;
         if (screenY < -14 || screenY > height + 14) continue;
-        const dimmed = focus >= 0 && focus !== dot.cluster;
+        const dimmed = focus !== null && focus !== dot.cluster;
         const radius = 2.6 + detail * 2.1;
         const alpha = dimmed ? 0.1 : 0.95;
         haloPaint.setColor(color(dot.color));
@@ -620,7 +620,7 @@ export function TimeFlow({
             chipHeight / 2,
             chipHeight / 2,
           );
-          const dimmed = focus >= 0 && focus !== chip.cluster;
+          const dimmed = focus !== null && focus !== chip.cluster;
           const alpha = chipAlpha * (dimmed ? 0.12 : 1);
           fillPaint.setAlphaf(alpha * 0.92);
           canvas.drawRRect(rounded, fillPaint);

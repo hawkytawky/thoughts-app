@@ -99,13 +99,18 @@ function graphForPeriod(graph: Graph | null, period: Period): Graph | null {
     const target = newIndexByOld.get(edge.target);
     return source == null || target == null ? [] : [{ ...edge, source, target }];
   });
-  const counts = new Map<number, number>();
+  const secondaryTopicEdges = graph.secondaryTopicEdges.flatMap((edge) => {
+    const source = newIndexByOld.get(edge.source);
+    return source == null ? [] : [{ ...edge, source }];
+  });
+  const counts = new Map<string, number>();
   for (const node of selectedNodes) {
     counts.set(node.cluster, (counts.get(node.cluster) ?? 0) + 1);
   }
-  const clusters = graph.clusters
-    .filter((cluster) => counts.has(cluster.id))
-    .map((cluster) => ({ ...cluster, count: counts.get(cluster.id) ?? 0 }));
+  const clusters = graph.clusters.map((cluster) => ({
+    ...cluster,
+    count: counts.get(cluster.id) ?? 0,
+  }));
   const clusterIds = new Set(clusters.map(({ id }) => id));
   const days = graph.time.days
     .filter((day) => periodIncludes(day.date, period))
@@ -120,6 +125,7 @@ function graphForPeriod(graph: Graph | null, period: Period): Graph | null {
     meta: { ...graph.meta, nodes: nodes.length, clusters: clusters.length },
     nodes,
     edges,
+    secondaryTopicEdges,
     clusters,
     time: { ...graph.time, days, maxDailyWordCount },
   };
@@ -254,7 +260,7 @@ export default function OverviewScreen() {
 
   const loadGraph = useCallback(() => {
     setStatus("loading");
-    fetchGraph("network")
+    fetchGraph("network-v2")
       .then((nextGraph) => {
         setGraph(nextGraph);
         setStatus("ready");
@@ -365,6 +371,13 @@ export default function OverviewScreen() {
       </View>
 
       <View style={styles.pager}>
+        {(graph?.meta.pendingThoughts ?? 0) > 0 ? (
+          <View pointerEvents="none" style={styles.pendingBanner}>
+            <Text style={styles.pendingText}>
+              Neue Gedanken werden Themen zugeordnet …
+            </Text>
+          </View>
+        ) : null}
         {LENSES.map((lens, index) => (
           <NativeAnimated.View
             key={lens}
@@ -478,6 +491,19 @@ const styles = StyleSheet.create({
     color: COLORS.lensInactive,
   },
   pager: { flex: 1, position: "relative" },
+  pendingBanner: {
+    position: "absolute",
+    top: 4,
+    left: 0,
+    right: 0,
+    zIndex: 3,
+    alignItems: "center",
+  },
+  pendingText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 11,
+    color: COLORS.inkFaint,
+  },
   page: {
     ...StyleSheet.absoluteFillObject,
     paddingHorizontal: 14,
