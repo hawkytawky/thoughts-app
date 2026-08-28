@@ -57,6 +57,8 @@ const FILTER_CONTEXT_EDGE_ALPHA = 0.025;
 const FILTER_BRIDGE_EDGE_ALPHA = 0.1;
 const CLUSTER_CHIP_HEIGHT = 24;
 const CLUSTER_CHIP_PAD_X = 10;
+const MIN_TOPIC_RADIUS = 18;
+const MAX_TOPIC_RADIUS = 34;
 
 // High-contrast label drawn on top of the coloured dot.
 const KEYWORD_INK = "#FBFAF7";
@@ -273,6 +275,7 @@ type ClusterDraw = {
   cy: number;
   width: number;
   height: number;
+  radius: number;
   label: string;
   tcolor: string;
 };
@@ -289,7 +292,7 @@ function declutter(pos: Pos[]): void {
         let dx = b.cx - a.cx;
         let dy = b.cy - a.cy;
         const d = Math.hypot(dx, dy) || 0.01;
-        const min = a.r + b.r + 26;
+        const min = a.r + b.r + 10;
         if (d < min) {
           const push = (min - d) / 2;
           dx /= d;
@@ -594,7 +597,7 @@ export function OverviewGraph({
         cluster: n.cluster,
         cx: projectX(n.x),
         cy: projectY(n.y),
-        r: n.size,
+        r: clamp(n.size * 0.42, 4.5, 8.5),
         color: fill,
         tcolor: fill,
         keyword: n.keyword,
@@ -655,6 +658,11 @@ export function OverviewGraph({
         (clusterFont?.measureText(c.label).width ?? c.label.length * 7) +
         CLUSTER_CHIP_PAD_X * 2,
       height: CLUSTER_CHIP_HEIGHT,
+      radius: clamp(
+        MIN_TOPIC_RADIUS + Math.sqrt(Math.max(1, c.count)) * 2.5,
+        MIN_TOPIC_RADIUS,
+        MAX_TOPIC_RADIUS,
+      ),
       label: c.label,
       tcolor: c.paletteColor,
     }));
@@ -749,6 +757,17 @@ export function OverviewGraph({
       minY = Math.min(minY, node.cy - node.r);
       maxY = Math.max(maxY, node.cy + node.r);
     }
+    for (const topic of layout.centroids) {
+      const radius = clamp(
+        MIN_TOPIC_RADIUS + Math.sqrt(Math.max(1, topic.count)) * 2.5,
+        MIN_TOPIC_RADIUS,
+        MAX_TOPIC_RADIUS,
+      );
+      minX = Math.min(minX, topic.cx - radius);
+      maxX = Math.max(maxX, topic.cx + radius);
+      minY = Math.min(minY, topic.cy - radius);
+      maxY = Math.max(maxY, topic.cy + radius + CLUSTER_CHIP_HEIGHT);
+    }
 
     const graphWidth = Math.max(1, maxX - minX);
     const graphHeight = Math.max(1, maxY - minY);
@@ -789,10 +808,7 @@ export function OverviewGraph({
           const sx = tx.value + cluster.cx * s;
           const sy = ty.value + cluster.cy * s;
           if (
-            e.x >= sx - cluster.width / 2 - 6 &&
-            e.x <= sx + cluster.width / 2 + 6 &&
-            e.y >= sy - cluster.height / 2 - 6 &&
-            e.y <= sy + cluster.height / 2 + 6
+            Math.hypot(e.x - sx, e.y - sy) <= cluster.radius * s + 8
           ) {
             dragIdx.value = -1;
             return;
@@ -862,12 +878,8 @@ export function OverviewGraph({
           const cluster = cs[i];
           const sx = px + cluster.cx * s;
           const sy = py + cluster.cy * s;
-          const hitPad = 6;
           if (
-            e.x >= sx - cluster.width / 2 - hitPad &&
-            e.x <= sx + cluster.width / 2 + hitPad &&
-            e.y >= sy - cluster.height / 2 - hitPad &&
-            e.y <= sy + cluster.height / 2 + hitPad
+            Math.hypot(e.x - sx, e.y - sy) <= cluster.radius * s + 8
           ) {
             runOnJS(selectClusterById)(cluster.id);
             return;
@@ -998,6 +1010,19 @@ export function OverviewGraph({
       chipStroke.setStyle(PaintStyle.Stroke);
       chipStroke.setStrokeWidth(1);
 
+      const membershipPaint = Skia.Paint();
+      membershipPaint.setAntiAlias(true);
+      membershipPaint.setStyle(PaintStyle.Stroke);
+      membershipPaint.setStrokeWidth(0.8);
+
+      const topicPaint = Skia.Paint();
+      topicPaint.setAntiAlias(true);
+
+      const topicOutlinePaint = Skia.Paint();
+      topicOutlinePaint.setAntiAlias(true);
+      topicOutlinePaint.setStyle(PaintStyle.Stroke);
+      topicOutlinePaint.setStrokeWidth(1.4);
+
       // Ambient drift — per node i, applied on top of (draggable) base pos.
       const n = ns.length;
       const dcx: number[] = [];
@@ -1011,7 +1036,31 @@ export function OverviewGraph({
       canvas.translate(px, py);
       canvas.scale(s, s);
 
-      // 1) edges — track drifted endpoints, dim on focus.
+      // 1) Membership spokes expose the parent topic of every Thought.
+      for (let i = 0; i < n; i++) {
+        const node = ns[i];
+        for (let j = 0; j < cs.length; j++) {
+          const topic = cs[j];
+          if (topic.id !== node.cluster) continue;
+          const focusDim =
+            clusterFocus !== null && node.cluster !== clusterFocus;
+          const filterContext = filtering && !matches(i);
+          membershipPaint.setColor(col(topic.tcolor));
+          membershipPaint.setAlphaf(
+            focusDim ? 0.018 : filterContext ? 0.025 : 0.16,
+          );
+          canvas.drawLine(
+            topic.cx,
+            topic.cy,
+            dcx[i],
+            dcy[i],
+            membershipPaint,
+          );
+          break;
+        }
+      }
+
+      // 2) Similarity and secondary-topic edges.
       for (let i = 0; i < secondary.length; i++) {
         const edge = secondary[i];
         if (edge.source >= n) continue;
@@ -1079,7 +1128,26 @@ export function OverviewGraph({
         canvas.drawLine(dcx[a], dcy[a], dcx[b], dcy[b], edgePaint);
       }
 
-      // 2) nodes — soft shadow, paper ring, colored dot; dim non-neighbours.
+      // 3) Large topic nodes sit behind their smaller Thought points.
+      for (let i = 0; i < cs.length; i++) {
+        const topic = cs[i];
+        const active = clusterFocus === topic.id;
+        const dimmed = clusterFocus !== null && !active;
+        topicPaint.setColor(col(topic.tcolor));
+        topicPaint.setAlphaf(dimmed ? 0.08 : active ? 0.92 : 0.72);
+        canvas.drawCircle(topic.cx, topic.cy, topic.radius, topicPaint);
+        topicOutlinePaint.setColor(col(topic.tcolor));
+        topicOutlinePaint.setStrokeWidth(active ? 2.6 : 1.4);
+        topicOutlinePaint.setAlphaf(dimmed ? 0.1 : 0.92);
+        canvas.drawCircle(
+          topic.cx,
+          topic.cy,
+          topic.radius + (active ? 3 : 0),
+          topicOutlinePaint,
+        );
+      }
+
+      // 4) Thoughts — deliberately smaller than their parent topic.
       for (let i = 0; i < n; i++) {
         const node = ns[i];
         const focusDim =
@@ -1106,14 +1174,14 @@ export function OverviewGraph({
         }
       }
 
-      // 3) selection ring
+      // 5) Thought selection ring.
       if (selIdx >= 0 && selIdx < n) {
         canvas.drawCircle(dcx[selIdx], dcy[selIdx], ns[selIdx].r + 3, selPaint);
       }
 
       canvas.restore();
 
-      // 4) labels in SCREEN space (constant size). Cluster labels fade out and
+      // 6) labels in SCREEN space (constant size). Topic labels fade out and
       // node keywords fade in as you zoom — matching the old overlay.
       const clusterA = lerpClamp(s, 1.15, 1.65, 1, 0);
       if (cFont && clusterA > 0.01) {
@@ -1136,7 +1204,7 @@ export function OverviewGraph({
           const dim = clusterFocus !== null && !active;
           const pillAlpha = clusterA * (dim ? 0.18 : 1);
           const sx = px + c.cx * s;
-          const sy = py + c.cy * s;
+          const sy = py + c.cy * s + c.radius * s + 13;
           const w = cFont.measureText(c.label).width;
           const chipW = c.width;
           const chipH = c.height;
@@ -1147,8 +1215,8 @@ export function OverviewGraph({
             chipH,
           );
           const rrect = Skia.RRectXY(rect, chipH / 2, chipH / 2);
-          chipFill.setColor(active ? col(c.tcolor) : col(C.card));
-          chipFill.setAlphaf((active ? 0.18 : 0.92) * pillAlpha);
+          chipFill.setColor(col(C.card));
+          chipFill.setAlphaf((active ? 0.98 : 0.9) * pillAlpha);
           canvas.drawRRect(rrect, chipFill);
           chipStroke.setColor(col(c.tcolor));
           chipStroke.setStrokeWidth(active ? 1.8 : 1);
