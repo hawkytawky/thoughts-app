@@ -396,7 +396,7 @@ function placeLabels(themes: ThemeLayout[]): void {
 
 function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
   const signature = JSON.stringify({
-    layoutVersion: 7,
+    layoutVersion: 8,
     period,
     topics: graph.clusters.map(({ id, label }) => ({ id, label })),
     nodes: graph.nodes.map(({ id, keyword, title }) => ({
@@ -460,14 +460,21 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
     const newest = Math.max(0, ...all.map(nodeTimestamp));
     const label = fallbackShortLabel(cluster.label);
     const metrics = labelMetrics(label);
-    const color = paletteColor(index);
+    // A filtered period has fewer materialized clusters. Use the cluster's
+    // position in the unfiltered topic list so its color never changes when
+    // moving between Gesamt, 7 Tage, and Monat.
+    const stablePaletteIndex = Math.max(
+      0,
+      graph.clusters.findIndex(({ id }) => id === cluster.id),
+    );
+    const color = paletteColor(stablePaletteIndex);
     return {
       id: cluster.id,
       label,
       fullTitle: cluster.fullTitle || cluster.label,
       description: cluster.description,
       color,
-      hazeColor: hazeColor(index),
+      hazeColor: hazeColor(stablePaletteIndex),
       weight: clamp((all.length - minPrimaryCount) / countRange, 0, 1),
       status: cluster.status,
       proto:
@@ -1236,6 +1243,31 @@ export function GalaxyGraph({
     });
   }, [cameraX, cameraY, zoom]);
 
+  useEffect(() => {
+    if (period !== "today") return;
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    if (thoughtCloseTimerRef.current) {
+      clearTimeout(thoughtCloseTimerRef.current);
+    }
+    setSelectedThemeId(null);
+    setSelectedProtoId(null);
+    setSelectedThoughtNodeIndex(null);
+    selectedThemeIndexSV.value = -1;
+    selectedThoughtIndexSV.value = -1;
+    thoughtSelectionProgress.value = 0;
+    drill.value = 0;
+    sheetY.value = 0;
+    resetCamera();
+  }, [
+    drill,
+    period,
+    resetCamera,
+    selectedThemeIndexSV,
+    selectedThoughtIndexSV,
+    sheetY,
+    thoughtSelectionProgress,
+  ]);
+
   const closeTheme = useCallback(() => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     setSelectedThoughtNodeIndex(null);
@@ -1378,12 +1410,33 @@ export function GalaxyGraph({
     }, 280);
   }, [selectedThoughtIndexSV, sheetY, thoughtSelectionProgress]);
 
+  const openThoughtDetailForNode = useCallback(
+    (node: GraphNode) => {
+      const themeTitle =
+        layout.themes.find((theme) => theme.id === node.cluster)?.fullTitle ??
+        graph?.clusters.find((cluster) => cluster.id === node.cluster)
+          ?.fullTitle ??
+        "";
+      router.push(
+        `/thoughts/detail?path=${encodeURIComponent(node.id)}&theme=${encodeURIComponent(themeTitle)}` as Href,
+      );
+    },
+    [graph?.clusters, layout.themes, router],
+  );
+
   const openThoughtDetail = useCallback(() => {
     if (!selectedThought) return;
-    router.push(
-      `/thoughts/detail?path=${encodeURIComponent(selectedThought.id)}&theme=${encodeURIComponent(selectedTheme?.fullTitle ?? "")}` as Href,
-    );
-  }, [router, selectedTheme?.fullTitle, selectedThought]);
+    openThoughtDetailForNode(selectedThought);
+  }, [openThoughtDetailForNode, selectedThought]);
+
+  const openThoughtDetailByIndex = useCallback(
+    (nodeIndex: number) => {
+      const node = graph?.nodes[nodeIndex];
+      if (!node) return;
+      openThoughtDetailForNode(node);
+    },
+    [graph?.nodes, openThoughtDetailForNode],
+  );
 
   const handleTap = useCallback(
     (
@@ -1395,6 +1448,32 @@ export function GalaxyGraph({
       currentDrill: number,
       currentThemeIndex: number,
     ) => {
+      if (period === "today") {
+        let best: ThoughtLayout | null = null;
+        let bestDistance = 22;
+        const tapTime = Date.now();
+        for (const thought of layout.thoughts) {
+          const theme = layout.themes[thought.themeIndex];
+          if (!theme) continue;
+          const world = worldPoint(thought, theme, 0, tapTime);
+          const screen = projectPoint(
+            world.x,
+            world.y,
+            currentX,
+            currentY,
+            currentZoom,
+            0,
+          );
+          const distance = Math.hypot(screen.x - logicalX, screen.y - logicalY);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            best = thought;
+          }
+        }
+        if (best) openThoughtDetailByIndex(best.nodeIndex);
+        return;
+      }
+
       if (currentThemeIndex >= 0) {
         const theme = layout.themes[currentThemeIndex];
         if (!theme) return;
@@ -1489,7 +1568,9 @@ export function GalaxyGraph({
       focusTheme,
       layout.themes,
       layout.thoughts,
+      openThoughtDetailByIndex,
       openThoughtPreview,
+      period,
       selectedProtoId,
     ],
   );
@@ -1657,48 +1738,50 @@ export function GalaxyGraph({
         );
       }
 
-      for (let index = 0; index < layout.themes.length; index += 1) {
-        const theme = layout.themes[index];
-        const offset = focusedThemeOffset(theme, focusedTheme, currentDrill);
-        const center = projectPoint(
-          theme.cx + offset.x,
-          theme.cy + offset.y,
-          cameraX.value,
-          cameraY.value,
-          currentZoom,
-          currentDrill,
-        );
-        const focused = selectedIndex === index;
-        const relationship =
-          selectedIndex >= 0
-            ? (layout.similarities[
-                selectedIndex * layout.themes.length + index
-              ] ?? 0.05)
-            : 1;
-        const dim =
-          selectedIndex >= 0 && !focused
-            ? currentDrill * (1 - 0.55 * relationship)
-            : 0;
-        const hazeRadius = (theme.radius * 2.1 + 10) * currentZoom;
-        const weightedHazeAlpha = 0.1 + 0.14 * theme.weight;
-        for (const [radiusFactor, alpha] of [
-          [1, theme.proto ? 0.07 : weightedHazeAlpha],
-          [0.52, theme.proto ? 0.045 : weightedHazeAlpha * 0.58],
-        ]) {
-          const radius = hazeRadius * radiusFactor;
-          const centerX = center.x * sx;
-          const centerY = center.y * sy;
-          const physicalRadius = radius * pointScale;
-          const shader = Skia.Shader.MakeRadialGradient(
-            { x: centerX, y: centerY },
-            physicalRadius,
-            [color(theme.hazeColor), transparent],
-            [0, 1],
-            TileMode.Clamp,
+      if (period !== "today") {
+        for (let index = 0; index < layout.themes.length; index += 1) {
+          const theme = layout.themes[index];
+          const offset = focusedThemeOffset(theme, focusedTheme, currentDrill);
+          const center = projectPoint(
+            theme.cx + offset.x,
+            theme.cy + offset.y,
+            cameraX.value,
+            cameraY.value,
+            currentZoom,
+            currentDrill,
           );
-          hazePaint.setShader(shader);
-          hazePaint.setAlphaf(alpha * (1 - 0.8 * dim));
-          canvas.drawCircle(centerX, centerY, physicalRadius, hazePaint);
+          const focused = selectedIndex === index;
+          const relationship =
+            selectedIndex >= 0
+              ? (layout.similarities[
+                  selectedIndex * layout.themes.length + index
+                ] ?? 0.05)
+              : 1;
+          const dim =
+            selectedIndex >= 0 && !focused
+              ? currentDrill * (1 - 0.55 * relationship)
+              : 0;
+          const hazeRadius = (theme.radius * 2.1 + 10) * currentZoom;
+          const weightedHazeAlpha = 0.1 + 0.14 * theme.weight;
+          for (const [radiusFactor, alpha] of [
+            [1, theme.proto ? 0.07 : weightedHazeAlpha],
+            [0.52, theme.proto ? 0.045 : weightedHazeAlpha * 0.58],
+          ]) {
+            const radius = hazeRadius * radiusFactor;
+            const centerX = center.x * sx;
+            const centerY = center.y * sy;
+            const physicalRadius = radius * pointScale;
+            const shader = Skia.Shader.MakeRadialGradient(
+              { x: centerX, y: centerY },
+              physicalRadius,
+              [color(theme.hazeColor), transparent],
+              [0, 1],
+              TileMode.Clamp,
+            );
+            hazePaint.setShader(shader);
+            hazePaint.setAlphaf(alpha * (1 - 0.8 * dim));
+            canvas.drawCircle(centerX, centerY, physicalRadius, hazePaint);
+          }
         }
       }
 
@@ -1783,9 +1866,10 @@ export function GalaxyGraph({
         }
       }
 
-      if (thoughtFont) {
+      if (thoughtFont && period !== "today") {
         const overviewLabelProgress = clamp((currentZoom - 2.35) / 0.9, 0, 1);
-        const focusLabelProgress = clamp((currentZoom - 1.95) / 0.8, 0, 1);
+        const focusLabelProgress =
+          0.68 + 0.32 * clamp((currentZoom - 1) / 0.65, 0, 1);
         for (let index = 0; index < layout.thoughts.length; index += 1) {
           const thought = layout.thoughts[index];
           const theme = layout.themes[thought.themeIndex];
@@ -1841,7 +1925,7 @@ export function GalaxyGraph({
             <Picture picture={picture} />
           </Canvas>
           {layout.themes.map((theme, index) =>
-            theme.proto ? null : (
+            period === "today" || theme.proto ? null : (
               <GalaxyLabel
                 key={theme.id}
                 camera={camera}
@@ -1883,7 +1967,7 @@ export function GalaxyGraph({
         </View>
       ) : null}
 
-      {selectedThought ? (
+      {period !== "today" && selectedThought ? (
         <ThoughtSheet
           key={selectedThought.id}
           node={selectedThought}
@@ -1891,7 +1975,7 @@ export function GalaxyGraph({
           onOpenDetail={openThoughtDetail}
           sheetY={sheetY}
         />
-      ) : selectedTheme ? (
+      ) : period !== "today" && selectedTheme ? (
         <ThemeSheet
           nodes={selectedNodes}
           onClose={closeTheme}
@@ -1899,7 +1983,7 @@ export function GalaxyGraph({
           theme={selectedTheme}
         />
       ) : null}
-      {selectedProto ? (
+      {period !== "today" && selectedProto ? (
         <ProtoSheet
           nodes={protoNodes}
           onClose={closeProto}

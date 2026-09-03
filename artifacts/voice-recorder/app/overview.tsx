@@ -26,18 +26,11 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
-import {
-  NOTE_SANS,
-  NOTE_SERIF,
-} from "@/components/NoteUI";
+import { NOTE_SANS, NOTE_SERIF } from "@/components/NoteUI";
 import { GalaxyGraph } from "@/components/overview/GalaxyGraph";
 import { TimeFlow } from "@/components/overview/TimeFlow";
 import { formatApiDate } from "@/lib/featured-note";
-import {
-  fetchGraph,
-  type Graph,
-  type GraphNode,
-} from "@/lib/visualizations";
+import { fetchGraph, type Graph, type GraphNode } from "@/lib/visualizations";
 
 const COLORS = {
   ink: "#1D3B4F",
@@ -97,7 +90,9 @@ function graphForPeriod(graph: Graph | null, period: Period): Graph | null {
   const edges = graph.edges.flatMap((edge) => {
     const source = newIndexByOld.get(edge.source);
     const target = newIndexByOld.get(edge.target);
-    return source == null || target == null ? [] : [{ ...edge, source, target }];
+    return source == null || target == null
+      ? []
+      : [{ ...edge, source, target }];
   });
   const secondaryTopicEdges = graph.secondaryTopicEdges.flatMap((edge) => {
     const source = newIndexByOld.get(edge.source);
@@ -248,24 +243,31 @@ export default function OverviewScreen() {
   const [period, setPeriod] = useState<Period>(retainedPeriod);
   const [periodSheetOpen, setPeriodSheetOpen] = useState(false);
   const [graph, setGraph] = useState<Graph | null>(null);
+  const graphRef = useRef<Graph | null>(null);
   const [status, setStatus] = useState<"loading" | "error" | "ready">(
     "loading",
   );
   const lensOpacities = useRef(
     LENSES.map(
-      (_, index) => new NativeAnimated.Value(index === retainedLensIndex ? 1 : 0),
+      (_, index) =>
+        new NativeAnimated.Value(index === retainedLensIndex ? 1 : 0),
     ),
   ).current;
   const contentOpacity = useRef(new NativeAnimated.Value(0)).current;
 
   const loadGraph = useCallback(() => {
-    setStatus("loading");
+    // Keep the visualization mounted while refreshing after a detail view.
+    // Otherwise its focused cluster, selected Thought, and camera are reset.
+    if (!graphRef.current) setStatus("loading");
     fetchGraph("network-v2")
       .then((nextGraph) => {
+        graphRef.current = nextGraph;
         setGraph(nextGraph);
         setStatus("ready");
       })
-      .catch(() => setStatus("error"));
+      .catch(() => {
+        if (!graphRef.current) setStatus("error");
+      });
   }, []);
 
   useFocusEffect(
@@ -279,7 +281,8 @@ export default function OverviewScreen() {
     [graph, period],
   );
   const noData = status === "ready" && (visibleGraph?.nodes.length ?? 0) === 0;
-  const periodLabel = PERIODS.find(({ id }) => id === period)?.label ?? "Gesamt";
+  const periodLabel =
+    PERIODS.find(({ id }) => id === period)?.label ?? "Gesamt";
 
   useEffect(() => {
     if (status !== "ready") {
@@ -378,48 +381,48 @@ export default function OverviewScreen() {
               },
             ]}
           >
-                {status === "loading" ? null : status === "error" ? (
-                  <View style={styles.errorState}>
-                    <Text style={styles.emptyText}>
-                      Memory konnte nicht geladen werden.
-                    </Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={loadGraph}
-                      style={({ pressed }) => [
-                        styles.retryButton,
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <Text style={styles.retryText}>Erneut versuchen</Text>
-                    </Pressable>
-                  </View>
-                ) : noData && lens !== "network" ? (
-                  <EmptyMessage>
-                    In diesem Zeitraum nichts aufgenommen.
-                  </EmptyMessage>
-                ) : lens === "base" ? (
-                  <EmptyMessage>Noch nichts hier.</EmptyMessage>
+            {status === "loading" ? null : status === "error" ? (
+              <View style={styles.errorState}>
+                <Text style={styles.emptyText}>
+                  Memory konnte nicht geladen werden.
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={loadGraph}
+                  style={({ pressed }) => [
+                    styles.retryButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.retryText}>Erneut versuchen</Text>
+                </Pressable>
+              </View>
+            ) : noData && lens !== "network" ? (
+              <EmptyMessage>
+                In diesem Zeitraum nichts aufgenommen.
+              </EmptyMessage>
+            ) : lens === "base" ? (
+              <EmptyMessage>Noch nichts hier.</EmptyMessage>
+            ) : (
+              <NativeAnimated.View
+                style={[styles.visualization, { opacity: contentOpacity }]}
+              >
+                {lens === "network" ? (
+                  <GalaxyGraph
+                    graph={visibleGraph}
+                    onRetry={loadGraph}
+                    period={period}
+                    status="ready"
+                  />
                 ) : (
-                  <NativeAnimated.View
-                    style={[styles.visualization, { opacity: contentOpacity }]}
-                  >
-                    {lens === "network" ? (
-                      <GalaxyGraph
-                        graph={visibleGraph}
-                        onRetry={loadGraph}
-                        period={period}
-                        status="ready"
-                      />
-                    ) : (
-                      <TimeFlow
-                        graph={visibleGraph}
-                        onRetry={loadGraph}
-                        status="ready"
-                      />
-                    )}
-                  </NativeAnimated.View>
+                  <TimeFlow
+                    graph={visibleGraph}
+                    onRetry={loadGraph}
+                    status="ready"
+                  />
                 )}
+              </NativeAnimated.View>
+            )}
           </NativeAnimated.View>
         ))}
       </View>
