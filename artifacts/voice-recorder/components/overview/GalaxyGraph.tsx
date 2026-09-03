@@ -157,6 +157,8 @@ type CameraValues = {
   selectedThemeIndex: SharedValue<number>;
 };
 
+type GalaxyPeriod = "all" | "today" | "week" | "month";
+
 const layoutCache = new Map<string, GalaxyLayout>();
 const retainedPositions = new Map<string, { x: number; y: number }>();
 
@@ -391,21 +393,16 @@ function placeLabels(themes: ThemeLayout[]): void {
   }
 }
 
-function buildGalaxyLayout(
-  graph: Graph,
-  filterNodeIndices: readonly number[] | null,
-): GalaxyLayout {
-  const matching =
-    filterNodeIndices == null ? null : new Set<number>(filterNodeIndices);
+function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
   const signature = JSON.stringify({
-    layoutVersion: 6,
+    layoutVersion: 7,
+    period,
     topics: graph.clusters.map(({ id, label }) => ({ id, label })),
     nodes: graph.nodes.map(({ id, keyword, title }) => ({
       id,
       keyword,
       title,
     })),
-    filter: filterNodeIndices,
     similarities: graph.topicSimilarities,
   });
   const cached = layoutCache.get(signature);
@@ -418,7 +415,6 @@ function buildGalaxyLayout(
     const all = allByTheme.get(node.cluster) ?? [];
     all.push(node);
     allByTheme.set(node.cluster, all);
-    if (matching !== null && !matching.has(node.idx)) continue;
     const visible = visibleByTheme.get(node.cluster) ?? [];
     visible.push(node);
     visibleByTheme.set(node.cluster, visible);
@@ -441,13 +437,13 @@ function buildGalaxyLayout(
   const countRange = Math.max(1, maxPrimaryCount - minPrimaryCount);
   const radiusFactor = clamp(Math.sqrt(6 / Math.max(1, themeCount)), 0.68, 1);
   const hasRetainedPosition = materializedClusters.some((cluster) =>
-    retainedPositions.has(cluster.id),
+    retainedPositions.has(`${period}:${cluster.id}`),
   );
   const themes: ThemeLayout[] = materializedClusters.map((cluster, index) => {
     const visible = visibleByTheme.get(cluster.id) ?? [];
     const all = allByTheme.get(cluster.id) ?? [];
     const random = randomFrom(cluster.id);
-    const retained = retainedPositions.get(cluster.id);
+    const retained = retainedPositions.get(`${period}:${cluster.id}`);
     const spiralAngle = index * 2.4 + 0.7;
     const spiralRadius = 34 * Math.sqrt(index + 1);
     const edgeRandom = randomFrom(`edge:${cluster.id}`);
@@ -563,7 +559,10 @@ function buildGalaxyLayout(
       theme.cx = W / 2 + (theme.cx - centerX) * fit;
       theme.cy = H * 0.49 + (theme.cy - centerY) * fit;
       theme.radius = Math.max(MIN_THEME_RADIUS, theme.radius * fit);
-      retainedPositions.set(theme.id, { x: theme.cx, y: theme.cy });
+      retainedPositions.set(`${period}:${theme.id}`, {
+        x: theme.cx,
+        y: theme.cy,
+      });
     }
   }
 
@@ -602,10 +601,13 @@ function buildGalaxyLayout(
   }
 
   const dust: DustLayout[] = [];
-  const unassignedCount = Math.max(
-    graph.meta.pendingThoughts,
-    graph.meta.sourceCount - graph.meta.assignedCount,
-  );
+  const unassignedCount =
+    period === "all"
+      ? Math.max(
+          graph.meta.pendingThoughts,
+          graph.meta.sourceCount - graph.meta.assignedCount,
+        )
+      : 0;
   const dustRandom = randomFrom(
     `dust:${graph.meta.sourceCount}:${graph.meta.assignedCount}`,
   );
@@ -1102,14 +1104,14 @@ function ProtoSheet({
 }
 
 export function GalaxyGraph({
-  filterNodeIndices = null,
   graph,
   onRetry,
+  period,
   status,
 }: {
-  filterNodeIndices?: readonly number[] | null;
   graph: Graph | null;
   onRetry: () => void;
+  period: GalaxyPeriod;
   status: "loading" | "error" | "ready";
 }) {
   const clock = useClock();
@@ -1128,7 +1130,7 @@ export function GalaxyGraph({
   const layout = useMemo(
     () =>
       graph
-        ? buildGalaxyLayout(graph, filterNodeIndices)
+        ? buildGalaxyLayout(graph, period)
         : ({
             themes: [],
             thoughts: [],
@@ -1136,7 +1138,7 @@ export function GalaxyGraph({
             similarities: [],
             signature: "empty",
           } satisfies GalaxyLayout),
-    [filterNodeIndices, graph],
+    [graph, period],
   );
   const selectedThemeIndex = layout.themes.findIndex(
     (theme) => theme.id === selectedThemeId,
@@ -1149,24 +1151,11 @@ export function GalaxyGraph({
     selectedThoughtNodeIndex == null
       ? null
       : (graph?.nodes[selectedThoughtNodeIndex] ?? null);
-  const matchingNodeIndices = useMemo(
-    () =>
-      filterNodeIndices == null ? null : new Set<number>(filterNodeIndices),
-    [filterNodeIndices],
-  );
   const selectedNodes = selectedTheme
-    ? (graph?.nodes.filter(
-        (node) =>
-          node.cluster === selectedTheme.id &&
-          (matchingNodeIndices == null || matchingNodeIndices.has(node.idx)),
-      ) ?? [])
+    ? (graph?.nodes.filter((node) => node.cluster === selectedTheme.id) ?? [])
     : [];
   const protoNodes = selectedProto
-    ? (graph?.nodes.filter(
-        (node) =>
-          node.cluster === selectedProto.id &&
-          (matchingNodeIndices == null || matchingNodeIndices.has(node.idx)),
-      ) ?? [])
+    ? (graph?.nodes.filter((node) => node.cluster === selectedProto.id) ?? [])
     : [];
 
   const cameraX = useSharedValue(W / 2);
@@ -1857,10 +1846,16 @@ export function GalaxyGraph({
           </Pressable>
         </View>
       ) : null}
-      {status === "ready" && (graph?.meta.sourceCount ?? 0) === 0 ? (
+      {status === "ready" && (graph?.nodes.length ?? 0) === 0 ? (
         <View pointerEvents="none" style={styles.center}>
           <Text style={styles.emptyText}>
-            Deine Themen entstehen, sobald sich Gedanken sammeln.
+            {period === "today"
+              ? "Heute noch keine Gedanken."
+              : period === "week"
+                ? "In den letzten 7 Tagen keine Gedanken."
+                : period === "month"
+                  ? "Im letzten Monat keine Gedanken."
+                  : "Deine Themen entstehen, sobald sich Gedanken sammeln."}
           </Text>
         </View>
       ) : null}

@@ -278,12 +278,6 @@ export default function OverviewScreen() {
     () => graphForPeriod(graph, period),
     [graph, period],
   );
-  const networkFilterNodeIndices = useMemo(() => {
-    if (!graph || period === "all") return null;
-    return graph.nodes
-      .filter((node) => periodIncludes(nodeDate(node), period))
-      .map((node) => node.idx);
-  }, [graph, period]);
   const noData = status === "ready" && (visibleGraph?.nodes.length ?? 0) === 0;
   const periodLabel = PERIODS.find(({ id }) => id === period)?.label ?? "Gesamt";
 
@@ -412,9 +406,9 @@ export default function OverviewScreen() {
                   >
                     {lens === "network" ? (
                       <GalaxyGraph
-                        filterNodeIndices={networkFilterNodeIndices}
-                        graph={graph}
+                        graph={visibleGraph}
                         onRetry={loadGraph}
+                        period={period}
                         status="ready"
                       />
                     ) : (
