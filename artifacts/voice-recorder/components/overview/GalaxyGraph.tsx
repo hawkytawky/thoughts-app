@@ -654,15 +654,11 @@ function projectPoint(
 
 function GalaxyLabel({
   camera,
-  interactive,
-  onPress,
   scaleX,
   scaleY,
   theme,
 }: {
   camera: CameraValues;
-  interactive: boolean;
-  onPress: () => void;
   scaleX: number;
   scaleY: number;
   theme: ThemeLayout;
@@ -690,25 +686,13 @@ function GalaxyLabel({
   }, [labelAlpha, scaleX, scaleY, theme]);
 
   return (
-    <Animated.View pointerEvents="box-none" style={[styles.labelAnchor, style]}>
-      <Pressable
-        accessibilityLabel={`Thema ${theme.label} öffnen`}
-        accessibilityRole="button"
-        disabled={!interactive}
-        hitSlop={10}
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.labelPressable,
-          pressed && styles.pressed,
-        ]}
+    <Animated.View pointerEvents="none" style={[styles.labelAnchor, style]}>
+      <Text
+        numberOfLines={1}
+        style={[styles.galaxyLabel, { color: theme.color }]}
       >
-        <Text
-          numberOfLines={1}
-          style={[styles.galaxyLabel, { color: theme.color }]}
-        >
-          {theme.label}
-        </Text>
-      </Pressable>
+        {theme.label}
+      </Text>
     </Animated.View>
   );
 }
@@ -1380,7 +1364,7 @@ export function GalaxyGraph({
       let bestDistance = Infinity;
       for (let index = 0; index < layout.themes.length; index += 1) {
         const theme = layout.themes[index];
-        const screen = projectPoint(
+        const center = projectPoint(
           theme.cx,
           theme.cy,
           currentX,
@@ -1388,12 +1372,29 @@ export function GalaxyGraph({
           currentZoom,
           currentDrill,
         );
-        const distance = Math.hypot(screen.x - logicalX, screen.y - logicalY);
+        const label = projectPoint(
+          theme.labelX,
+          theme.labelY,
+          currentX,
+          currentY,
+          currentZoom,
+          currentDrill,
+        );
+        const distance = Math.hypot(center.x - logicalX, center.y - logicalY);
+        const labelDistance = Math.hypot(
+          label.x - logicalX,
+          label.y - logicalY,
+        );
+        const labelHit =
+          Math.abs(label.x - logicalX) <=
+            estimatedLabelWidth(theme.label) / 2 + 8 &&
+          Math.abs(label.y - logicalY) <= LABEL_HEIGHT / 2 + 8;
+        const selectionDistance = labelHit ? labelDistance * 0.1 : distance;
         if (
-          distance < theme.radius * currentZoom * 1.6 &&
-          distance < bestDistance
+          (labelHit || distance < theme.radius * currentZoom * 1.6) &&
+          selectionDistance < bestDistance
         ) {
-          bestDistance = distance;
+          bestDistance = selectionDistance;
           bestTheme = index;
         }
       }
@@ -1741,8 +1742,6 @@ export function GalaxyGraph({
               <GalaxyLabel
                 key={theme.id}
                 camera={camera}
-                interactive={!selectedTheme}
-                onPress={() => focusTheme(index)}
                 scaleX={scaleX}
                 scaleY={scaleY}
                 theme={theme}
@@ -1812,10 +1811,6 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     zIndex: 5,
-  },
-  labelPressable: {
-    width: "100%",
-    alignItems: "center",
   },
   galaxyLabel: {
     fontFamily: NOTE_SANS,
