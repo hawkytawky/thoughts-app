@@ -28,6 +28,7 @@ import {
 import { InstrumentSans_500Medium } from "@expo-google-fonts/instrument-sans";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+  cancelAnimation,
   Easing,
   runOnJS,
   useAnimatedStyle,
@@ -69,7 +70,7 @@ const SPRING = {
   mass: 1.15,
   overshootClamping: true,
 };
-const CAMERA_DURATION = 900;
+const CAMERA_DURATION = 620;
 const SOFT_EASING = Easing.bezier(0.25, 0.1, 0.25, 1);
 const PALETTE = [
   "#687CC4",
@@ -1159,6 +1160,8 @@ export function GalaxyGraph({
   const [selectedThoughtNodeIndex, setSelectedThoughtNodeIndex] = useState<
     number | null
   >(null);
+  const [themeClosing, setThemeClosing] = useState(false);
+  const themeClosingRef = useRef(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thoughtCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -1223,12 +1226,29 @@ export function GalaxyGraph({
   const scaleY = size.height > 0 ? size.height / H : 1;
 
   useEffect(() => {
-    if (selectedThemeId && selectedThemeIndex < 0) {
+    if (!selectedThemeId) return;
+    if (selectedThemeIndex < 0) {
       setSelectedThemeId(null);
+      setSelectedThoughtNodeIndex(null);
+      setThemeClosing(false);
+      themeClosingRef.current = false;
       selectedThemeIndexSV.value = -1;
+      selectedThoughtIndexSV.value = -1;
+      thoughtSelectionProgress.value = 0;
       drill.value = 0;
+      return;
     }
-  }, [drill, selectedThemeId, selectedThemeIndex, selectedThemeIndexSV]);
+    // A refreshed graph may reorder its themes while preserving their IDs.
+    // Keep the worklet index aligned with the ID-based React selection.
+    selectedThemeIndexSV.value = selectedThemeIndex;
+  }, [
+    drill,
+    selectedThemeId,
+    selectedThemeIndex,
+    selectedThemeIndexSV,
+    selectedThoughtIndexSV,
+    thoughtSelectionProgress,
+  ]);
 
   useEffect(
     () => () => {
@@ -1261,7 +1281,10 @@ export function GalaxyGraph({
 
   useEffect(() => {
     if (period !== "today") return;
-    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
     if (thoughtCloseTimerRef.current) {
       clearTimeout(thoughtCloseTimerRef.current);
     }
@@ -1272,6 +1295,8 @@ export function GalaxyGraph({
     setSelectedThemeId(null);
     setSelectedProtoId(null);
     setSelectedThoughtNodeIndex(null);
+    setThemeClosing(false);
+    themeClosingRef.current = false;
     selectedThemeIndexSV.value = -1;
     selectedThoughtIndexSV.value = -1;
     thoughtSelectionProgress.value = 0;
@@ -1289,15 +1314,22 @@ export function GalaxyGraph({
   ]);
 
   const closeTheme = useCallback(() => {
-    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    if (themeClosingRef.current) return;
+    themeClosingRef.current = true;
+    setThemeClosing(true);
+    cancelAnimation(cameraX);
+    cancelAnimation(cameraY);
+    cancelAnimation(zoom);
+    cancelAnimation(drill);
+    cancelAnimation(sheetY);
     setSelectedThoughtNodeIndex(null);
     thoughtSelectionProgress.value = withTiming(0, { duration: 260 });
-    sheetY.value = withTiming(220, {
-      duration: 320,
+    sheetY.value = withTiming(420, {
+      duration: 280,
       easing: Easing.in(Easing.cubic),
     });
     drill.value = withTiming(0, {
-      duration: 540,
+      duration: CAMERA_DURATION,
       easing: SOFT_EASING,
     });
     resetCamera();
@@ -1305,15 +1337,20 @@ export function GalaxyGraph({
       selectedThoughtIndexSV.value = -1;
       selectedThemeIndexSV.value = -1;
       setSelectedThemeId(null);
+      setThemeClosing(false);
+      themeClosingRef.current = false;
       closeTimerRef.current = null;
-    }, 540);
+    }, CAMERA_DURATION);
   }, [
+    cameraX,
+    cameraY,
     drill,
     resetCamera,
     selectedThemeIndexSV,
     selectedThoughtIndexSV,
     sheetY,
     thoughtSelectionProgress,
+    zoom,
   ]);
 
   const closeProto = useCallback(() => {
@@ -1334,6 +1371,8 @@ export function GalaxyGraph({
         sheetY.value = 0;
         return;
       }
+      setThemeClosing(false);
+      themeClosingRef.current = false;
       setSelectedProtoId(null);
       setSelectedThoughtNodeIndex(null);
       if (closeTimerRef.current) {
@@ -1342,25 +1381,27 @@ export function GalaxyGraph({
       }
       const fit = Math.min(W - 44, 236) / (2 * theme.radius * 2.15);
       const targetZoom = clamp(fit, 1, 1.4);
-      sheetY.value = 320;
+      cancelAnimation(cameraX);
+      cancelAnimation(cameraY);
+      cancelAnimation(zoom);
+      cancelAnimation(drill);
+      cancelAnimation(sheetY);
+      sheetY.value = 420;
       setSelectedThemeId(theme.id);
       selectedThemeIndexSV.value = themeIndex;
       selectedThoughtIndexSV.value = -1;
       thoughtSelectionProgress.value = 0;
       sheetY.value = withDelay(
-        260,
+        70,
         withTiming(0, {
-          duration: 620,
+          duration: 430,
           easing: SOFT_EASING,
         }),
       );
-      drill.value = withDelay(
-        110,
-        withTiming(1, {
-          duration: 790,
-          easing: SOFT_EASING,
-        }),
-      );
+      drill.value = withTiming(1, {
+        duration: CAMERA_DURATION,
+        easing: SOFT_EASING,
+      });
       cameraX.value = withTiming(clampCameraX(theme.cx), {
         duration: CAMERA_DURATION,
         easing: SOFT_EASING,
@@ -1599,14 +1640,9 @@ export function GalaxyGraph({
     ],
   );
 
-  const handleDoubleTap = useCallback(() => {
-    if (selectedThemeIndexSV.value >= 0) closeTheme();
-    else resetCamera();
-  }, [closeTheme, resetCamera, selectedThemeIndexSV]);
-
   const pan = Gesture.Pan()
     .maxPointers(1)
-    .minDistance(2)
+    .minDistance(7)
     .onBegin(() => {
       panStartX.value = cameraX.value;
       panStartY.value = cameraY.value;
@@ -1697,15 +1733,9 @@ export function GalaxyGraph({
         selectedThemeIndexSV.value,
       );
     });
-  const doubleTap = Gesture.Tap()
-    .numberOfTaps(2)
-    .maxDistance(8)
-    .maxDelay(280)
-    .onEnd((_event, success) => {
-      if (success) runOnJS(handleDoubleTap)();
-    });
-  const taps = Gesture.Exclusive(doubleTap, singleTap);
-  const gesture = Gesture.Simultaneous(pan, pinch, taps);
+  // A short finger movement must resolve to either a tap or a pan, never both.
+  // Pinch remains simultaneous so two-finger zooming is unaffected.
+  const gesture = Gesture.Simultaneous(pinch, Gesture.Race(pan, singleTap));
 
   const picture = useDerivedValue(() =>
     createPicture((canvas) => {
@@ -1962,6 +1992,21 @@ export function GalaxyGraph({
         </View>
       </GestureDetector>
 
+      {period !== "today" && selectedTheme && !themeClosing ? (
+        <Pressable
+          accessibilityLabel="Zurück zur allgemeinen Themenansicht"
+          accessibilityRole="button"
+          hitSlop={10}
+          onPress={closeTheme}
+          style={({ pressed }) => [
+            styles.overviewButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.overviewButtonText}>← Alle Themen</Text>
+        </Pressable>
+      ) : null}
+
       {status === "loading" ? (
         <View pointerEvents="none" style={styles.center}>
           <ActivityIndicator color={C.sky} />
@@ -2038,6 +2083,27 @@ const styles = StyleSheet.create({
     letterSpacing: -0.07,
     lineHeight: 16,
     textAlign: "center",
+  },
+  overviewButton: {
+    position: "absolute",
+    top: 12,
+    left: 14,
+    zIndex: 18,
+    minHeight: 36,
+    justifyContent: "center",
+    borderRadius: 18,
+    backgroundColor: "rgba(255, 255, 255, 0.88)",
+    paddingHorizontal: 14,
+    shadowColor: C.ink,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  overviewButtonText: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 12.5,
+    color: C.ink70,
   },
   sheet: {
     position: "absolute",
