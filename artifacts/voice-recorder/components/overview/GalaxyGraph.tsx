@@ -21,7 +21,10 @@ import {
   Picture,
   Skia,
   TileMode,
+  useClock,
+  useFont,
 } from "@shopify/react-native-skia";
+import { InstrumentSans_500Medium } from "@expo-google-fonts/instrument-sans";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Easing,
@@ -49,7 +52,7 @@ import {
 const W = 361;
 const H = 560;
 const MIN_ZOOM = 0.7;
-const MAX_ZOOM = 4;
+const MAX_ZOOM = 5.2;
 const FOCUS_Y = H * 0.235;
 const LABEL_HEIGHT = 16;
 const LABEL_GAP = 4;
@@ -103,10 +106,13 @@ type ThoughtLayout = {
   id: string;
   nodeIndex: number;
   themeIndex: number;
+  label: string;
   rho: number;
   theta: number;
   size: number;
   recency: number;
+  driftPhase: number;
+  driftSpeed: number;
 };
 
 type DustLayout = {
@@ -342,9 +348,13 @@ function buildGalaxyLayout(
   const matching =
     filterNodeIndices == null ? null : new Set<number>(filterNodeIndices);
   const signature = JSON.stringify({
-    layoutVersion: 3,
+    layoutVersion: 4,
     topics: graph.clusters.map(({ id }) => id),
-    nodes: graph.nodes.map(({ id }) => id),
+    nodes: graph.nodes.map(({ id, keyword, title }) => ({
+      id,
+      keyword,
+      title,
+    })),
     filter: filterNodeIndices,
     similarities: graph.topicSimilarities,
   });
@@ -508,10 +518,13 @@ function buildGalaxyLayout(
         id: node.id,
         nodeIndex: node.idx,
         themeIndex,
+        label: thoughtShortLabel(node),
         rho,
         theta: random() * Math.PI * 2,
         size: 0.9 + random() * 1.3,
         recency: 1 - ageBucket / 9,
+        driftPhase: random() * Math.PI * 2,
+        driftSpeed: (Math.PI * 2) / (22000 + random() * 14000),
       });
     }
   }
@@ -572,16 +585,44 @@ function worldPoint(
   thought: ThoughtLayout,
   theme: ThemeLayout,
   drill: number,
+  time = 0,
 ): { x: number; y: number } {
   "worklet";
   const radius = thought.rho * theme.radius * (1 + 1.45 * drill);
   const eccentricity = theme.eccentricity + (0.9 - theme.eccentricity) * drill;
   const ex = Math.cos(thought.theta) * radius;
   const ey = Math.sin(thought.theta) * radius * eccentricity;
+  const driftX =
+    Math.sin(time * thought.driftSpeed + thought.driftPhase) * 0.38;
+  const driftY =
+    Math.cos(time * thought.driftSpeed * 0.81 + thought.driftPhase) * 0.3;
   return {
-    x: theme.cx + ex * Math.cos(theme.tilt) - ey * Math.sin(theme.tilt),
-    y: theme.cy + ex * Math.sin(theme.tilt) + ey * Math.cos(theme.tilt),
+    x:
+      theme.cx + ex * Math.cos(theme.tilt) - ey * Math.sin(theme.tilt) + driftX,
+    y:
+      theme.cy + ex * Math.sin(theme.tilt) + ey * Math.cos(theme.tilt) + driftY,
   };
+}
+
+function focusedThemeOffset(
+  theme: ThemeLayout,
+  focusedTheme: ThemeLayout | null,
+  drill: number,
+): { x: number; y: number } {
+  "worklet";
+  if (!focusedTheme || theme.id === focusedTheme.id || drill <= 0) {
+    return { x: 0, y: 0 };
+  }
+  let dx = theme.cx - focusedTheme.cx;
+  let dy = theme.cy - focusedTheme.cy;
+  let distance = Math.hypot(dx, dy);
+  if (distance < 0.001) {
+    dx = 1;
+    dy = 0;
+    distance = 1;
+  }
+  const shift = 78 * drill;
+  return { x: (dx / distance) * shift, y: (dy / distance) * shift };
 }
 
 function projectPoint(
@@ -670,69 +711,6 @@ function thoughtShortLabel(node: GraphNode): string {
     label = words.slice(0, 2).join(" ");
   }
   return label.length > 22 ? `${label.slice(0, 21)}…` : label;
-}
-
-function ThoughtZoomLabel({
-  camera,
-  node,
-  scaleX,
-  scaleY,
-  theme,
-  thought,
-}: {
-  camera: CameraValues;
-  node: GraphNode;
-  scaleX: number;
-  scaleY: number;
-  theme: ThemeLayout;
-  thought: ThoughtLayout;
-}) {
-  const label = thoughtShortLabel(node);
-  const side = Math.cos(thought.theta) >= 0 ? 1 : -1;
-  const style = useAnimatedStyle(() => {
-    const world = worldPoint(thought, theme, camera.drill.value);
-    const point = projectPoint(
-      world.x,
-      world.y,
-      camera.x.value,
-      camera.y.value,
-      camera.zoom.value,
-      camera.drill.value,
-    );
-    const zoomProgress = clamp((camera.zoom.value - 2.05) / 0.75, 0, 1);
-    const opacity = zoomProgress * camera.drill.value * 0.78;
-    const width = 92;
-    return {
-      opacity,
-      transform: [
-        {
-          translateX:
-            point.x * scaleX + (side > 0 ? 7 * scaleX : -(width + 7) * scaleX),
-        },
-        { translateY: point.y * scaleY - 7 },
-        { scale: 0.96 + zoomProgress * 0.04 },
-      ],
-      width: width * scaleX,
-    };
-  }, [camera, scaleX, scaleY, side, theme, thought]);
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[styles.thoughtLabelAnchor, style]}
-    >
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.thoughtZoomLabel,
-          side < 0 && styles.thoughtZoomLabelLeft,
-          { color: theme.color },
-        ]}
-      >
-        {label}
-      </Text>
-    </Animated.View>
-  );
 }
 
 function nodeDateKey(node: GraphNode): string {
@@ -1072,6 +1050,8 @@ export function GalaxyGraph({
   onRetry: () => void;
   status: "loading" | "error" | "ready";
 }) {
+  const clock = useClock();
+  const thoughtFont = useFont(InstrumentSans_500Medium, 9.5);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [selectedThemeId, setSelectedThemeId] = useState<string | null>(null);
   const [selectedProtoId, setSelectedProtoId] = useState<string | null>(null);
@@ -1340,9 +1320,10 @@ export function GalaxyGraph({
         if (!theme) return;
         let best: ThoughtLayout | null = null;
         let bestDistance = 19;
+        const tapTime = Date.now();
         for (const thought of layout.thoughts) {
           if (thought.themeIndex !== currentThemeIndex) continue;
-          const world = worldPoint(thought, theme, currentDrill);
+          const world = worldPoint(thought, theme, currentDrill, tapTime);
           const screen = projectPoint(
             world.x,
             world.y,
@@ -1358,6 +1339,23 @@ export function GalaxyGraph({
           }
         }
         if (best) openThoughtPreview(best.nodeIndex);
+        else {
+          const center = projectPoint(
+            theme.cx,
+            theme.cy,
+            currentX,
+            currentY,
+            currentZoom,
+            currentDrill,
+          );
+          const galaxyDistance = Math.hypot(
+            center.x - logicalX,
+            center.y - logicalY,
+          );
+          const galaxyReach =
+            theme.radius * (1 + 1.6 * currentDrill) * currentZoom + 24;
+          if (galaxyDistance > galaxyReach) closeTheme();
+        }
         return;
       }
 
@@ -1475,7 +1473,7 @@ export function GalaxyGraph({
     });
 
   const singleTap = Gesture.Tap()
-    .maxDistance(2)
+    .maxDistance(8)
     .onEnd((event, success) => {
       if (!success) return;
       runOnJS(handleTap)(
@@ -1490,7 +1488,7 @@ export function GalaxyGraph({
     });
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
-    .maxDistance(2)
+    .maxDistance(8)
     .maxDelay(280)
     .onEnd((_event, success) => {
       if (success) runOnJS(handleDoubleTap)();
@@ -1506,9 +1504,12 @@ export function GalaxyGraph({
       const sy = size.height / H;
       const currentZoom = zoom.value;
       const currentDrill = drill.value;
+      const currentTime = clock.value;
       const selectedIndex = selectedThemeIndexSV.value;
       const selectedThoughtIndex = selectedThoughtIndexSV.value;
       const currentThoughtSelection = thoughtSelectionProgress.value;
+      const focusedTheme =
+        selectedIndex >= 0 ? layout.themes[selectedIndex] : null;
       const colors: Record<string, ReturnType<typeof Skia.Color>> = {};
       const color = (hex: string) => {
         if (!colors[hex]) colors[hex] = Skia.Color(hex);
@@ -1523,6 +1524,8 @@ export function GalaxyGraph({
       ringPaint.setAntiAlias(true);
       ringPaint.setStyle(PaintStyle.Stroke);
       ringPaint.setStrokeWidth(1);
+      const textPaint = Skia.Paint();
+      textPaint.setAntiAlias(true);
       const now = Date.now();
 
       canvas.save();
@@ -1548,6 +1551,41 @@ export function GalaxyGraph({
         );
       }
 
+      for (let index = 0; index < layout.themes.length; index += 1) {
+        const theme = layout.themes[index];
+        const offset = focusedThemeOffset(theme, focusedTheme, currentDrill);
+        const center = projectPoint(
+          theme.cx + offset.x,
+          theme.cy + offset.y,
+          cameraX.value,
+          cameraY.value,
+          currentZoom,
+          currentDrill,
+        );
+        const focused = selectedIndex === index;
+        const relationship =
+          selectedIndex >= 0
+            ? (layout.similarities[
+                selectedIndex * layout.themes.length + index
+              ] ?? 0.05)
+            : 1;
+        const dim =
+          selectedIndex >= 0 && !focused
+            ? currentDrill * (1 - 0.55 * relationship)
+            : 0;
+        const hazeRadius = theme.radius * 1.6 * currentZoom;
+        const shader = Skia.Shader.MakeRadialGradient(
+          { x: center.x, y: center.y },
+          hazeRadius,
+          [color(theme.proto ? GREY : theme.color), transparent],
+          [0, 1],
+          TileMode.Clamp,
+        );
+        hazePaint.setShader(shader);
+        hazePaint.setAlphaf((theme.proto ? 0.018 : 0.038) * (1 - 0.8 * dim));
+        canvas.drawCircle(center.x, center.y, hazeRadius, hazePaint);
+      }
+
       for (let index = 0; index < layout.thoughts.length; index += 1) {
         const thought = layout.thoughts[index];
         const theme = layout.themes[thought.themeIndex];
@@ -1566,10 +1604,11 @@ export function GalaxyGraph({
             : 0;
         const activityFactor =
           now - theme.lastActivity > 60 * 86400000 ? 0.55 : 1;
-        const world = worldPoint(thought, theme, f);
+        const offset = focusedThemeOffset(theme, focusedTheme, currentDrill);
+        const world = worldPoint(thought, theme, f, currentTime);
         const screen = projectPoint(
-          world.x,
-          world.y,
+          world.x + offset.x,
+          world.y + offset.y,
           cameraX.value,
           cameraY.value,
           currentZoom,
@@ -1614,6 +1653,45 @@ export function GalaxyGraph({
         }
       }
 
+      if (thoughtFont) {
+        const overviewLabelProgress = clamp((currentZoom - 2.35) / 0.9, 0, 1);
+        const focusLabelProgress = clamp((currentZoom - 1.95) / 0.8, 0, 1);
+        for (let index = 0; index < layout.thoughts.length; index += 1) {
+          const thought = layout.thoughts[index];
+          const theme = layout.themes[thought.themeIndex];
+          if (!theme) continue;
+          const focused = selectedIndex === thought.themeIndex;
+          if (selectedIndex >= 0 && !focused) continue;
+          const labelProgress =
+            selectedIndex >= 0
+              ? focusLabelProgress * currentDrill
+              : overviewLabelProgress;
+          if (labelProgress <= 0.01) continue;
+          const f = focused ? currentDrill : 0;
+          const offset = focusedThemeOffset(theme, focusedTheme, currentDrill);
+          const world = worldPoint(thought, theme, f, currentTime);
+          const screen = projectPoint(
+            world.x + offset.x,
+            world.y + offset.y,
+            cameraX.value,
+            cameraY.value,
+            currentZoom,
+            currentDrill,
+          );
+          const width = thoughtFont.measureText(thought.label).width;
+          const rightSide = Math.cos(thought.theta) >= 0;
+          textPaint.setColor(color(theme.proto ? GREY : theme.color));
+          textPaint.setAlphaf(0.68 * labelProgress);
+          canvas.drawText(
+            thought.label,
+            rightSide ? screen.x + 5.5 : screen.x - width - 5.5,
+            screen.y + 3.2,
+            textPaint,
+            thoughtFont,
+          );
+        }
+      }
+
       canvas.restore();
     }),
   );
@@ -1646,39 +1724,6 @@ export function GalaxyGraph({
           />
         ),
       )}
-
-      {selectedTheme
-        ? layout.thoughts.map((thought) => {
-            if (thought.themeIndex !== selectedThemeIndex) return null;
-            const node = graph?.nodes[thought.nodeIndex];
-            if (!node) return null;
-            return (
-              <ThoughtZoomLabel
-                key={thought.id}
-                camera={camera}
-                node={node}
-                scaleX={scaleX}
-                scaleY={scaleY}
-                theme={selectedTheme}
-                thought={thought}
-              />
-            );
-          })
-        : null}
-
-      {selectedTheme ? (
-        <Pressable
-          accessibilityLabel="Zur Themenübersicht"
-          hitSlop={12}
-          onPress={closeTheme}
-          style={({ pressed }) => [
-            styles.backButton,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text style={styles.backText}>‹ zurück</Text>
-        </Pressable>
-      ) : null}
 
       {status === "loading" ? (
         <View pointerEvents="none" style={styles.center}>
@@ -1741,12 +1786,6 @@ const styles = StyleSheet.create({
     top: 0,
     zIndex: 5,
   },
-  thoughtLabelAnchor: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    zIndex: 6,
-  },
   labelPressable: {
     width: "100%",
     alignItems: "center",
@@ -1758,30 +1797,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.07,
     lineHeight: 16,
     textAlign: "center",
-  },
-  thoughtZoomLabel: {
-    fontFamily: NOTE_SANS,
-    fontSize: 10.5,
-    lineHeight: 14,
-    letterSpacing: 0.05,
-    textAlign: "left",
-  },
-  thoughtZoomLabelLeft: {
-    textAlign: "right",
-  },
-  backButton: {
-    position: "absolute",
-    top: 4,
-    left: 8,
-    zIndex: 10,
-    minHeight: 36,
-    justifyContent: "center",
-    paddingHorizontal: 8,
-  },
-  backText: {
-    fontFamily: NOTE_SANS,
-    fontSize: 13,
-    color: C.ink40,
   },
   sheet: {
     position: "absolute",
