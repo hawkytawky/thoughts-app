@@ -82,6 +82,18 @@ const PALETTE = [
   "#ACA88C",
   "#B8A0C4",
 ] as const;
+const HAZE_PALETTE = [
+  "#536FE0",
+  "#9B62D1",
+  "#4D9BE5",
+  "#D8A51F",
+  "#DE6F7A",
+  "#57AC79",
+  "#E07C43",
+  "#63ADB5",
+  "#B19A4A",
+  "#A777BF",
+] as const;
 const GREY = "#969EA6";
 
 type ThemeLayout = {
@@ -201,15 +213,8 @@ function paletteColor(index: number): string {
   return `#${channels.map((channel) => Math.round(channel).toString(16).padStart(2, "0")).join("")}`;
 }
 
-function saturatedHazeColor(hex: string): string {
-  const channels = [1, 3, 5].map((offset) =>
-    parseInt(hex.slice(offset, offset + 2), 16),
-  );
-  const average = channels.reduce((sum, channel) => sum + channel, 0) / 3;
-  const saturated = channels.map((channel) =>
-    clamp(Math.round(average + (channel - average) * 1.42 + 5), 0, 255),
-  );
-  return `#${saturated.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+function hazeColor(index: number): string {
+  return HAZE_PALETTE[index % HAZE_PALETTE.length];
 }
 
 function fallbackShortLabel(title: string): string {
@@ -465,7 +470,7 @@ function buildGalaxyLayout(
       fullTitle: cluster.fullTitle || cluster.label,
       description: cluster.description,
       color,
-      hazeColor: saturatedHazeColor(color),
+      hazeColor: hazeColor(index),
       weight: clamp((all.length - minPrimaryCount) / countRange, 0, 1),
       status: cluster.status,
       proto:
@@ -1665,8 +1670,8 @@ export function GalaxyGraph({
         const hazeRadius = (theme.radius * 2.1 + 10) * currentZoom;
         const weightedHazeAlpha = 0.1 + 0.14 * theme.weight;
         for (const [radiusFactor, alpha] of [
-          [1, theme.proto ? 0.035 : weightedHazeAlpha],
-          [0.52, theme.proto ? 0.025 : weightedHazeAlpha * 0.58],
+          [1, theme.proto ? 0.07 : weightedHazeAlpha],
+          [0.52, theme.proto ? 0.045 : weightedHazeAlpha * 0.58],
         ]) {
           const radius = hazeRadius * radiusFactor;
           const centerX = center.x * sx;
@@ -1675,7 +1680,7 @@ export function GalaxyGraph({
           const shader = Skia.Shader.MakeRadialGradient(
             { x: centerX, y: centerY },
             physicalRadius,
-            [color(theme.proto ? GREY : theme.hazeColor), transparent],
+            [color(theme.hazeColor), transparent],
             [0, 1],
             TileMode.Clamp,
           );
