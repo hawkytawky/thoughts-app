@@ -272,7 +272,10 @@ function TranscriptView({
 
 export default function ThoughtDetailScreen() {
   const router = useRouter();
-  const { path } = useLocalSearchParams<{ path?: string }>();
+  const { path, theme } = useLocalSearchParams<{
+    path?: string;
+    theme?: string;
+  }>();
   const insets = useSafeAreaInsets();
   const activeRecording = useActiveRecording();
   const [note, setNote] = useState<FeaturedNote | null>(null);
@@ -435,6 +438,7 @@ export default function ThoughtDetailScreen() {
         <Text style={styles.metaLine}>
           {formatNoteDate(note.recordedAt)} · {formatDuration(note.durationSeconds)} min
         </Text>
+        {theme ? <Text style={styles.themeLine}>{theme}</Text> : null}
 
         <View style={styles.segmentedControl}>
           {(["summary", "transcript"] as const).map((view) => {
@@ -523,6 +527,14 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: C.ink40,
     marginBottom: 8,
+  },
+  themeLine: {
+    paddingHorizontal: 6,
+    marginTop: -3,
+    marginBottom: 14,
+    fontFamily: NOTE_SANS,
+    fontSize: 13,
+    color: C.ink40,
   },
   segmentedControl: {
     marginHorizontal: 6,

@@ -24,6 +24,7 @@ export type GraphNode = {
 export type GraphCluster = {
   id: string;
   label: string;
+  fullTitle?: string;
   description: string;
   status: string;
   color: string;
@@ -31,6 +32,13 @@ export type GraphCluster = {
   count: number;
   anchorX: number;
   anchorY: number;
+  lastActivity?: string;
+};
+
+export type TopicSimilarity = {
+  sourceTopicId: string;
+  targetTopicId: string;
+  similarity: number;
 };
 
 export type GraphEdge = { source: number; target: number; weight: number };
@@ -66,6 +74,7 @@ export type Graph = {
     sourceCount: number;
     assignedCount: number;
     pendingThoughts: number;
+    themeThreshold: number;
     model?: string | null;
     pipelineVersion: string;
   };
@@ -73,6 +82,7 @@ export type Graph = {
   nodes: GraphNode[];
   edges: GraphEdge[];
   secondaryTopicEdges: SecondaryTopicEdge[];
+  topicSimilarities: TopicSimilarity[];
   time: TimeProjection;
   generatedAt?: string | null;
 };
@@ -84,6 +94,7 @@ type TopicGraphResponse = {
     sourceCount: number;
     assignedCount: number;
     pendingThoughts: number;
+    themeThreshold?: number;
     model?: string | null;
     pipelineVersion: string;
   };
@@ -94,6 +105,7 @@ type TopicGraphResponse = {
     targetThoughtId: string;
     weight: number;
   }>;
+  topicSimilarities?: TopicSimilarity[];
   secondaryTopicEdges: Array<{
     sourceThoughtId: string;
     targetTopicId: string;
@@ -137,6 +149,9 @@ export async function fetchGraph(
     meta: {
       ...payload.meta,
       clusters: payload.meta.topics,
+      themeThreshold:
+        payload.meta.themeThreshold ??
+        Math.max(5, Math.ceil(payload.meta.sourceCount * 0.03)),
     },
     clusters: payload.topics,
     nodes: payload.nodes.map((node, idx) => ({
@@ -163,6 +178,7 @@ export async function fetchGraph(
             },
           ];
     }),
+    topicSimilarities: payload.topicSimilarities ?? [],
     time: {
       ...payload.time,
       days: payload.time.days.map((day) => ({

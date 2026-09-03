@@ -30,7 +30,7 @@ import {
   NOTE_SANS,
   NOTE_SERIF,
 } from "@/components/NoteUI";
-import { OverviewGraph } from "@/components/overview/OverviewGraph";
+import { GalaxyGraph } from "@/components/overview/GalaxyGraph";
 import { TimeFlow } from "@/components/overview/TimeFlow";
 import { formatApiDate } from "@/lib/featured-note";
 import {
@@ -417,11 +417,10 @@ export default function OverviewScreen() {
                     style={[styles.visualization, { opacity: contentOpacity }]}
                   >
                     {lens === "network" ? (
-                      <OverviewGraph
+                      <GalaxyGraph
                         filterNodeIndices={networkFilterNodeIndices}
                         graph={graph}
                         onRetry={loadGraph}
-                        showHint={false}
                         status="ready"
                       />
                     ) : (
