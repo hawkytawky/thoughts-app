@@ -58,6 +58,7 @@ const FOCUS_Y = H * 0.235;
 const LABEL_HEIGHT = 16;
 const LABEL_GAP = 4;
 const LABEL_MAX_WIDTH = 138;
+const MIN_THEME_RADIUS = 14;
 const SHEET_BOTTOM_INSET = 104;
 const SHEET_CLOSE_DISTANCE = 32;
 const SHEET_CLOSE_VELOCITY = 650;
@@ -89,6 +90,8 @@ type ThemeLayout = {
   fullTitle: string;
   description: string;
   color: string;
+  hazeColor: string;
+  weight: number;
   status: string;
   proto: boolean;
   threshold: number;
@@ -196,6 +199,17 @@ function paletteColor(index: number): string {
     clamp(parseInt(base.slice(offset, offset + 2), 16) + shift, 0, 255),
   );
   return `#${channels.map((channel) => Math.round(channel).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function saturatedHazeColor(hex: string): string {
+  const channels = [1, 3, 5].map((offset) =>
+    parseInt(hex.slice(offset, offset + 2), 16),
+  );
+  const average = channels.reduce((sum, channel) => sum + channel, 0) / 3;
+  const saturated = channels.map((channel) =>
+    clamp(Math.round(average + (channel - average) * 1.42 + 5), 0, 255),
+  );
+  return `#${saturated.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function fallbackShortLabel(title: string): string {
@@ -379,7 +393,7 @@ function buildGalaxyLayout(
   const matching =
     filterNodeIndices == null ? null : new Set<number>(filterNodeIndices);
   const signature = JSON.stringify({
-    layoutVersion: 5,
+    layoutVersion: 6,
     topics: graph.clusters.map(({ id, label }) => ({ id, label })),
     nodes: graph.nodes.map(({ id, keyword, title }) => ({
       id,
@@ -412,6 +426,14 @@ function buildGalaxyLayout(
     allByTheme.has(cluster.id),
   );
   const themeCount = materializedClusters.length;
+  const primaryCounts = materializedClusters.map(
+    (cluster) => allByTheme.get(cluster.id)?.length ?? 0,
+  );
+  const minPrimaryCount =
+    primaryCounts.length > 0 ? Math.min(...primaryCounts) : 0;
+  const maxPrimaryCount =
+    primaryCounts.length > 0 ? Math.max(...primaryCounts) : 0;
+  const countRange = Math.max(1, maxPrimaryCount - minPrimaryCount);
   const radiusFactor = clamp(Math.sqrt(6 / Math.max(1, themeCount)), 0.68, 1);
   const hasRetainedPosition = materializedClusters.some((cluster) =>
     retainedPositions.has(cluster.id),
@@ -436,12 +458,15 @@ function buildGalaxyLayout(
     const newest = Math.max(0, ...all.map(nodeTimestamp));
     const label = fallbackShortLabel(cluster.label);
     const metrics = labelMetrics(label);
+    const color = paletteColor(index);
     return {
       id: cluster.id,
       label,
       fullTitle: cluster.fullTitle || cluster.label,
       description: cluster.description,
-      color: paletteColor(index),
+      color,
+      hazeColor: saturatedHazeColor(color),
+      weight: clamp((all.length - minPrimaryCount) / countRange, 0, 1),
       status: cluster.status,
       proto:
         cluster.status === "provisional" &&
@@ -453,7 +478,10 @@ function buildGalaxyLayout(
         Date.parse(cluster.lastActivity ?? "") || newest || Date.now(),
       cx: retained?.x ?? initialX,
       cy: retained?.y ?? initialY,
-      radius: (11 + Math.sqrt(visible.length) * 6.2) * radiusFactor,
+      radius: Math.max(
+        MIN_THEME_RADIUS,
+        4.1 * Math.pow(visible.length, 0.75) * radiusFactor,
+      ),
       tilt: random() * Math.PI,
       eccentricity: 0.6 + random() * 0.22,
       labelX: 0,
@@ -463,7 +491,8 @@ function buildGalaxyLayout(
     };
   });
   for (const theme of themes) {
-    if (theme.proto) theme.radius = 26 * radiusFactor;
+    if (theme.proto)
+      theme.radius = Math.max(MIN_THEME_RADIUS, 26 * radiusFactor);
   }
 
   for (let iteration = 0; iteration < 700; iteration += 1) {
@@ -528,7 +557,7 @@ function buildGalaxyLayout(
     for (const theme of themes) {
       theme.cx = W / 2 + (theme.cx - centerX) * fit;
       theme.cy = H * 0.49 + (theme.cy - centerY) * fit;
-      theme.radius *= fit;
+      theme.radius = Math.max(MIN_THEME_RADIUS, theme.radius * fit);
       retainedPositions.set(theme.id, { x: theme.cx, y: theme.cy });
     }
   }
@@ -559,7 +588,7 @@ function buildGalaxyLayout(
         label: thoughtShortLabel(node),
         rho,
         theta: random() * Math.PI * 2,
-        size: 0.9 + random() * 1.3,
+        size: 1.6 + random() * 1.4,
         recency: 1 - ageBucket / 9,
         driftPhase: random() * Math.PI * 2,
         driftSpeed: (Math.PI * 2) / (22000 + random() * 14000),
@@ -1630,9 +1659,10 @@ export function GalaxyGraph({
             ? currentDrill * (1 - 0.55 * relationship)
             : 0;
         const hazeRadius = (theme.radius * 2.1 + 10) * currentZoom;
+        const weightedHazeAlpha = 0.1 + 0.14 * theme.weight;
         for (const [radiusFactor, alpha] of [
-          [1, theme.proto ? 0.035 : 0.1],
-          [0.52, theme.proto ? 0.025 : 0.07],
+          [1, theme.proto ? 0.035 : weightedHazeAlpha],
+          [0.52, theme.proto ? 0.025 : weightedHazeAlpha * 0.58],
         ]) {
           const radius = hazeRadius * radiusFactor;
           const centerX = center.x * sx;
@@ -1641,7 +1671,7 @@ export function GalaxyGraph({
           const shader = Skia.Shader.MakeRadialGradient(
             { x: centerX, y: centerY },
             physicalRadius,
-            [color(theme.proto ? GREY : theme.color), transparent],
+            [color(theme.proto ? GREY : theme.hazeColor), transparent],
             [0, 1],
             TileMode.Clamp,
           );
@@ -1691,8 +1721,11 @@ export function GalaxyGraph({
           selectedThoughtIndex >= 0 && selectedThoughtIndex !== index && focused
             ? 1 - 0.6 * currentThoughtSelection
             : 1;
+        const overviewAlpha = 0.45 + 0.5 * thought.recency;
+        const timelineAlpha = 0.28 + 0.62 * thought.recency;
+        const baseAlpha = overviewAlpha + (timelineAlpha - overviewAlpha) * f;
         const alpha =
-          (theme.proto ? 0.55 : 0.28 + 0.62 * thought.recency) *
+          (theme.proto ? 0.55 : baseAlpha) *
           (1 - 0.9 * dim) *
           activityFactor *
           selectedFactor;
