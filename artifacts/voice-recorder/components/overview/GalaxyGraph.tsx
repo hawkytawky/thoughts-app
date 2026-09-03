@@ -391,12 +391,15 @@ function buildGalaxyLayout(
     values.sort((left, right) => nodeTimestamp(right) - nodeTimestamp(left));
   }
 
-  const themeCount = graph.clusters.length;
+  const materializedClusters = graph.clusters.filter((cluster) =>
+    allByTheme.has(cluster.id),
+  );
+  const themeCount = materializedClusters.length;
   const radiusFactor = clamp(Math.sqrt(6 / Math.max(1, themeCount)), 0.68, 1);
-  const hasRetainedPosition = graph.clusters.some((cluster) =>
+  const hasRetainedPosition = materializedClusters.some((cluster) =>
     retainedPositions.has(cluster.id),
   );
-  const themes: ThemeLayout[] = graph.clusters.map((cluster, index) => {
+  const themes: ThemeLayout[] = materializedClusters.map((cluster, index) => {
     const visible = visibleByTheme.get(cluster.id) ?? [];
     const all = allByTheme.get(cluster.id) ?? [];
     const random = randomFrom(cluster.id);
