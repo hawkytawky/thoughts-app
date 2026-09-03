@@ -14,7 +14,6 @@ import {
   View,
 } from "react-native";
 import { type Href, useFocusEffect, useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 import {
   Canvas,
   createPicture,
@@ -96,7 +95,8 @@ half4 main(float2 xy) {
   n += noise(p * 2.0 + 17.3) * 0.28;
   n += noise(p * 4.0 + 41.7) * 0.15;
   float grey = 0.72 + n * 0.28;
-  return half4(grey, grey, grey, 0.30);
+  float alpha = 0.30;
+  return half4(grey * alpha, grey * alpha, grey * alpha, alpha);
 }
 `);
 
@@ -1317,11 +1317,6 @@ export function GalaxyGraph({
 
   return (
     <View style={styles.root} onLayout={onLayout}>
-      <LinearGradient
-        colors={["#F3F4F6", "#EEF0F3"]}
-        pointerEvents="none"
-        style={StyleSheet.absoluteFill}
-      />
       <GestureDetector gesture={gesture}>
         <View style={StyleSheet.absoluteFill}>
           <Canvas style={StyleSheet.absoluteFill}>
@@ -1415,7 +1410,6 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     overflow: "hidden",
-    backgroundColor: "#F2F3F5",
   },
   labelAnchor: {
     position: "absolute",
