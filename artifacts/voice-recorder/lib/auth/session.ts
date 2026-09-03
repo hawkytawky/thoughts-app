@@ -4,6 +4,7 @@ import {
   isSuccessResponse,
 } from "@react-native-google-signin/google-signin";
 import * as SecureStore from "expo-secure-store";
+import { z } from "zod";
 import { authConfig, getAuthConfigurationError } from "./config";
 
 const REFRESH_TOKEN_KEY = "thoughts.auth.refresh-token";
@@ -14,17 +15,27 @@ const REFRESH_MARGIN_MS = 60_000;
 
 type Session = { accessToken: string; expiresAt: number };
 
-type SessionPayload = {
-  access_token: string;
-  refresh_token: string;
-  expires_in: number;
-};
+const sessionPayloadSchema = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1),
+  expires_in: z.number().int().positive(),
+});
+
+type SessionPayload = z.infer<typeof sessionPayloadSchema>;
 
 let googleConfigured = false;
 let currentSession: Session | null = null;
 let currentRefreshToken: string | null = null;
 let refreshPromise: Promise<Session> | null = null;
+let sessionGeneration = 0;
+let tokenMutationChain: Promise<void> = Promise.resolve();
 const sessionClearedListeners = new Set<() => void>();
+
+class SessionChangedError extends Error {
+  constructor() {
+    super("Die Sitzung wurde zwischenzeitlich beendet.");
+  }
+}
 
 export function subscribeToSessionCleared(listener: () => void): () => void {
   sessionClearedListeners.add(listener);
@@ -64,15 +75,50 @@ async function requestSession(
   if (!response.ok) {
     throw new Error(`Anmeldung fehlgeschlagen (${response.status}).`);
   }
-  return (await response.json()) as SessionPayload;
+  const payload = sessionPayloadSchema.safeParse(await response.json());
+  if (!payload.success) {
+    if (__DEV__) {
+      console.error("Invalid authentication response", payload.error.issues);
+    }
+    throw new Error("Die Anmeldung hat unerwartete Daten geliefert.");
+  }
+  return payload.data;
 }
 
-async function persistRefreshToken(token: string): Promise<void> {
-  currentRefreshToken = token;
-  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, token, KEYCHAIN_OPTIONS);
+async function persistRefreshToken(
+  token: string,
+  expectedGeneration: number,
+): Promise<void> {
+  const mutation = tokenMutationChain.then(async () => {
+    if (sessionGeneration !== expectedGeneration)
+      throw new SessionChangedError();
+    await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, token, KEYCHAIN_OPTIONS);
+    if (sessionGeneration !== expectedGeneration)
+      throw new SessionChangedError();
+    currentRefreshToken = token;
+  });
+  tokenMutationChain = mutation.catch(() => undefined);
+  await mutation;
 }
 
-function adoptSession(payload: SessionPayload): Session {
+async function loadRefreshToken(): Promise<string | null> {
+  await tokenMutationChain;
+  return SecureStore.getItemAsync(REFRESH_TOKEN_KEY, KEYCHAIN_OPTIONS);
+}
+
+async function deleteRefreshToken(): Promise<void> {
+  const mutation = tokenMutationChain.then(() =>
+    SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY, KEYCHAIN_OPTIONS),
+  );
+  tokenMutationChain = mutation.catch(() => undefined);
+  await mutation;
+}
+
+function adoptSession(
+  payload: SessionPayload,
+  expectedGeneration: number,
+): Session {
+  if (sessionGeneration !== expectedGeneration) throw new SessionChangedError();
   currentSession = {
     accessToken: payload.access_token,
     expiresAt: Date.now() + payload.expires_in * 1000,
@@ -81,19 +127,20 @@ function adoptSession(payload: SessionPayload): Session {
 }
 
 async function refreshSession(): Promise<Session> {
-  if (!currentRefreshToken) throw new Error("Nicht angemeldet.");
+  const refreshToken = currentRefreshToken;
+  const expectedGeneration = sessionGeneration;
+  if (!refreshToken) throw new Error("Nicht angemeldet.");
   const payload = await requestSession("/auth/refresh", {
-    refresh_token: currentRefreshToken,
+    refresh_token: refreshToken,
   });
-  await persistRefreshToken(payload.refresh_token);
-  return adoptSession(payload);
+  await persistRefreshToken(payload.refresh_token, expectedGeneration);
+  return adoptSession(payload, expectedGeneration);
 }
 
 export async function restoreSession(): Promise<boolean> {
-  const refreshToken = await SecureStore.getItemAsync(
-    REFRESH_TOKEN_KEY,
-    KEYCHAIN_OPTIONS,
-  );
+  const expectedGeneration = sessionGeneration;
+  const refreshToken = await loadRefreshToken();
+  if (sessionGeneration !== expectedGeneration) return false;
   if (!refreshToken) return false;
 
   currentRefreshToken = refreshToken;
@@ -106,13 +153,17 @@ export async function restoreSession(): Promise<boolean> {
     await refreshPromise;
     return true;
   } catch {
-    await clearSession();
+    if (sessionGeneration === expectedGeneration) await clearSession();
     return false;
   }
 }
 
 export async function signInWithGoogle(): Promise<void> {
   ensureConfigured();
+  const expectedGeneration = ++sessionGeneration;
+  currentSession = null;
+  currentRefreshToken = null;
+  refreshPromise = null;
   await GoogleSignin.hasPlayServices();
 
   const result = await GoogleSignin.signIn();
@@ -126,8 +177,8 @@ export async function signInWithGoogle(): Promise<void> {
   const payload = await requestSession("/auth/google", {
     id_token: result.data.idToken,
   });
-  await persistRefreshToken(payload.refresh_token);
-  adoptSession(payload);
+  await persistRefreshToken(payload.refresh_token, expectedGeneration);
+  adoptSession(payload, expectedGeneration);
 }
 
 export async function signInWithApple(): Promise<void> {
@@ -143,10 +194,11 @@ export async function getAccessToken(): Promise<string> {
   }
 
   if (!currentRefreshToken) {
-    currentRefreshToken = await SecureStore.getItemAsync(
-      REFRESH_TOKEN_KEY,
-      KEYCHAIN_OPTIONS,
-    );
+    const expectedGeneration = sessionGeneration;
+    const storedRefreshToken = await loadRefreshToken();
+    if (sessionGeneration !== expectedGeneration)
+      throw new SessionChangedError();
+    currentRefreshToken = storedRefreshToken;
   }
   if (!currentRefreshToken) throw new Error("Nicht angemeldet.");
 
@@ -161,10 +213,11 @@ export async function getAccessToken(): Promise<string> {
 
 export async function clearSession(): Promise<void> {
   const refreshToken = currentRefreshToken;
+  sessionGeneration += 1;
   currentSession = null;
   currentRefreshToken = null;
   refreshPromise = null;
-  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY, KEYCHAIN_OPTIONS);
+  await deleteRefreshToken();
 
   if (refreshToken) {
     try {

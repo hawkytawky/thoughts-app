@@ -96,6 +96,7 @@ const HAZE_PALETTE = [
   "#A777BF",
 ] as const;
 const GREY = "#969EA6";
+const MAX_RETAINED_POSITIONS = 400;
 
 type ThemeLayout = {
   id: string;
@@ -162,6 +163,19 @@ type GalaxyPeriod = "all" | "today" | "week" | "month";
 
 const layoutCache = new Map<string, GalaxyLayout>();
 const retainedPositions = new Map<string, { x: number; y: number }>();
+
+function retainThemePosition(
+  key: string,
+  position: { x: number; y: number },
+): void {
+  retainedPositions.delete(key);
+  retainedPositions.set(key, position);
+  while (retainedPositions.size > MAX_RETAINED_POSITIONS) {
+    const oldest = retainedPositions.keys().next().value;
+    if (!oldest) break;
+    retainedPositions.delete(oldest);
+  }
+}
 
 function clamp(value: number, low: number, high: number): number {
   "worklet";
@@ -567,7 +581,7 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
       theme.cx = W / 2 + (theme.cx - centerX) * fit;
       theme.cy = H * 0.49 + (theme.cy - centerY) * fit;
       theme.radius = Math.max(MIN_THEME_RADIUS, theme.radius * fit);
-      retainedPositions.set(`${period}:${theme.id}`, {
+      retainThemePosition(`${period}:${theme.id}`, {
         x: theme.cx,
         y: theme.cy,
       });
@@ -1149,6 +1163,7 @@ export function GalaxyGraph({
   const thoughtCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const protoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const layout = useMemo(
     () =>
@@ -1221,6 +1236,7 @@ export function GalaxyGraph({
       if (thoughtCloseTimerRef.current) {
         clearTimeout(thoughtCloseTimerRef.current);
       }
+      if (protoCloseTimerRef.current) clearTimeout(protoCloseTimerRef.current);
     },
     [],
   );
@@ -1248,6 +1264,10 @@ export function GalaxyGraph({
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     if (thoughtCloseTimerRef.current) {
       clearTimeout(thoughtCloseTimerRef.current);
+    }
+    if (protoCloseTimerRef.current) {
+      clearTimeout(protoCloseTimerRef.current);
+      protoCloseTimerRef.current = null;
     }
     setSelectedThemeId(null);
     setSelectedProtoId(null);
@@ -1297,8 +1317,12 @@ export function GalaxyGraph({
   ]);
 
   const closeProto = useCallback(() => {
+    if (protoCloseTimerRef.current) clearTimeout(protoCloseTimerRef.current);
     sheetY.value = withTiming(180, { duration: 180 });
-    setTimeout(() => setSelectedProtoId(null), 180);
+    protoCloseTimerRef.current = setTimeout(() => {
+      setSelectedProtoId(null);
+      protoCloseTimerRef.current = null;
+    }, 180);
   }, [sheetY]);
 
   const focusTheme = useCallback(

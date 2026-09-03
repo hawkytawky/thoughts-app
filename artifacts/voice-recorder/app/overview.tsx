@@ -36,13 +36,12 @@ const COLORS = {
   ink: "#1D3B4F",
   inkSoft: "#6E8A9C",
   inkFaint: "#9FB2BD",
-  lensInactive: "#B6C4CB",
+  viewModeInactive: "#B6C4CB",
   deep: "#2E5E8C",
   divider: "#EDF0F1",
 };
 
-const LENSES = ["base", "network", "time"] as const;
-type Lens = (typeof LENSES)[number];
+const VIEW_MODES = ["base", "network", "time"] as const;
 type Period = "all" | "today" | "week" | "month";
 
 type PeriodOption = { id: Period; label: string };
@@ -56,7 +55,7 @@ const PERIODS: PeriodOption[] = [
 
 // The tab routes live in a stack. Keeping these two small UI values outside the
 // screen preserves the exact memory position when navigating away and back.
-let retainedLensIndex = 0;
+let retainedViewModeIndex = 0;
 let retainedPeriod: Period = "all";
 
 function dateKeyDaysAgo(days: number): string {
@@ -126,7 +125,7 @@ function graphForPeriod(graph: Graph | null, period: Period): Graph | null {
   };
 }
 
-function LensButton({
+function ViewModeButton({
   index,
   selected,
   onPress,
@@ -158,8 +157,8 @@ function LensButton({
       onPress={onPress}
       style={({ pressed }) => pressed && styles.pressed}
     >
-      <Animated.Text style={[styles.lensLabel, textStyle]}>
-        {LENSES[index]}
+      <Animated.Text style={[styles.viewModeLabel, textStyle]}>
+        {VIEW_MODES[index]}
       </Animated.Text>
     </Pressable>
   );
@@ -239,7 +238,9 @@ function EmptyMessage({ children }: { children: string }) {
 
 export default function OverviewScreen() {
   const insets = useSafeAreaInsets();
-  const [activeIndex, setActiveIndex] = useState(retainedLensIndex);
+  const [activeViewModeIndex, setActiveViewModeIndex] = useState(
+    retainedViewModeIndex,
+  );
   const [period, setPeriod] = useState<Period>(retainedPeriod);
   const [periodSheetOpen, setPeriodSheetOpen] = useState(false);
   const [graph, setGraph] = useState<Graph | null>(null);
@@ -247,10 +248,11 @@ export default function OverviewScreen() {
   const [status, setStatus] = useState<"loading" | "error" | "ready">(
     "loading",
   );
-  const lensOpacities = useRef(
-    LENSES.map(
+  const graphRequestIdRef = useRef(0);
+  const viewModeOpacities = useRef(
+    VIEW_MODES.map(
       (_, index) =>
-        new NativeAnimated.Value(index === retainedLensIndex ? 1 : 0),
+        new NativeAnimated.Value(index === retainedViewModeIndex ? 1 : 0),
     ),
   ).current;
   const contentOpacity = useRef(new NativeAnimated.Value(0)).current;
@@ -259,13 +261,17 @@ export default function OverviewScreen() {
     // Keep the visualization mounted while refreshing after a detail view.
     // Otherwise its focused cluster, selected Thought, and camera are reset.
     if (!graphRef.current) setStatus("loading");
+    const requestId = ++graphRequestIdRef.current;
     fetchGraph("network-v2")
       .then((nextGraph) => {
+        if (requestId !== graphRequestIdRef.current) return;
         graphRef.current = nextGraph;
         setGraph(nextGraph);
         setStatus("ready");
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (requestId !== graphRequestIdRef.current) return;
+        if (__DEV__) console.error("Failed to load visualization graph", error);
         if (!graphRef.current) setStatus("error");
       });
   }, []);
@@ -273,6 +279,9 @@ export default function OverviewScreen() {
   useFocusEffect(
     useCallback(() => {
       loadGraph();
+      return () => {
+        graphRequestIdRef.current += 1;
+      };
     }, [loadGraph]),
   );
 
@@ -297,20 +306,20 @@ export default function OverviewScreen() {
     }).start();
   }, [contentOpacity, period, status, visibleGraph]);
 
-  const selectLens = useCallback(
+  const selectViewMode = useCallback(
     (index: number) => {
-      const next = Math.max(0, Math.min(LENSES.length - 1, index));
-      if (next === activeIndex) return;
-      retainedLensIndex = next;
-      setActiveIndex(next);
+      const next = Math.max(0, Math.min(VIEW_MODES.length - 1, index));
+      if (next === activeViewModeIndex) return;
+      retainedViewModeIndex = next;
+      setActiveViewModeIndex(next);
       NativeAnimated.parallel([
-        NativeAnimated.timing(lensOpacities[activeIndex], {
+        NativeAnimated.timing(viewModeOpacities[activeViewModeIndex], {
           toValue: 0,
           duration: 160,
           easing: NativeEasing.out(NativeEasing.cubic),
           useNativeDriver: true,
         }),
-        NativeAnimated.timing(lensOpacities[next], {
+        NativeAnimated.timing(viewModeOpacities[next], {
           toValue: 1,
           duration: 220,
           easing: NativeEasing.out(NativeEasing.cubic),
@@ -318,7 +327,7 @@ export default function OverviewScreen() {
         }),
       ]).start();
     },
-    [activeIndex, lensOpacities],
+    [activeViewModeIndex, viewModeOpacities],
   );
 
   const selectPeriod = (next: Period) => {
@@ -356,28 +365,28 @@ export default function OverviewScreen() {
         </Pressable>
       </View>
 
-      <View accessibilityRole="tablist" style={styles.lenses}>
-        {LENSES.map((lens, index) => (
-          <LensButton
-            key={lens}
+      <View accessibilityRole="tablist" style={styles.viewModes}>
+        {VIEW_MODES.map((viewMode, index) => (
+          <ViewModeButton
+            key={viewMode}
             index={index}
-            onPress={() => selectLens(index)}
-            selected={index === activeIndex}
+            onPress={() => selectViewMode(index)}
+            selected={index === activeViewModeIndex}
           />
         ))}
       </View>
 
       <View style={styles.pager}>
-        {LENSES.map((lens, index) => (
+        {VIEW_MODES.map((viewMode, index) => (
           <NativeAnimated.View
-            key={lens}
-            pointerEvents={index === activeIndex ? "auto" : "none"}
+            key={viewMode}
+            pointerEvents={index === activeViewModeIndex ? "auto" : "none"}
             style={[
               styles.page,
-              lens === "network" && styles.networkPage,
+              viewMode === "network" && styles.networkPage,
               {
-                opacity: lensOpacities[index],
-                zIndex: index === activeIndex ? 1 : 0,
+                opacity: viewModeOpacities[index],
+                zIndex: index === activeViewModeIndex ? 1 : 0,
               },
             ]}
           >
@@ -397,17 +406,17 @@ export default function OverviewScreen() {
                   <Text style={styles.retryText}>Erneut versuchen</Text>
                 </Pressable>
               </View>
-            ) : noData && lens !== "network" ? (
+            ) : noData && viewMode !== "network" ? (
               <EmptyMessage>
                 In diesem Zeitraum nichts aufgenommen.
               </EmptyMessage>
-            ) : lens === "base" ? (
+            ) : viewMode === "base" ? (
               <EmptyMessage>Noch nichts hier.</EmptyMessage>
             ) : (
               <NativeAnimated.View
                 style={[styles.visualization, { opacity: contentOpacity }]}
               >
-                {lens === "network" ? (
+                {viewMode === "network" ? (
                   <GalaxyGraph
                     graph={visibleGraph}
                     onRetry={loadGraph}
@@ -465,7 +474,7 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     color: COLORS.inkSoft,
   },
-  lenses: {
+  viewModes: {
     paddingTop: 10,
     paddingBottom: 2,
     paddingHorizontal: 22,
@@ -473,12 +482,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 22,
   },
-  lensLabel: {
+  viewModeLabel: {
     fontFamily: NOTE_SANS,
     fontSize: 12.5,
     fontWeight: "400",
     letterSpacing: 0.875,
-    color: COLORS.lensInactive,
+    color: COLORS.viewModeInactive,
   },
   pager: { flex: 1, position: "relative" },
   page: {

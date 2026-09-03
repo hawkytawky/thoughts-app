@@ -1,4 +1,5 @@
 import { backendFetch } from "@/lib/auth/api";
+import { z } from "zod";
 
 export type GraphNode = {
   id: string;
@@ -87,46 +88,96 @@ export type Graph = {
   generatedAt?: string | null;
 };
 
-type TopicGraphResponse = {
-  meta: {
-    nodes: number;
-    topics: number;
-    sourceCount: number;
-    assignedCount: number;
-    pendingThoughts: number;
-    themeThreshold?: number;
-    model?: string | null;
-    pipelineVersion: string;
-  };
-  topics: GraphCluster[];
-  nodes: Array<Omit<GraphNode, "idx" | "cluster">>;
-  similarityEdges: Array<{
-    sourceThoughtId: string;
-    targetThoughtId: string;
-    weight: number;
-  }>;
-  topicSimilarities?: TopicSimilarity[];
-  secondaryTopicEdges: Array<{
-    sourceThoughtId: string;
-    targetTopicId: string;
-    relevance: number;
-  }>;
-  time: {
-    timezone: string;
-    maxDailyWordCount: number;
-    days: Array<{
-      date: string;
-      wordCount: number;
-      thoughtCount: number;
-      topics: Array<{
-        topicId: string;
-        wordCount: number;
-        thoughtCount: number;
-      }>;
-    }>;
-  };
-  generatedAt?: string | null;
-};
+const nonNegativeNumber = z.number().finite().nonnegative();
+const topicGraphResponseSchema = z.object({
+  meta: z.object({
+    nodes: z.number().int().nonnegative(),
+    topics: z.number().int().nonnegative(),
+    sourceCount: z.number().int().nonnegative(),
+    assignedCount: z.number().int().nonnegative(),
+    pendingThoughts: z.number().int().nonnegative(),
+    themeThreshold: z.number().int().nonnegative().optional(),
+    model: z.string().nullable().optional(),
+    pipelineVersion: z.string(),
+  }),
+  topics: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      fullTitle: z.string().optional(),
+      description: z.string(),
+      status: z.string(),
+      color: z.string(),
+      textColor: z.string(),
+      count: z.number().int().nonnegative(),
+      anchorX: z.number().finite(),
+      anchorY: z.number().finite(),
+      lastActivity: z.string().optional(),
+    }),
+  ),
+  nodes: z.array(
+    z.object({
+      id: z.string(),
+      x: z.number().finite(),
+      y: z.number().finite(),
+      primaryTopicId: z.string(),
+      secondaryTopicIds: z.array(z.string()),
+      size: nonNegativeNumber,
+      type: z.string(),
+      title: z.string(),
+      subtitle: z.string(),
+      summary: z.string(),
+      capturedAt: z.string().datetime({ offset: true }),
+      wordCount: z.number().int().nonnegative(),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      dateLabel: z.string(),
+      keyword: z.string(),
+      topTags: z.array(z.string()),
+    }),
+  ),
+  similarityEdges: z.array(
+    z.object({
+      sourceThoughtId: z.string(),
+      targetThoughtId: z.string(),
+      weight: nonNegativeNumber,
+    }),
+  ),
+  topicSimilarities: z
+    .array(
+      z.object({
+        sourceTopicId: z.string(),
+        targetTopicId: z.string(),
+        similarity: nonNegativeNumber,
+      }),
+    )
+    .default([]),
+  secondaryTopicEdges: z.array(
+    z.object({
+      sourceThoughtId: z.string(),
+      targetTopicId: z.string(),
+      relevance: nonNegativeNumber,
+    }),
+  ),
+  time: z.object({
+    timezone: z.string(),
+    maxDailyWordCount: z.number().int().nonnegative(),
+    days: z.array(
+      z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        wordCount: z.number().int().nonnegative(),
+        thoughtCount: z.number().int().nonnegative(),
+        topics: z.array(
+          z.object({
+            topicId: z.string(),
+            wordCount: z.number().int().nonnegative(),
+            thoughtCount: z.number().int().nonnegative(),
+          }),
+        ),
+      }),
+    ),
+  }),
+  generatedAt: z.string().datetime({ offset: true }).nullable().optional(),
+});
 
 export type GraphSurface = "network-v2";
 
@@ -141,7 +192,19 @@ export async function fetchGraph(
       `Der Graph konnte nicht geladen werden (${response.status}).`,
     );
   }
-  const payload = (await response.json()) as TopicGraphResponse;
+  const parsedPayload = topicGraphResponseSchema.safeParse(
+    await response.json(),
+  );
+  if (!parsedPayload.success) {
+    if (__DEV__) {
+      console.error(
+        "Invalid visualization graph response",
+        parsedPayload.error.issues,
+      );
+    }
+    throw new Error("Der Graph enthält unerwartete Daten.");
+  }
+  const payload = parsedPayload.data;
   const indexById = new Map(
     payload.nodes.map((node, index) => [node.id, index]),
   );
@@ -178,7 +241,7 @@ export async function fetchGraph(
             },
           ];
     }),
-    topicSimilarities: payload.topicSimilarities ?? [],
+    topicSimilarities: payload.topicSimilarities,
     time: {
       ...payload.time,
       days: payload.time.days.map((day) => ({
