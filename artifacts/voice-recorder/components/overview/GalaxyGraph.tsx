@@ -14,6 +14,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { type Href, useRouter } from "expo-router";
 import {
   Canvas,
   createPicture,
@@ -977,10 +978,12 @@ function ThemeSheet({
 function ThoughtSheet({
   node,
   onClose,
+  onOpenDetail,
   sheetY,
 }: {
   node: GraphNode;
   onClose: () => void;
+  onOpenDetail: () => void;
   sheetY: SharedValue<number>;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -1044,6 +1047,18 @@ function ThoughtSheet({
             {node.summary || node.subtitle}
           </Text>
         )}
+        <Pressable
+          accessibilityLabel="Vollständigen Thought öffnen"
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={onOpenDetail}
+          style={({ pressed }) => [
+            styles.thoughtDetailButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.thoughtDetailButtonText}>Details öffnen →</Text>
+        </Pressable>
       </Animated.View>
     </GestureDetector>
   );
@@ -1114,6 +1129,7 @@ export function GalaxyGraph({
   period: GalaxyPeriod;
   status: "loading" | "error" | "ready";
 }) {
+  const router = useRouter();
   const clock = useClock();
   const thoughtFont = useFont(InstrumentSans_500Medium, 9.5);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -1361,6 +1377,13 @@ export function GalaxyGraph({
       thoughtCloseTimerRef.current = null;
     }, 280);
   }, [selectedThoughtIndexSV, sheetY, thoughtSelectionProgress]);
+
+  const openThoughtDetail = useCallback(() => {
+    if (!selectedThought) return;
+    router.push(
+      `/thoughts/detail?path=${encodeURIComponent(selectedThought.id)}&theme=${encodeURIComponent(selectedTheme?.fullTitle ?? "")}` as Href,
+    );
+  }, [router, selectedTheme?.fullTitle, selectedThought]);
 
   const handleTap = useCallback(
     (
@@ -1865,6 +1888,7 @@ export function GalaxyGraph({
           key={selectedThought.id}
           node={selectedThought}
           onClose={closeThoughtPreview}
+          onOpenDetail={openThoughtDetail}
           sheetY={sheetY}
         />
       ) : selectedTheme ? (
@@ -2017,6 +2041,18 @@ const styles = StyleSheet.create({
   },
   thoughtBodyScrollContent: {
     paddingBottom: 6,
+  },
+  thoughtDetailButton: {
+    alignSelf: "flex-end",
+    minHeight: 36,
+    marginTop: 12,
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  thoughtDetailButtonText: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 12.5,
+    color: C.skyDeep,
   },
   timeline: {
     marginTop: 20,
