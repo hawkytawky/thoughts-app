@@ -146,6 +146,18 @@ function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, value));
 }
 
+function rubberClamp(
+  value: number,
+  low: number,
+  high: number,
+  resistance = 0.24,
+): number {
+  "worklet";
+  if (value < low) return low + (value - low) * resistance;
+  if (value > high) return high + (value - high) * resistance;
+  return value;
+}
+
 function pairKey(left: string, right: string): string {
   return left < right ? `${left}:${right}` : `${right}:${left}`;
 }
@@ -1438,7 +1450,7 @@ export function GalaxyGraph({
     });
 
   const pinch = Gesture.Pinch()
-    .onBegin((event) => {
+    .onStart((event) => {
       pinchStartX.value = cameraX.value;
       pinchStartY.value = cameraY.value;
       pinchStartZoom.value = zoom.value;
@@ -1459,17 +1471,27 @@ export function GalaxyGraph({
       const logicalX = event.focalX / scaleX;
       const logicalY = event.focalY / scaleY;
       const focusY = H / 2 + (FOCUS_Y - H / 2) * drill.value;
-      cameraX.value = clamp(
+      cameraX.value = rubberClamp(
         pinchWorldX.value - (logicalX - W / 2) / nextZoom,
         W * 0.15,
         W * 0.85,
       );
-      cameraY.value = clamp(
+      cameraY.value = rubberClamp(
         pinchWorldY.value - (logicalY - focusY) / nextZoom,
         H * 0.15,
         H * 0.85,
       );
       zoom.value = nextZoom;
+    })
+    .onFinalize(() => {
+      cameraX.value = withSpring(
+        clamp(cameraX.value, W * 0.15, W * 0.85),
+        SPRING,
+      );
+      cameraY.value = withSpring(
+        clamp(cameraY.value, H * 0.15, H * 0.85),
+        SPRING,
+      );
     });
 
   const singleTap = Gesture.Tap()
@@ -1573,17 +1595,23 @@ export function GalaxyGraph({
           selectedIndex >= 0 && !focused
             ? currentDrill * (1 - 0.55 * relationship)
             : 0;
-        const hazeRadius = theme.radius * 1.6 * currentZoom;
-        const shader = Skia.Shader.MakeRadialGradient(
-          { x: center.x, y: center.y },
-          hazeRadius,
-          [color(theme.proto ? GREY : theme.color), transparent],
-          [0, 1],
-          TileMode.Clamp,
-        );
-        hazePaint.setShader(shader);
-        hazePaint.setAlphaf((theme.proto ? 0.018 : 0.038) * (1 - 0.8 * dim));
-        canvas.drawCircle(center.x, center.y, hazeRadius, hazePaint);
+        const hazeRadius = (theme.radius * 2.1 + 10) * currentZoom;
+        for (const [radiusFactor, alpha] of [
+          [1, theme.proto ? 0.035 : 0.1],
+          [0.52, theme.proto ? 0.025 : 0.07],
+        ]) {
+          const radius = hazeRadius * radiusFactor;
+          const shader = Skia.Shader.MakeRadialGradient(
+            { x: center.x, y: center.y },
+            radius,
+            [color(theme.proto ? GREY : theme.color), transparent],
+            [0, 1],
+            TileMode.Clamp,
+          );
+          hazePaint.setShader(shader);
+          hazePaint.setAlphaf(alpha * (1 - 0.8 * dim));
+          canvas.drawCircle(center.x, center.y, radius, hazePaint);
+        }
       }
 
       for (let index = 0; index < layout.thoughts.length; index += 1) {
@@ -1708,22 +1736,21 @@ export function GalaxyGraph({
           <Canvas style={StyleSheet.absoluteFill}>
             <Picture picture={picture} />
           </Canvas>
+          {layout.themes.map((theme, index) =>
+            theme.proto ? null : (
+              <GalaxyLabel
+                key={theme.id}
+                camera={camera}
+                interactive={!selectedTheme}
+                onPress={() => focusTheme(index)}
+                scaleX={scaleX}
+                scaleY={scaleY}
+                theme={theme}
+              />
+            ),
+          )}
         </View>
       </GestureDetector>
-
-      {layout.themes.map((theme, index) =>
-        theme.proto ? null : (
-          <GalaxyLabel
-            key={theme.id}
-            camera={camera}
-            interactive={!selectedTheme}
-            onPress={() => focusTheme(index)}
-            scaleX={scaleX}
-            scaleY={scaleY}
-            theme={theme}
-          />
-        ),
-      )}
 
       {status === "loading" ? (
         <View pointerEvents="none" style={styles.center}>
