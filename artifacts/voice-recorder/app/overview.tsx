@@ -371,13 +371,6 @@ export default function OverviewScreen() {
       </View>
 
       <View style={styles.pager}>
-        {(graph?.meta.pendingThoughts ?? 0) > 0 ? (
-          <View pointerEvents="none" style={styles.pendingBanner}>
-            <Text style={styles.pendingText}>
-              Neue Gedanken werden Themen zugeordnet …
-            </Text>
-          </View>
-        ) : null}
         {LENSES.map((lens, index) => (
           <NativeAnimated.View
             key={lens}
@@ -490,19 +483,6 @@ const styles = StyleSheet.create({
     color: COLORS.lensInactive,
   },
   pager: { flex: 1, position: "relative" },
-  pendingBanner: {
-    position: "absolute",
-    top: 4,
-    left: 0,
-    right: 0,
-    zIndex: 3,
-    alignItems: "center",
-  },
-  pendingText: {
-    fontFamily: NOTE_SANS,
-    fontSize: 11,
-    color: COLORS.inkFaint,
-  },
   page: {
     ...StyleSheet.absoluteFillObject,
     paddingHorizontal: 14,

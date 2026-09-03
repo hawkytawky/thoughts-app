@@ -17,10 +17,8 @@ import { type Href, useFocusEffect, useRouter } from "expo-router";
 import {
   Canvas,
   createPicture,
-  Fill,
   PaintStyle,
   Picture,
-  Shader,
   Skia,
   TileMode,
 } from "@shopify/react-native-skia";
@@ -70,35 +68,6 @@ const PALETTE = [
   "#B8A0C4",
 ] as const;
 const GREY = "#969EA6";
-
-const GRAIN_SOURCE = Skia.RuntimeEffect.Make(`
-uniform float2 resolution;
-
-float hash(float2 p) {
-  return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
-}
-
-float noise(float2 p) {
-  float2 i = floor(p);
-  float2 f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  float a = hash(i);
-  float b = hash(i + float2(1.0, 0.0));
-  float c = hash(i + float2(0.0, 1.0));
-  float d = hash(i + float2(1.0, 1.0));
-  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
-
-half4 main(float2 xy) {
-  float2 p = xy * 0.82;
-  float n = noise(p) * 0.57;
-  n += noise(p * 2.0 + 17.3) * 0.28;
-  n += noise(p * 4.0 + 41.7) * 0.15;
-  float grey = 0.72 + n * 0.28;
-  float alpha = 0.30;
-  return half4(grey * alpha, grey * alpha, grey * alpha, alpha);
-}
-`);
 
 type ThemeLayout = {
   id: string;
@@ -1391,17 +1360,6 @@ export function GalaxyGraph({
           theme={selectedProto}
         />
       ) : null}
-
-      {GRAIN_SOURCE ? (
-        <Canvas pointerEvents="none" style={styles.grain}>
-          <Fill blendMode="multiply">
-            <Shader
-              source={GRAIN_SOURCE}
-              uniforms={{ resolution: [size.width, size.height] }}
-            />
-          </Fill>
-        </Canvas>
-      ) : null}
     </View>
   );
 }
@@ -1570,10 +1528,6 @@ const styles = StyleSheet.create({
     fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 13,
     color: C.skyDeep,
-  },
-  grain: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 40,
   },
   pressed: { opacity: 0.58 },
 });
