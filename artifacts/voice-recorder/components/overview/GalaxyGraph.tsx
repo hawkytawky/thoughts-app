@@ -1536,6 +1536,7 @@ export function GalaxyGraph({
       if (size.width <= 0 || size.height <= 0) return;
       const sx = size.width / W;
       const sy = size.height / H;
+      const pointScale = Math.min(sx, sy);
       const currentZoom = zoom.value;
       const currentDrill = drill.value;
       const currentTime = clock.value;
@@ -1563,7 +1564,6 @@ export function GalaxyGraph({
       const now = Date.now();
 
       canvas.save();
-      canvas.scale(sx, sy);
 
       const dustAlpha = selectedIndex >= 0 ? 1 - 0.75 * currentDrill : 1;
       pointPaint.setColor(color(GREY));
@@ -1578,9 +1578,9 @@ export function GalaxyGraph({
         );
         pointPaint.setAlphaf(point.alpha * dustAlpha);
         canvas.drawCircle(
-          screen.x,
-          screen.y,
-          point.size * Math.sqrt(currentZoom) * 0.75,
+          screen.x * sx,
+          screen.y * sy,
+          point.size * Math.sqrt(currentZoom) * 0.75 * pointScale,
           pointPaint,
         );
       }
@@ -1613,16 +1613,19 @@ export function GalaxyGraph({
           [0.52, theme.proto ? 0.025 : 0.07],
         ]) {
           const radius = hazeRadius * radiusFactor;
+          const centerX = center.x * sx;
+          const centerY = center.y * sy;
+          const physicalRadius = radius * pointScale;
           const shader = Skia.Shader.MakeRadialGradient(
-            { x: center.x, y: center.y },
-            radius,
+            { x: centerX, y: centerY },
+            physicalRadius,
             [color(theme.proto ? GREY : theme.color), transparent],
             [0, 1],
             TileMode.Clamp,
           );
           hazePaint.setShader(shader);
           hazePaint.setAlphaf(alpha * (1 - 0.8 * dim));
-          canvas.drawCircle(center.x, center.y, radius, hazePaint);
+          canvas.drawCircle(centerX, centerY, physicalRadius, hazePaint);
         }
       }
 
@@ -1655,7 +1658,13 @@ export function GalaxyGraph({
           currentDrill,
         );
         const radius =
-          thought.size * (1 + 0.9 * f) * Math.sqrt(currentZoom) * 0.75;
+          thought.size *
+          (1 + 0.9 * f) *
+          Math.sqrt(currentZoom) *
+          0.75 *
+          pointScale;
+        const screenX = screen.x * sx;
+        const screenY = screen.y * sy;
         const selectedFactor =
           selectedThoughtIndex >= 0 && selectedThoughtIndex !== index && focused
             ? 1 - 0.6 * currentThoughtSelection
@@ -1669,7 +1678,7 @@ export function GalaxyGraph({
         if (!theme.proto && thought.recency > 0.85) {
           const glowRadius = radius * 3.5;
           const shader = Skia.Shader.MakeRadialGradient(
-            { x: screen.x, y: screen.y },
+            { x: screenX, y: screenY },
             glowRadius,
             [color(theme.color), transparent],
             [0, 1],
@@ -1679,17 +1688,22 @@ export function GalaxyGraph({
           hazePaint.setAlphaf(
             0.18 * (1 - 0.9 * dim) * activityFactor * selectedFactor,
           );
-          canvas.drawCircle(screen.x, screen.y, glowRadius, hazePaint);
+          canvas.drawCircle(screenX, screenY, glowRadius, hazePaint);
         }
 
         pointPaint.setShader(null);
         pointPaint.setColor(color(theme.proto ? GREY : theme.color));
         pointPaint.setAlphaf(alpha);
-        canvas.drawCircle(screen.x, screen.y, radius, pointPaint);
+        canvas.drawCircle(screenX, screenY, radius, pointPaint);
         if (selectedThoughtIndex === index) {
           ringPaint.setColor(color(theme.color));
           ringPaint.setAlphaf(0.72 * currentThoughtSelection);
-          canvas.drawCircle(screen.x, screen.y, radius + 3.5, ringPaint);
+          canvas.drawCircle(
+            screenX,
+            screenY,
+            radius + 3.5 * pointScale,
+            ringPaint,
+          );
         }
       }
 
@@ -1720,12 +1734,14 @@ export function GalaxyGraph({
           );
           const width = thoughtFont.measureText(thought.label).width;
           const rightSide = Math.cos(thought.theta) >= 0;
+          const screenX = screen.x * sx;
+          const screenY = screen.y * sy;
           textPaint.setColor(color(theme.proto ? GREY : theme.color));
           textPaint.setAlphaf(0.68 * labelProgress);
           canvas.drawText(
             thought.label,
-            rightSide ? screen.x + 5.5 : screen.x - width - 5.5,
-            screen.y + 3.2,
+            rightSide ? screenX + 5.5 : screenX - width - 5.5,
+            screenY + 3.2,
             textPaint,
             thoughtFont,
           );
