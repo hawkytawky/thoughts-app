@@ -57,7 +57,7 @@ const MAX_ZOOM = 5.2;
 const FOCUS_Y = H * 0.235;
 const LABEL_HEIGHT = 16;
 const LABEL_GAP = 4;
-const LABEL_MAX_WIDTH = 108;
+const LABEL_MAX_WIDTH = 138;
 const SHEET_BOTTOM_INSET = 104;
 const SHEET_CLOSE_DISTANCE = 32;
 const SHEET_CLOSE_VELOCITY = 650;
@@ -102,6 +102,8 @@ type ThemeLayout = {
   eccentricity: number;
   labelX: number;
   labelY: number;
+  labelWidth: number;
+  labelHeight: number;
 };
 
 type ThoughtLayout = {
@@ -203,12 +205,15 @@ function fallbackShortLabel(title: string): string {
   if (first.toLocaleLowerCase("de-DE").includes("thought")) return "thoughts";
   const head = normalized.split(/[,;:–—]|\sund\s/i)[0];
   const words = head.split(" ").filter(Boolean).slice(0, 2);
-  const adjective = /(?:lich|ische|ischer|isches|ischen|ischem)e?$/i;
-  const preferred =
-    words.length === 2 && adjective.test(words[0]) ? words[1] : words.join(" ");
-  if (preferred.length <= 17) return preferred || first;
-  if (words[0].length <= 17) return words[0];
-  return `${words[0].slice(0, 16)}…`;
+  const label = words.join(" ") || first;
+  const hyphenParts = label.split("-").filter(Boolean);
+  if (hyphenParts.length > 1) {
+    return `${hyphenParts[0]}\n${hyphenParts.slice(1).join("-")}`;
+  }
+  if (words.length === 2 && estimatedLabelWidth(label) > LABEL_MAX_WIDTH) {
+    return words.join("\n");
+  }
+  return label;
 }
 
 function estimatedLabelWidth(label: string): number {
@@ -219,7 +224,18 @@ function estimatedLabelWidth(label: string): number {
     else if (/\s/.test(character)) width += 3.5;
     else width += 7;
   }
-  return clamp(width, 28, LABEL_MAX_WIDTH);
+  return Math.max(28, width);
+}
+
+function labelMetrics(label: string): { width: number; height: number } {
+  const lines = label.split("\n");
+  return {
+    width: Math.min(
+      LABEL_MAX_WIDTH,
+      Math.max(...lines.map(estimatedLabelWidth)),
+    ),
+    height: lines.length * LABEL_HEIGHT,
+  };
 }
 
 function nodeTimestamp(node: GraphNode): number {
@@ -292,13 +308,14 @@ function placeLabels(themes: ThemeLayout[]): void {
     (-5 * Math.PI) / 6,
   ];
   for (const theme of ordered) {
-    const width = estimatedLabelWidth(theme.label);
+    const width = theme.labelWidth;
+    const height = theme.labelHeight;
     let best = { x: theme.cx, y: theme.cy + theme.radius + LABEL_GAP };
     let bestRect = {
       x: best.x - width / 2,
-      y: best.y - LABEL_HEIGHT / 2,
+      y: best.y - height / 2,
       width,
-      height: LABEL_HEIGHT,
+      height,
     };
     let bestScore = Infinity;
     for (const extraGap of [0, 3, 6]) {
@@ -307,15 +324,15 @@ function placeLabels(themes: ThemeLayout[]): void {
         const dx = Math.cos(angle);
         const dy = Math.sin(angle);
         const halfExtent =
-          (Math.abs(dx) * width) / 2 + (Math.abs(dy) * LABEL_HEIGHT) / 2;
+          (Math.abs(dx) * width) / 2 + (Math.abs(dy) * height) / 2;
         const distance = theme.radius + LABEL_GAP + extraGap + halfExtent;
         const centerX = theme.cx + dx * distance;
         const centerY = theme.cy + dy * distance;
         const rect = {
           x: centerX - width / 2,
-          y: centerY - LABEL_HEIGHT / 2,
+          y: centerY - height / 2,
           width,
-          height: LABEL_HEIGHT,
+          height,
         };
         let score = extraGap * 0.8 + angleIndex * 0.15;
         if (
@@ -362,8 +379,8 @@ function buildGalaxyLayout(
   const matching =
     filterNodeIndices == null ? null : new Set<number>(filterNodeIndices);
   const signature = JSON.stringify({
-    layoutVersion: 4,
-    topics: graph.clusters.map(({ id }) => id),
+    layoutVersion: 5,
+    topics: graph.clusters.map(({ id, label }) => ({ id, label })),
     nodes: graph.nodes.map(({ id, keyword, title }) => ({
       id,
       keyword,
@@ -417,9 +434,11 @@ function buildGalaxyLayout(
         ? H / 2 + Math.sin(edgeAngle) * Math.min(W, H) * 0.46
         : H / 2 + Math.sin(spiralAngle) * spiralRadius;
     const newest = Math.max(0, ...all.map(nodeTimestamp));
+    const label = fallbackShortLabel(cluster.label);
+    const metrics = labelMetrics(label);
     return {
       id: cluster.id,
-      label: fallbackShortLabel(cluster.label),
+      label,
       fullTitle: cluster.fullTitle || cluster.label,
       description: cluster.description,
       color: paletteColor(index),
@@ -439,6 +458,8 @@ function buildGalaxyLayout(
       eccentricity: 0.6 + random() * 0.22,
       labelX: 0,
       labelY: 0,
+      labelWidth: metrics.width,
+      labelHeight: metrics.height,
     };
   });
   for (const theme of themes) {
@@ -682,10 +703,10 @@ function GalaxyLabel({
     );
     return {
       opacity: (1 - camera.drill.value) * labelAlpha,
-      width: LABEL_MAX_WIDTH * scaleX,
+      width: theme.labelWidth * scaleX,
       transform: [
-        { translateX: point.x * scaleX - (LABEL_MAX_WIDTH * scaleX) / 2 },
-        { translateY: point.y * scaleY - (LABEL_HEIGHT * scaleY) / 2 },
+        { translateX: point.x * scaleX - (theme.labelWidth * scaleX) / 2 },
+        { translateY: point.y * scaleY - (theme.labelHeight * scaleY) / 2 },
       ],
     };
   }, [labelAlpha, scaleX, scaleY, theme]);
@@ -693,7 +714,9 @@ function GalaxyLabel({
   return (
     <Animated.View pointerEvents="none" style={[styles.labelAnchor, style]}>
       <Text
-        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.86}
+        numberOfLines={2}
         style={[styles.galaxyLabel, { color: theme.color }]}
       >
         {theme.label}
@@ -1397,9 +1420,8 @@ export function GalaxyGraph({
           label.y - logicalY,
         );
         const labelHit =
-          Math.abs(label.x - logicalX) <=
-            estimatedLabelWidth(theme.label) / 2 + 8 &&
-          Math.abs(label.y - logicalY) <= LABEL_HEIGHT / 2 + 8;
+          Math.abs(label.x - logicalX) <= theme.labelWidth / 2 + 8 &&
+          Math.abs(label.y - logicalY) <= theme.labelHeight / 2 + 8;
         const selectionDistance = labelHit ? labelDistance * 0.1 : distance;
         if (
           (labelHit || distance < theme.radius * currentZoom * 1.6) &&
