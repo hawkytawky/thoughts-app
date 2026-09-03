@@ -32,6 +32,7 @@ import Animated, {
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
+  withDelay,
   withSpring,
   withTiming,
   type SharedValue,
@@ -65,8 +66,8 @@ const SPRING = {
   mass: 1.15,
   overshootClamping: true,
 };
-const CAMERA_DURATION = 620;
-const SOFT_EASING = Easing.inOut(Easing.cubic);
+const CAMERA_DURATION = 900;
+const SOFT_EASING = Easing.bezier(0.25, 0.1, 0.25, 1);
 const PALETTE = [
   "#687CC4",
   "#A389BE",
@@ -600,7 +601,7 @@ function worldPoint(
   time = 0,
 ): { x: number; y: number } {
   "worklet";
-  const radius = thought.rho * theme.radius * (1 + 1.45 * drill);
+  const radius = thought.rho * theme.radius * (1 + 1.1 * drill);
   const eccentricity = theme.eccentricity + (0.9 - theme.eccentricity) * drill;
   const ex = Math.cos(thought.theta) * radius;
   const ey = Math.sin(thought.theta) * radius * eccentricity;
@@ -1213,21 +1214,27 @@ export function GalaxyGraph({
         clearTimeout(closeTimerRef.current);
         closeTimerRef.current = null;
       }
-      const fit = Math.min(W - 44, 236) / (2 * theme.radius * 2.45);
-      const targetZoom = clamp(fit, 1, 1.55);
-      sheetY.value = 64;
+      const fit = Math.min(W - 44, 236) / (2 * theme.radius * 2.15);
+      const targetZoom = clamp(fit, 1, 1.4);
+      sheetY.value = 320;
       setSelectedThemeId(theme.id);
       selectedThemeIndexSV.value = themeIndex;
       selectedThoughtIndexSV.value = -1;
       thoughtSelectionProgress.value = 0;
-      sheetY.value = withTiming(0, {
-        duration: 460,
-        easing: Easing.out(Easing.cubic),
-      });
-      drill.value = withTiming(1, {
-        duration: CAMERA_DURATION,
-        easing: SOFT_EASING,
-      });
+      sheetY.value = withDelay(
+        260,
+        withTiming(0, {
+          duration: 620,
+          easing: SOFT_EASING,
+        }),
+      );
+      drill.value = withDelay(
+        110,
+        withTiming(1, {
+          duration: 790,
+          easing: SOFT_EASING,
+        }),
+      );
       cameraX.value = withTiming(clampCameraX(theme.cx), {
         duration: CAMERA_DURATION,
         easing: SOFT_EASING,
