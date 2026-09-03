@@ -246,7 +246,7 @@ function labelMetrics(label: string): { width: number; height: number } {
   return {
     width: Math.min(
       LABEL_MAX_WIDTH,
-      Math.max(...lines.map(estimatedLabelWidth)),
+      Math.max(...lines.map(estimatedLabelWidth)) + 14,
     ),
     height: lines.length * LABEL_HEIGHT,
   };
@@ -718,6 +718,7 @@ function GalaxyLabel({
   scaleY: number;
   theme: ThemeLayout;
 }) {
+  const lines = theme.label.split("\n");
   const labelAlpha =
     (Date.now() - theme.lastActivity > 60 * 86400000 ? 0.55 : 1) *
     (theme.count === 0 ? 0.3 : 1);
@@ -742,14 +743,17 @@ function GalaxyLabel({
 
   return (
     <Animated.View pointerEvents="none" style={[styles.labelAnchor, style]}>
-      <Text
-        adjustsFontSizeToFit
-        minimumFontScale={0.86}
-        numberOfLines={2}
-        style={[styles.galaxyLabel, { color: theme.color }]}
-      >
-        {theme.label}
-      </Text>
+      {lines.map((line, index) => (
+        <Text
+          key={`${line}-${index}`}
+          adjustsFontSizeToFit
+          minimumFontScale={0.82}
+          numberOfLines={1}
+          style={[styles.galaxyLabel, { color: theme.color }]}
+        >
+          {line}
+        </Text>
+      ))}
     </Animated.View>
   );
 }
@@ -1895,6 +1899,7 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   galaxyLabel: {
+    width: "100%",
     fontFamily: NOTE_SANS,
     fontSize: 13.5,
     fontWeight: "400",
