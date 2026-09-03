@@ -9,11 +9,11 @@ import {
   ActivityIndicator,
   type LayoutChangeEvent,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { type Href, useFocusEffect, useRouter } from "expo-router";
 import {
   Canvas,
   createPicture,
@@ -38,6 +38,7 @@ import {
   NOTE_SANS,
   NOTE_SANS_MEDIUM,
   NOTE_SERIF,
+  noteCategoryColor,
 } from "@/components/NoteUI";
 import {
   type Graph,
@@ -52,6 +53,7 @@ const MAX_ZOOM = 4;
 const FOCUS_Y = H * 0.235;
 const LABEL_HEIGHT = 16;
 const LABEL_GAP = 10;
+const LABEL_MAX_WIDTH = 108;
 const SHEET_CLOSE_DISTANCE = 32;
 const SHEET_CLOSE_VELOCITY = 650;
 const SPRING = { damping: 26, stiffness: 90, mass: 1 };
@@ -173,7 +175,24 @@ function fallbackShortLabel(title: string): string {
   const first = normalized.split(" ")[0];
   if (first.toLocaleLowerCase("de-DE").includes("thought")) return "thoughts";
   const head = normalized.split(/[,;:–—]|\sund\s/i)[0];
-  return head.split(" ").slice(0, 2).join(" ") || first;
+  const words = head.split(" ").filter(Boolean).slice(0, 2);
+  const adjective = /(?:lich|ische|ischer|isches|ischen|ischem)e?$/i;
+  const preferred =
+    words.length === 2 && adjective.test(words[0]) ? words[1] : words.join(" ");
+  if (preferred.length <= 17) return preferred || first;
+  if (words[0].length <= 17) return words[0];
+  return `${words[0].slice(0, 16)}…`;
+}
+
+function estimatedLabelWidth(label: string): number {
+  let width = 0;
+  for (const character of label) {
+    if (/[MWÄÖÜmw]/.test(character)) width += 9;
+    else if (/[ilIjtfr1]/.test(character)) width += 4;
+    else if (/\s/.test(character)) width += 3.5;
+    else width += 7;
+  }
+  return clamp(width, 28, LABEL_MAX_WIDTH);
 }
 
 function nodeTimestamp(node: GraphNode): number {
@@ -225,70 +244,82 @@ function rectangleHitsCircle(
 }
 
 function placeLabels(themes: ThemeLayout[]): void {
-  const placed: Array<{ x: number; y: number; width: number; height: number }> = [];
-  for (const theme of themes) {
-    const width = Math.max(28, theme.label.length * 7.15);
-    const distance = theme.radius + LABEL_GAP;
-    const candidates = [
-      [0, distance],
-      [0, -distance],
-      [distance + width / 2, 0],
-      [-(distance + width / 2), 0],
-      [distance * 0.75, distance * 0.75],
-      [-distance * 0.75, distance * 0.75],
-      [distance * 0.75, -distance * 0.75],
-      [-distance * 0.75, -distance * 0.75],
-    ];
-    let best = { x: theme.cx, y: theme.cy + distance };
-    let bestScore = Infinity;
-    for (const [offsetX, offsetY] of candidates) {
-      const centerX = theme.cx + offsetX;
-      const centerY = theme.cy + offsetY;
-      const rect = {
-        x: centerX - width / 2,
-        y: centerY - LABEL_HEIGHT / 2,
-        width,
-        height: LABEL_HEIGHT,
-      };
-      let score = 0;
-      if (
-        rect.x < 4 ||
-        rect.x + rect.width > W - 4 ||
-        rect.y < 2 ||
-        rect.y + rect.height > H - 4
-      ) {
-        score += 100;
-      }
-      for (const existing of placed) {
-        if (overlaps(rect, existing)) score += 50;
-      }
-      for (const other of themes) {
-        if (other.id === theme.id) continue;
-        if (
-          rectangleHitsCircle(
-            rect,
-            other.cx,
-            other.cy,
-            other.radius * 1.15,
-          )
-        ) {
-          score += 30;
-        }
-      }
-      if (score < bestScore) {
-        bestScore = score;
-        best = { x: centerX, y: centerY };
-      }
-      if (score === 0) break;
-    }
-    theme.labelX = best.x;
-    theme.labelY = best.y;
-    placed.push({
+  const placed: Array<{ x: number; y: number; width: number; height: number }> =
+    [];
+  const ordered = [...themes].sort(
+    (left, right) =>
+      right.radius - left.radius || left.id.localeCompare(right.id),
+  );
+  const angles = [
+    Math.PI / 2,
+    -Math.PI / 2,
+    0,
+    Math.PI,
+    Math.PI / 4,
+    (3 * Math.PI) / 4,
+    -Math.PI / 4,
+    (-3 * Math.PI) / 4,
+    Math.PI / 6,
+    (5 * Math.PI) / 6,
+    -Math.PI / 6,
+    (-5 * Math.PI) / 6,
+  ];
+  for (const theme of ordered) {
+    const width = estimatedLabelWidth(theme.label);
+    let best = { x: theme.cx, y: theme.cy + theme.radius + LABEL_GAP };
+    let bestRect = {
       x: best.x - width / 2,
       y: best.y - LABEL_HEIGHT / 2,
       width,
       height: LABEL_HEIGHT,
-    });
+    };
+    let bestScore = Infinity;
+    for (const extraGap of [0, 6, 12]) {
+      for (let angleIndex = 0; angleIndex < angles.length; angleIndex += 1) {
+        const angle = angles[angleIndex];
+        const dx = Math.cos(angle);
+        const dy = Math.sin(angle);
+        const halfExtent =
+          (Math.abs(dx) * width) / 2 + (Math.abs(dy) * LABEL_HEIGHT) / 2;
+        const distance = theme.radius + LABEL_GAP + extraGap + halfExtent;
+        const centerX = theme.cx + dx * distance;
+        const centerY = theme.cy + dy * distance;
+        const rect = {
+          x: centerX - width / 2,
+          y: centerY - LABEL_HEIGHT / 2,
+          width,
+          height: LABEL_HEIGHT,
+        };
+        let score = extraGap * 0.8 + angleIndex * 0.15;
+        if (
+          rect.x < 8 ||
+          rect.x + rect.width > W - 8 ||
+          rect.y < 6 ||
+          rect.y + rect.height > H - 8
+        ) {
+          score += 1000;
+        }
+        for (const existing of placed) {
+          if (overlaps(rect, existing)) score += 500;
+        }
+        for (const other of themes) {
+          if (other.id === theme.id) continue;
+          if (rectangleHitsCircle(rect, other.cx, other.cy, other.radius + 7)) {
+            score += 400;
+          }
+        }
+        if (score < bestScore) {
+          bestScore = score;
+          best = { x: centerX, y: centerY };
+          bestRect = rect;
+        }
+        if (score < 1) break;
+      }
+      if (bestScore < 20) break;
+    }
+    theme.labelX = best.x;
+    theme.labelY = best.y;
+    placed.push(bestRect);
   }
 }
 
@@ -299,6 +330,7 @@ function buildGalaxyLayout(
   const matching =
     filterNodeIndices == null ? null : new Set<number>(filterNodeIndices);
   const signature = JSON.stringify({
+    layoutVersion: 2,
     topics: graph.clusters.map(({ id }) => id),
     nodes: graph.nodes.map(({ id }) => id),
     filter: filterNodeIndices,
@@ -480,13 +512,16 @@ function buildGalaxyLayout(
   const dustRandom = randomFrom(
     `dust:${graph.meta.sourceCount}:${graph.meta.assignedCount}`,
   );
-  for (let attempt = 0; dust.length < unassignedCount && attempt < 1000; attempt += 1) {
+  for (
+    let attempt = 0;
+    dust.length < unassignedCount && attempt < 1000;
+    attempt += 1
+  ) {
     const x = 18 + dustRandom() * (W - 36);
     const y = 28 + dustRandom() * (H - 68);
     const clearsThemes = themes.every(
       (theme) =>
-        Math.hypot(theme.cx - x, theme.cy - y) >
-        theme.radius * 1.25 + 16,
+        Math.hypot(theme.cx - x, theme.cy - y) > theme.radius * 1.25 + 16,
     );
     const clearsDust = dust.every(
       (point) => Math.hypot(point.x - x, point.y - y) >= 28,
@@ -528,19 +563,12 @@ function worldPoint(
 ): { x: number; y: number } {
   "worklet";
   const radius = thought.rho * theme.radius * (1 + 1.45 * drill);
-  const eccentricity =
-    theme.eccentricity + (0.9 - theme.eccentricity) * drill;
+  const eccentricity = theme.eccentricity + (0.9 - theme.eccentricity) * drill;
   const ex = Math.cos(thought.theta) * radius;
   const ey = Math.sin(thought.theta) * radius * eccentricity;
   return {
-    x:
-      theme.cx +
-      ex * Math.cos(theme.tilt) -
-      ey * Math.sin(theme.tilt),
-    y:
-      theme.cy +
-      ex * Math.sin(theme.tilt) +
-      ey * Math.cos(theme.tilt),
+    x: theme.cx + ex * Math.cos(theme.tilt) - ey * Math.sin(theme.tilt),
+    y: theme.cy + ex * Math.sin(theme.tilt) + ey * Math.cos(theme.tilt),
   };
 }
 
@@ -586,9 +614,10 @@ function GalaxyLabel({
     );
     return {
       opacity: (1 - camera.drill.value) * labelAlpha,
+      width: LABEL_MAX_WIDTH * scaleX,
       transform: [
-        { translateX: point.x * scaleX },
-        { translateY: point.y * scaleY },
+        { translateX: point.x * scaleX - (LABEL_MAX_WIDTH * scaleX) / 2 },
+        { translateY: point.y * scaleY - (LABEL_HEIGHT * scaleY) / 2 },
       ],
     };
   }, [labelAlpha, scaleX, scaleY, theme]);
@@ -600,9 +629,15 @@ function GalaxyLabel({
         accessibilityRole="button"
         hitSlop={10}
         onPress={onPress}
-        style={({ pressed }) => pressed && styles.pressed}
+        style={({ pressed }) => [
+          styles.labelPressable,
+          pressed && styles.pressed,
+        ]}
       >
-        <Text style={[styles.galaxyLabel, { color: theme.color }]}>
+        <Text
+          numberOfLines={1}
+          style={[styles.galaxyLabel, { color: theme.color }]}
+        >
           {theme.label}
         </Text>
       </Pressable>
@@ -610,16 +645,154 @@ function GalaxyLabel({
   );
 }
 
-function weeklyHistogram(nodes: GraphNode[]): number[] {
-  const now = Date.now();
-  const week = 7 * 24 * 60 * 60 * 1000;
-  const result = new Array(11).fill(0);
-  for (const node of nodes) {
-    const age = Math.max(0, now - nodeTimestamp(node));
-    const bucket = 10 - Math.min(10, Math.floor(age / week));
-    result[bucket] += 1;
-  }
-  return result;
+function nodeDateKey(node: GraphNode): string {
+  return node.date || node.capturedAt.slice(0, 10);
+}
+
+function localDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function thoughtDateLabel(node: GraphNode): string {
+  if (node.dateLabel) return node.dateLabel;
+  const date = nodeDateKey(node);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "";
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(`${date}T12:00:00`));
+}
+
+function TopicDensityTimeline({
+  color,
+  nodes,
+}: {
+  color: string;
+  nodes: GraphNode[];
+}) {
+  const timeline = useMemo(() => {
+    const validDates = nodes
+      .map(nodeDateKey)
+      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+      .sort();
+    if (validDates.length === 0) return null;
+
+    const firstThought = new Date(`${validDates[0]}T12:00:00`);
+    const start = new Date(
+      firstThought.getFullYear(),
+      firstThought.getMonth(),
+      1,
+      12,
+    );
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const days: string[] = [];
+    for (
+      const cursor = new Date(start);
+      cursor <= today;
+      cursor.setDate(cursor.getDate() + 1)
+    ) {
+      days.push(localDateKey(cursor));
+    }
+
+    const countsByDay = new Map<string, number>();
+    for (const node of nodes) {
+      const key = nodeDateKey(node);
+      countsByDay.set(key, (countsByDay.get(key) ?? 0) + 1);
+    }
+    const bucketSize = Math.max(1, Math.ceil(days.length / 180));
+    const buckets: number[] = [];
+    for (let index = 0; index < days.length; index += bucketSize) {
+      let count = 0;
+      for (let offset = 0; offset < bucketSize; offset += 1) {
+        const day = days[index + offset];
+        if (!day) break;
+        count += countsByDay.get(day) ?? 0;
+      }
+      buckets.push(count);
+    }
+
+    const months: Array<{ key: string; label: string; days: number }> = [];
+    for (
+      const cursor = new Date(start);
+      cursor <= today;
+      cursor.setMonth(cursor.getMonth() + 1)
+    ) {
+      const monthStart = new Date(
+        cursor.getFullYear(),
+        cursor.getMonth(),
+        1,
+        12,
+      );
+      const nextMonth = new Date(
+        cursor.getFullYear(),
+        cursor.getMonth() + 1,
+        1,
+        12,
+      );
+      const visibleEnd = nextMonth > today ? today : nextMonth;
+      const visibleDays = Math.max(
+        1,
+        Math.round((visibleEnd.getTime() - monthStart.getTime()) / 86_400_000) +
+          (nextMonth > today ? 1 : 0),
+      );
+      months.push({
+        key: `${cursor.getFullYear()}-${cursor.getMonth()}`,
+        label: new Intl.DateTimeFormat("de-DE", { month: "short" }).format(
+          cursor,
+        ),
+        days: visibleDays,
+      });
+    }
+    return {
+      buckets,
+      maxCount: Math.max(1, ...buckets),
+      months,
+      labelStep: Math.max(1, Math.ceil(months.length / 8)),
+    };
+  }, [nodes]);
+
+  if (!timeline) return null;
+  return (
+    <View style={styles.timeline}>
+      <Text style={styles.timelineTitle}>VERLAUF</Text>
+      <View style={styles.timelinePlot}>
+        {timeline.buckets.map((count, index) => (
+          <View key={index} style={styles.timelineBucket}>
+            {count > 0 ? (
+              <View
+                style={[
+                  styles.timelineBar,
+                  {
+                    backgroundColor: color,
+                    height: 4 + (count / timeline.maxCount) * 22,
+                    opacity: 0.38 + (count / timeline.maxCount) * 0.48,
+                  },
+                ]}
+              />
+            ) : null}
+          </View>
+        ))}
+      </View>
+      <View style={styles.timelineMonths}>
+        {timeline.months.map((month, index) => (
+          <View
+            key={month.key}
+            style={[styles.timelineMonth, { flex: month.days }]}
+          >
+            {index % timeline.labelStep === 0 ||
+            index === timeline.months.length - 1 ? (
+              <Text style={styles.timelineMonthLabel}>{month.label}</Text>
+            ) : null}
+          </View>
+        ))}
+      </View>
+    </View>
+  );
 }
 
 function ThemeSheet({
@@ -633,8 +806,6 @@ function ThemeSheet({
   sheetY: SharedValue<number>;
   theme: ThemeLayout;
 }) {
-  const bars = useMemo(() => weeklyHistogram(nodes), [nodes]);
-  const maximum = Math.max(1, ...bars);
   const pan = Gesture.Pan()
     .onChange((event) => {
       sheetY.value = clamp(sheetY.value + event.changeY * 0.5, 0, 120);
@@ -665,29 +836,82 @@ function ThemeSheet({
           {theme.count === 1 ? "1 Gedanke" : `${theme.count} Gedanken`}
         </Text>
         <Text style={styles.sheetDescription}>{theme.description}</Text>
-        <Text style={styles.timelineTitle}>VERLAUF</Text>
-        <View style={styles.timelinePlot}>
-          {bars.map((value, index) => (
-            <View key={index} style={styles.timelineBucket}>
-              {value > 0 ? (
-                <View
-                  style={[
-                    styles.timelineBar,
-                    {
-                      backgroundColor: theme.color,
-                      height: 4 + (value / maximum) * 36,
-                      opacity: 0.55 + (index / 10) * 0.4,
-                    },
-                  ]}
-                />
-              ) : null}
-            </View>
-          ))}
+        <TopicDensityTimeline color={theme.color} nodes={nodes} />
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
+function ThoughtSheet({
+  node,
+  onClose,
+  sheetY,
+}: {
+  node: GraphNode;
+  onClose: () => void;
+  sheetY: SharedValue<number>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const collapseOrClose = () => {
+    if (expanded) setExpanded(false);
+    else onClose();
+  };
+  const pan = Gesture.Pan()
+    .onChange((event) => {
+      sheetY.value = clamp(sheetY.value + event.changeY * 0.5, -30, 120);
+    })
+    .onEnd((event) => {
+      const expand = sheetY.value < -14 || event.velocityY < -650;
+      const close =
+        sheetY.value > SHEET_CLOSE_DISTANCE ||
+        event.velocityY > SHEET_CLOSE_VELOCITY;
+      sheetY.value = withTiming(0, {
+        duration: 160,
+        easing: Easing.out(Easing.quad),
+      });
+      if (expand) runOnJS(setExpanded)(true);
+      else if (close) runOnJS(collapseOrClose)();
+    });
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateY: sheetY.value }],
+  }));
+
+  return (
+    <GestureDetector gesture={pan}>
+      <Animated.View
+        style={[styles.sheet, style, expanded && styles.expandedSheet]}
+      >
+        <View style={styles.handle} />
+        <View style={styles.thoughtHeader}>
+          <View style={styles.thoughtTypeRow}>
+            <View
+              style={[
+                styles.thoughtTypeDot,
+                { backgroundColor: noteCategoryColor(node.type) },
+              ]}
+            />
+            <Text style={styles.thoughtTypeLabel}>{node.type}</Text>
+          </View>
+          {thoughtDateLabel(node) ? (
+            <Text style={styles.thoughtDate}>{thoughtDateLabel(node)}</Text>
+          ) : null}
         </View>
-        <View style={styles.timelineAxis}>
-          <Text style={styles.timelineAxisLabel}>vor 10 Wo.</Text>
-          <Text style={styles.timelineAxisLabel}>heute</Text>
-        </View>
+        <Text style={styles.thoughtTitle}>{node.title}</Text>
+        {expanded ? (
+          <ScrollView
+            contentContainerStyle={styles.thoughtBodyScrollContent}
+            showsVerticalScrollIndicator={false}
+            style={styles.thoughtBodyScroll}
+          >
+            <Text style={styles.thoughtBody}>
+              {node.summary || node.subtitle}
+            </Text>
+          </ScrollView>
+        ) : (
+          <Text numberOfLines={4} style={styles.thoughtBody}>
+            {node.summary || node.subtitle}
+          </Text>
+        )}
       </Animated.View>
     </GestureDetector>
   );
@@ -758,14 +982,13 @@ export function GalaxyGraph({
   onRetry: () => void;
   status: "loading" | "error" | "ready";
 }) {
-  const router = useRouter();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [selectedThemeId, setSelectedThemeId] = useState<string | null>(null);
   const [selectedProtoId, setSelectedProtoId] = useState<string | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const detailOpenRef = useRef(false);
+  const [selectedThoughtNodeIndex, setSelectedThoughtNodeIndex] = useState<
+    number | null
+  >(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const detailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const layout = useMemo(
     () =>
@@ -787,6 +1010,10 @@ export function GalaxyGraph({
     selectedThemeIndex >= 0 ? layout.themes[selectedThemeIndex] : null;
   const selectedProto =
     layout.themes.find((theme) => theme.id === selectedProtoId) ?? null;
+  const selectedThought =
+    selectedThoughtNodeIndex == null
+      ? null
+      : (graph?.nodes[selectedThoughtNodeIndex] ?? null);
   const matchingNodeIndices = useMemo(
     () =>
       filterNodeIndices == null ? null : new Set<number>(filterNodeIndices),
@@ -840,23 +1067,9 @@ export function GalaxyGraph({
     }
   }, [drill, selectedThemeId, selectedThemeIndex, selectedThemeIndexSV]);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (detailOpenRef.current) {
-        detailOpenRef.current = false;
-        setDetailOpen(false);
-        selectedThoughtIndexSV.value = -1;
-        sheetY.value = 240;
-        sheetY.value = withSpring(0, SPRING);
-      }
-      return undefined;
-    }, [selectedThoughtIndexSV, sheetY]),
-  );
-
   useEffect(
     () => () => {
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-      if (detailTimerRef.current) clearTimeout(detailTimerRef.current);
     },
     [],
   );
@@ -872,6 +1085,7 @@ export function GalaxyGraph({
 
   const closeTheme = useCallback(() => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    setSelectedThoughtNodeIndex(null);
     selectedThoughtIndexSV.value = -1;
     sheetY.value = withTiming(180, { duration: 180 });
     drill.value = withSpring(0, SPRING);
@@ -881,7 +1095,13 @@ export function GalaxyGraph({
       setSelectedThemeId(null);
       closeTimerRef.current = null;
     }, 180);
-  }, [drill, resetCamera, selectedThemeIndexSV, selectedThoughtIndexSV, sheetY]);
+  }, [
+    drill,
+    resetCamera,
+    selectedThemeIndexSV,
+    selectedThoughtIndexSV,
+    sheetY,
+  ]);
 
   const closeProto = useCallback(() => {
     sheetY.value = withTiming(180, { duration: 180 });
@@ -898,6 +1118,7 @@ export function GalaxyGraph({
         return;
       }
       setSelectedProtoId(null);
+      setSelectedThoughtNodeIndex(null);
       if (closeTimerRef.current) {
         clearTimeout(closeTimerRef.current);
         closeTimerRef.current = null;
@@ -913,34 +1134,38 @@ export function GalaxyGraph({
       cameraY.value = withSpring(clampCameraY(theme.cy), SPRING);
       zoom.value = withSpring(targetZoom, SPRING);
     },
-    [cameraX, cameraY, drill, layout.themes, selectedThemeIndexSV, selectedThoughtIndexSV, sheetY, zoom],
+    [
+      cameraX,
+      cameraY,
+      drill,
+      layout.themes,
+      selectedThemeIndexSV,
+      selectedThoughtIndexSV,
+      sheetY,
+      zoom,
+    ],
   );
 
-  const openThought = useCallback(
+  const openThoughtPreview = useCallback(
     (nodeIndex: number) => {
       const node = graph?.nodes[nodeIndex];
       if (!node) return;
       const thoughtIndex = layout.thoughts.findIndex(
         (thought) => thought.nodeIndex === nodeIndex,
       );
-      const theme = layout.themes[layout.thoughts[thoughtIndex]?.themeIndex];
       selectedThoughtIndexSV.value = thoughtIndex;
-      detailOpenRef.current = true;
-      sheetY.value = withTiming(240, {
-        duration: 220,
-        easing: Easing.out(Easing.cubic),
-      });
-      if (detailTimerRef.current) clearTimeout(detailTimerRef.current);
-      detailTimerRef.current = setTimeout(() => {
-        setDetailOpen(true);
-        router.push(
-          `/thoughts/detail?path=${encodeURIComponent(node.id)}&theme=${encodeURIComponent(theme?.fullTitle ?? "")}` as Href,
-        );
-        detailTimerRef.current = null;
-      }, 190);
+      setSelectedThoughtNodeIndex(nodeIndex);
+      sheetY.value = 18;
+      sheetY.value = withSpring(0, SPRING);
     },
-    [graph?.nodes, layout.themes, layout.thoughts, router, selectedThoughtIndexSV, sheetY],
+    [graph?.nodes, layout.thoughts, selectedThoughtIndexSV, sheetY],
   );
+
+  const closeThoughtPreview = useCallback(() => {
+    setSelectedThoughtNodeIndex(null);
+    selectedThoughtIndexSV.value = -1;
+    sheetY.value = 0;
+  }, [selectedThoughtIndexSV, sheetY]);
 
   const handleTap = useCallback(
     (
@@ -974,7 +1199,7 @@ export function GalaxyGraph({
             best = thought;
           }
         }
-        if (best) openThought(best.nodeIndex);
+        if (best) openThoughtPreview(best.nodeIndex);
         else closeTheme();
         return;
       }
@@ -1007,7 +1232,15 @@ export function GalaxyGraph({
       }
       if (bestTheme >= 0) focusTheme(bestTheme);
     },
-    [closeProto, closeTheme, focusTheme, layout.themes, layout.thoughts, openThought, selectedProtoId],
+    [
+      closeProto,
+      closeTheme,
+      focusTheme,
+      layout.themes,
+      layout.thoughts,
+      openThoughtPreview,
+      selectedProtoId,
+    ],
   );
 
   const handleDoubleTap = useCallback(() => {
@@ -1036,12 +1269,12 @@ export function GalaxyGraph({
     })
     .onEnd((event) => {
       const targetX = clamp(
-        cameraX.value - event.velocityX / scaleX / zoom.value * 0.006,
+        cameraX.value - (event.velocityX / scaleX / zoom.value) * 0.006,
         W * 0.15,
         W * 0.85,
       );
       const targetY = clamp(
-        cameraY.value - event.velocityY / scaleY / zoom.value * 0.006,
+        cameraY.value - (event.velocityY / scaleY / zoom.value) * 0.006,
         H * 0.15,
         H * 0.85,
       );
@@ -1056,8 +1289,7 @@ export function GalaxyGraph({
       pinchStartZoom.value = zoom.value;
       const logicalX = event.focalX / scaleX;
       const logicalY = event.focalY / scaleY;
-      const focusY =
-        H / 2 + (FOCUS_Y - H / 2) * drill.value;
+      const focusY = H / 2 + (FOCUS_Y - H / 2) * drill.value;
       pinchWorldX.value =
         pinchStartX.value + (logicalX - W / 2) / pinchStartZoom.value;
       pinchWorldY.value =
@@ -1071,8 +1303,7 @@ export function GalaxyGraph({
       );
       const logicalX = event.focalX / scaleX;
       const logicalY = event.focalY / scaleY;
-      const focusY =
-        H / 2 + (FOCUS_Y - H / 2) * drill.value;
+      const focusY = H / 2 + (FOCUS_Y - H / 2) * drill.value;
       cameraX.value = clamp(
         pinchWorldX.value - (logicalX - W / 2) / nextZoom,
         W * 0.15,
@@ -1159,60 +1390,6 @@ export function GalaxyGraph({
         );
       }
 
-      for (let index = 0; index < layout.themes.length; index += 1) {
-        const theme = layout.themes[index];
-        const focused = selectedIndex === index;
-        const f = focused ? currentDrill : 0;
-        const relationship =
-          selectedIndex >= 0
-            ? layout.similarities[selectedIndex * layout.themes.length + index] ??
-              0.05
-            : 1;
-        const dim = selectedIndex >= 0 && !focused ? 1 - 0.55 * relationship : 0;
-        const activityFactor = now - theme.lastActivity > 60 * 86400000 ? 0.55 : 1;
-        const periodFactor = theme.count === 0 ? 0.3 : 1;
-        const alphaFactor = activityFactor * periodFactor;
-        const screen = projectPoint(
-          theme.cx,
-          theme.cy,
-          cameraX.value,
-          cameraY.value,
-          currentZoom,
-          currentDrill,
-        );
-        const hazeRadius =
-          (theme.proto ? 26 : theme.radius * (1.95 + 1.7 * f)) * currentZoom;
-        const hazeAlpha = (1 - 0.85 * dim) * alphaFactor;
-        if (theme.proto) {
-          const shader = Skia.Shader.MakeRadialGradient(
-            { x: screen.x, y: screen.y },
-            hazeRadius,
-            [color(GREY), transparent],
-            [0, 1],
-            TileMode.Clamp,
-          );
-          hazePaint.setShader(shader);
-          hazePaint.setAlphaf(0.1 * (selectedIndex >= 0 ? 0.25 : 1));
-          canvas.drawCircle(screen.x, screen.y, hazeRadius, hazePaint);
-          continue;
-        }
-        for (const [radius, alpha] of [
-          [hazeRadius, 0.14],
-          [hazeRadius * 0.5, 0.13],
-        ]) {
-          const shader = Skia.Shader.MakeRadialGradient(
-            { x: screen.x, y: screen.y },
-            radius,
-            [color(theme.color), transparent],
-            [0, 1],
-            TileMode.Clamp,
-          );
-          hazePaint.setShader(shader);
-          hazePaint.setAlphaf(alpha * hazeAlpha);
-          canvas.drawCircle(screen.x, screen.y, radius, hazePaint);
-        }
-      }
-
       for (let index = 0; index < layout.thoughts.length; index += 1) {
         const thought = layout.thoughts[index];
         const theme = layout.themes[thought.themeIndex];
@@ -1221,12 +1398,14 @@ export function GalaxyGraph({
         const f = focused ? currentDrill : 0;
         const relationship =
           selectedIndex >= 0
-            ? layout.similarities[
+            ? (layout.similarities[
                 selectedIndex * layout.themes.length + thought.themeIndex
-              ] ?? 0.05
+              ] ?? 0.05)
             : 1;
-        const dim = selectedIndex >= 0 && !focused ? 1 - 0.55 * relationship : 0;
-        const activityFactor = now - theme.lastActivity > 60 * 86400000 ? 0.55 : 1;
+        const dim =
+          selectedIndex >= 0 && !focused ? 1 - 0.55 * relationship : 0;
+        const activityFactor =
+          now - theme.lastActivity > 60 * 86400000 ? 0.55 : 1;
         const world = worldPoint(thought, theme, f);
         const screen = projectPoint(
           world.x,
@@ -1297,14 +1476,14 @@ export function GalaxyGraph({
       {!selectedTheme
         ? layout.themes.map((theme, index) =>
             theme.proto ? null : (
-            <GalaxyLabel
-              key={theme.id}
-              camera={camera}
-              onPress={() => focusTheme(index)}
-              scaleX={scaleX}
-              scaleY={scaleY}
-              theme={theme}
-            />
+              <GalaxyLabel
+                key={theme.id}
+                camera={camera}
+                onPress={() => focusTheme(index)}
+                scaleX={scaleX}
+                scaleY={scaleY}
+                theme={theme}
+              />
             ),
           )
         : null}
@@ -1330,7 +1509,9 @@ export function GalaxyGraph({
       ) : null}
       {status === "error" ? (
         <View style={styles.center}>
-          <Text style={styles.stateText}>Die Karte konnte nicht geladen werden.</Text>
+          <Text style={styles.stateText}>
+            Die Karte konnte nicht geladen werden.
+          </Text>
           <Pressable hitSlop={8} onPress={onRetry} style={styles.retry}>
             <Text style={styles.retryText}>Erneut versuchen</Text>
           </Pressable>
@@ -1344,7 +1525,14 @@ export function GalaxyGraph({
         </View>
       ) : null}
 
-      {selectedTheme && !detailOpen ? (
+      {selectedThought ? (
+        <ThoughtSheet
+          key={selectedThought.id}
+          node={selectedThought}
+          onClose={closeThoughtPreview}
+          sheetY={sheetY}
+        />
+      ) : selectedTheme ? (
         <ThemeSheet
           nodes={selectedNodes}
           onClose={closeTheme}
@@ -1375,13 +1563,17 @@ const styles = StyleSheet.create({
     top: 0,
     zIndex: 5,
   },
+  labelPressable: {
+    width: "100%",
+    alignItems: "center",
+  },
   galaxyLabel: {
-    transform: [{ translateX: "-50%" }, { translateY: -7 }],
     fontFamily: NOTE_SANS,
     fontSize: 13.5,
     fontWeight: "400",
     letterSpacing: -0.07,
     lineHeight: 16,
+    textAlign: "center",
   },
   backButton: {
     position: "absolute",
@@ -1454,16 +1646,72 @@ const styles = StyleSheet.create({
     lineHeight: 22.5,
     color: C.ink70,
   },
-  timelineTitle: {
-    marginTop: 18,
+  expandedSheet: {
+    maxHeight: "78%",
+    overflow: "hidden",
+  },
+  thoughtHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 8,
+  },
+  thoughtTypeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  thoughtTypeDot: {
+    width: 9,
+    height: 9,
+    marginRight: 7,
+    borderRadius: 5,
+  },
+  thoughtTypeLabel: {
     fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 11,
-    letterSpacing: 1.3,
+    letterSpacing: 0.6,
+    color: C.ink60,
+    textTransform: "uppercase",
+  },
+  thoughtDate: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 12,
+    color: C.ink40,
+  },
+  thoughtTitle: {
+    marginBottom: 8,
+    fontFamily: NOTE_SERIF,
+    fontSize: 22,
+    lineHeight: 28,
+    color: C.ink,
+  },
+  thoughtBody: {
+    marginTop: 2,
+    fontFamily: NOTE_SANS,
+    fontSize: 14.5,
+    lineHeight: 22,
+    color: C.ink70,
+  },
+  thoughtBodyScroll: {
+    maxHeight: 280,
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  thoughtBodyScrollContent: {
+    paddingBottom: 6,
+  },
+  timeline: {
+    marginTop: 20,
+  },
+  timelineTitle: {
+    marginBottom: 8,
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 10,
+    letterSpacing: 0.8,
     color: C.ink40,
   },
   timelinePlot: {
-    height: 44,
+    height: 30,
     flexDirection: "row",
     alignItems: "flex-end",
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -1471,23 +1719,28 @@ const styles = StyleSheet.create({
   },
   timelineBucket: {
     flex: 1,
-    height: 42,
+    height: 28,
     alignItems: "center",
     justifyContent: "flex-end",
   },
   timelineBar: {
-    width: "38%",
-    minWidth: 2,
-    borderRadius: 1,
+    width: "72%",
+    minWidth: 1,
+    borderRadius: 2,
   },
-  timelineAxis: {
-    marginTop: 5,
+  timelineMonths: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    height: 21,
   },
-  timelineAxisLabel: {
+  timelineMonth: {
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: C.border,
+    paddingLeft: 3,
+    paddingTop: 4,
+  },
+  timelineMonthLabel: {
     fontFamily: NOTE_SANS,
-    fontSize: 11,
+    fontSize: 9.5,
     color: C.ink40,
   },
   protoTitle: { color: "#6E7A85" },
