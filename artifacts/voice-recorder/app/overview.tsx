@@ -377,6 +377,7 @@ export default function OverviewScreen() {
             pointerEvents={index === activeIndex ? "auto" : "none"}
             style={[
               styles.page,
+              lens === "network" && styles.networkPage,
               {
                 opacity: lensOpacities[index],
                 zIndex: index === activeIndex ? 1 : 0,
@@ -488,6 +489,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 2,
     paddingBottom: 104,
+  },
+  networkPage: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   visualization: { flex: 1 },
   emptyState: {

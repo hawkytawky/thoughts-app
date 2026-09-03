@@ -58,6 +58,7 @@ const FOCUS_Y = H * 0.235;
 const LABEL_HEIGHT = 16;
 const LABEL_GAP = 4;
 const LABEL_MAX_WIDTH = 108;
+const SHEET_BOTTOM_INSET = 104;
 const SHEET_CLOSE_DISTANCE = 32;
 const SHEET_CLOSE_VELOCITY = 650;
 const SPRING = {
@@ -1831,7 +1832,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: 0,
+    bottom: SHEET_BOTTOM_INSET,
     zIndex: 20,
     borderRadius: 24,
     backgroundColor: "#FFFFFF",
