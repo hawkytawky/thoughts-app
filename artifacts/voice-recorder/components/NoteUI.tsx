@@ -1,5 +1,11 @@
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 export const NOTE_COLORS = {
@@ -84,6 +90,11 @@ export const NOTE_CATEGORY_COLORS = {
 
 export const NOTE_CATEGORY_TEXT_OPACITY = 1;
 
+// Keeps the first control aligned consistently below the safe area on all
+// primary app screens.
+export const NOTE_SCREEN_TOP_OFFSET = -4;
+export const NOTE_SCREEN_CONTENT_TOP_GAP = 10;
+
 export function noteCategoryColor(type: string): string {
   return (
     NOTE_CATEGORY_COLORS[type as keyof typeof NOTE_CATEGORY_COLORS]?.text ??
@@ -135,7 +146,11 @@ export function NoteError({
 }) {
   return (
     <View style={styles.stateScreen}>
-      <Ionicons name="cloud-offline-outline" size={32} color={NOTE_COLORS.ink40} />
+      <Ionicons
+        name="cloud-offline-outline"
+        size={32}
+        color={NOTE_COLORS.ink40}
+      />
       <Text style={styles.stateTitle}>thought gerade nicht erreichbar</Text>
       <Text style={styles.stateText}>{message}</Text>
       <Pressable onPress={onRetry} style={styles.retryButton}>

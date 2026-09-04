@@ -32,6 +32,8 @@ import { DayPicker } from "@/components/DayPicker";
 import {
   NOTE_SANS,
   NOTE_SANS_MEDIUM,
+  NOTE_SCREEN_CONTENT_TOP_GAP,
+  NOTE_SCREEN_TOP_OFFSET,
   NOTE_SERIF,
 } from "@/components/NoteUI";
 import {
@@ -136,7 +138,9 @@ function sortedNotes(notes: ThoughtCard[]): ThoughtCard[] {
     const timeDifference =
       parseApiTimestamp(right.recordedAt).getTime() -
       parseApiTimestamp(left.recordedAt).getTime();
-    return timeDifference || right.relativePath.localeCompare(left.relativePath);
+    return (
+      timeDifference || right.relativePath.localeCompare(left.relativePath)
+    );
   });
 }
 
@@ -296,9 +300,7 @@ export default function ThoughtsFeedScreen() {
     setDayNotes((current) => {
       const next = new Map(current);
       for (const [date, notes] of data.notes) {
-        if (
-          data.requestedAt < (latestDayRequestAt.current.get(date) ?? 0)
-        ) {
+        if (data.requestedAt < (latestDayRequestAt.current.get(date) ?? 0)) {
           continue;
         }
         latestDayRequestAt.current.set(date, data.requestedAt);
@@ -349,9 +351,7 @@ export default function ThoughtsFeedScreen() {
     try {
       const { notes } = await fetchNotesForDate(date);
       if (latestDayRequestAt.current.get(date) !== requestedAt) return;
-      setDayNotes((current) =>
-        new Map(current).set(date, sortedNotes(notes)),
-      );
+      setDayNotes((current) => new Map(current).set(date, sortedNotes(notes)));
       const confirmedPaths = new Set(
         notes.map(({ relativePath }) => relativePath),
       );
@@ -533,8 +533,7 @@ export default function ThoughtsFeedScreen() {
                   sortedNotes([
                     note,
                     ...notes.filter(
-                      ({ relativePath }) =>
-                        relativePath !== note.relativePath,
+                      ({ relativePath }) => relativePath !== note.relativePath,
                     ),
                   ]),
                 );
@@ -649,7 +648,10 @@ export default function ThoughtsFeedScreen() {
       <View
         style={[
           styles.header,
-          { paddingTop: Math.max(insets.top - 4, 0), paddingBottom: 2 },
+          {
+            paddingTop: Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0),
+            paddingBottom: 2,
+          },
         ]}
       >
         <Text style={styles.brand}>thoughts</Text>
@@ -672,7 +674,9 @@ export default function ThoughtsFeedScreen() {
         <SkeletonFeed />
       ) : showLoadError ? (
         <View style={styles.errorState}>
-          <Text style={styles.errorText}>Der Tag konnte nicht geladen werden.</Text>
+          <Text style={styles.errorText}>
+            Der Tag konnte nicht geladen werden.
+          </Text>
           <Pressable
             accessibilityRole="button"
             onPress={() => void loadDay(selectedDate)}
@@ -758,7 +762,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     flexGrow: 1,
-    paddingTop: 18,
+    paddingTop: NOTE_SCREEN_CONTENT_TOP_GAP,
     paddingHorizontal: 18,
     paddingBottom: 170,
   },
@@ -825,7 +829,7 @@ const styles = StyleSheet.create({
   },
   skeletonFeed: {
     flex: 1,
-    paddingTop: 18,
+    paddingTop: NOTE_SCREEN_CONTENT_TOP_GAP,
     paddingHorizontal: 18,
     paddingBottom: 170,
   },

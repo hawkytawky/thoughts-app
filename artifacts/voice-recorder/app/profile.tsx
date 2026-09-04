@@ -15,6 +15,7 @@ import { BottomTabBar } from "@/components/BottomTabBar";
 import {
   NOTE_SANS,
   NOTE_SANS_MEDIUM,
+  NOTE_SCREEN_TOP_OFFSET,
   NOTE_SERIF,
 } from "@/components/NoteUI";
 import { useActiveRecording } from "@/lib/active-recording";
@@ -60,11 +61,13 @@ function birthDateLabel(value: string | null | undefined): string {
   }).format(date);
 }
 
-function displayName(user: {
-  display_name: string | null;
-  given_name: string | null;
-  family_name: string | null;
-} | null): string {
+function displayName(
+  user: {
+    display_name: string | null;
+    given_name: string | null;
+    family_name: string | null;
+  } | null,
+): string {
   if (!user) return "Dein Account";
   const fullName = [user.given_name, user.family_name]
     .filter(Boolean)
@@ -165,7 +168,7 @@ export default function ProfileScreen() {
           styles.content,
           {
             paddingBottom: 170,
-            paddingTop: Math.max(insets.top - 4, 0),
+            paddingTop: Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0),
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -190,11 +193,7 @@ export default function ProfileScreen() {
             label="Geburtsdatum"
             value={birthDateLabel(user?.date_of_birth)}
           />
-          <InfoRow
-            label="Angabe"
-            value={genderLabel(user?.gender)}
-            last
-          />
+          <InfoRow label="Angabe" value={genderLabel(user?.gender)} last />
         </View>
 
         <SectionLabel>ANMELDUNG</SectionLabel>
@@ -238,7 +237,9 @@ export default function ProfileScreen() {
           >
             <View style={styles.dangerCopy}>
               <Text style={styles.dangerTitle}>Account und Daten löschen</Text>
-              <Text style={styles.dangerHint}>Dauerhaft und unwiderruflich</Text>
+              <Text style={styles.dangerHint}>
+                Dauerhaft und unwiderruflich
+              </Text>
             </View>
             {isDeleting ? (
               <ActivityIndicator size="small" color={COLORS.danger} />

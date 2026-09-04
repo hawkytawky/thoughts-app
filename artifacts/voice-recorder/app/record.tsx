@@ -42,6 +42,7 @@ import {
 } from "@/lib/location-permission";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  NOTE_SCREEN_TOP_OFFSET,
   NOTE_SERIF as SERIF,
   NOTE_SERIF_ITALIC as SERIF_ITALIC,
 } from "@/components/NoteUI";
@@ -967,7 +968,8 @@ function RecorderScreen() {
 
   const isActive = screenState === "recording";
   const paddingTop =
-    Math.max(insets.top - 4, 0) + (Platform.OS === "web" ? 52 : 0);
+    Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0) +
+    (Platform.OS === "web" ? 52 : 0);
   const paddingBottom = insets.bottom + (Platform.OS === "web" ? 30 : 28);
 
   const shellStyle = [styles.root, { paddingTop, paddingBottom }];

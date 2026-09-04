@@ -43,7 +43,9 @@ function mutatePendingThoughts(
   return mutation;
 }
 
-export async function addPendingThought(thought: PendingThought): Promise<void> {
+export async function addPendingThought(
+  thought: PendingThought,
+): Promise<void> {
   await mutatePendingThoughts((current) => [
     thought,
     ...current.filter(({ id }) => id !== thought.id),
@@ -85,9 +87,7 @@ export async function markPendingThoughtProcessingFailed(
   );
 }
 
-export async function markPendingThoughtProcessing(
-  id: string,
-): Promise<void> {
+export async function markPendingThoughtProcessing(id: string): Promise<void> {
   await mutatePendingThoughts((current) =>
     current.map((thought) =>
       thought.id === id
@@ -104,5 +104,13 @@ export async function markPendingThoughtProcessing(
 export async function removePendingThought(id: string): Promise<void> {
   await mutatePendingThoughts((current) =>
     current.filter((thought) => thought.id !== id),
+  );
+}
+
+export async function removePendingThoughtByRemotePath(
+  remotePath: string,
+): Promise<void> {
+  await mutatePendingThoughts((current) =>
+    current.filter((thought) => thought.remotePath !== remotePath),
   );
 }

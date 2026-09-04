@@ -17,45 +17,35 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BottomSheetModal } from "@/components/BottomSheetModal";
 import {
   NOTE_COLORS as C,
   NOTE_SANS,
   NOTE_SANS_MEDIUM,
+  NOTE_SCREEN_CONTENT_TOP_GAP,
+  NOTE_SCREEN_TOP_OFFSET,
   NOTE_SANS_SEMIBOLD,
   NOTE_SERIF,
   NOTE_SERIF_ITALIC,
   NoteError,
   NoteLoading,
   NoteTag,
-  NOTE_CATEGORY_TEXT_OPACITY,
-  noteCategoryColor,
 } from "@/components/NoteUI";
 import {
   type FeaturedNote,
+  deleteThought,
   fetchNoteStatus,
   formatDuration,
   formatNoteDate,
   formatTimestamp,
 } from "@/lib/featured-note";
 import { useActiveRecording } from "@/lib/active-recording";
+import { clearFeedCache } from "@/lib/feed-bootstrap";
+import { removePendingThoughtByRemotePath } from "@/lib/pending-thoughts";
 import { buildThoughtPdfHtml } from "@/lib/thought-share";
 
 type DetailView = "summary" | "transcript";
-
-function categoryLabel(type: string): string {
-  const labels: Record<string, string> = {
-    IDEA: "Idee",
-    REFLECTION: "Reflexion",
-    DECISION: "Entscheidung",
-    QUESTION: "Frage",
-    TASK: "Aufgabe",
-    PROBLEM: "Problem",
-    OBSERVATION: "Beobachtung",
-    PLAN: "Plan",
-    MEMORY: "Erinnerung",
-  };
-  return labels[type] ?? type.toLocaleLowerCase("de-DE");
-}
+const DELETE_COLOR = "#A0524D";
 
 function Section({
   title,
@@ -84,7 +74,10 @@ function PointList({
       {items.map((item, index) => (
         <View
           key={`${index}-${item}`}
-          style={[styles.pointRow, index === items.length - 1 && styles.lastRow]}
+          style={[
+            styles.pointRow,
+            index === items.length - 1 && styles.lastRow,
+          ]}
         >
           <View
             style={[
@@ -136,7 +129,10 @@ function SummaryView({
     <>
       <Section title="Zusammenfassung">
         {note.summary.split(/\n\s*\n/).map((paragraph, index) => (
-          <Text key={paragraph} style={[styles.paragraph, index > 0 && styles.paragraphGap]}>
+          <Text
+            key={paragraph}
+            style={[styles.paragraph, index > 0 && styles.paragraphGap]}
+          >
             {paragraph}
           </Text>
         ))}
@@ -282,6 +278,8 @@ export default function ThoughtDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [detailView, setDetailView] = useState<DetailView>("summary");
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -299,7 +297,9 @@ export default function ThoughtDetailScreen() {
       if (!readyNote) throw new Error("Dieser thought wird noch verarbeitet");
       setNote(readyNote);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unbekannter Fehler");
+      setError(
+        loadError instanceof Error ? loadError.message : "Unbekannter Fehler",
+      );
     }
   }, [path]);
 
@@ -352,6 +352,44 @@ export default function ThoughtDetailScreen() {
     }
   };
 
+  const performDeletion = async () => {
+    if (deleting) return;
+    setActionMenuOpen(false);
+    setDeleting(true);
+    try {
+      await deleteThought(note.id);
+      await Promise.allSettled([
+        clearFeedCache(),
+        removePendingThoughtByRemotePath(note.relativePath),
+      ]);
+      router.back();
+    } catch (deleteError) {
+      Alert.alert(
+        "Löschen nicht möglich",
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Der thought konnte nicht gelöscht werden.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const confirmDeletion = () => {
+    Alert.alert(
+      "Thought löschen?",
+      "Der Thought und seine Aufnahme werden dauerhaft gelöscht. Das kann nicht rückgängig gemacht werden.",
+      [
+        { text: "Abbrechen", style: "cancel" },
+        {
+          text: "Löschen",
+          style: "destructive",
+          onPress: () => void performDeletion(),
+        },
+      ],
+    );
+  };
+
   const copyTranscript = async () => {
     const transcript =
       note.transcript.text.trim() ||
@@ -384,35 +422,45 @@ export default function ThoughtDetailScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={[styles.stickyHeader, { paddingTop: insets.top + 10 }]}>
+      <View
+        style={[
+          styles.stickyHeader,
+          {
+            paddingTop: Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0),
+          },
+        ]}
+      >
         <View style={styles.nav}>
-          <View style={styles.navLeft}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Zurück"
-              hitSlop={12}
-              onPress={() => router.back()}
-            >
-              <Ionicons name="chevron-back" size={24} color={C.ink60} />
-            </Pressable>
-            <Text
-              style={[styles.kind, { color: noteCategoryColor(note.type) }]}
-            >
-              {categoryLabel(note.type)}
-            </Text>
-          </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="thought teilen"
-            accessibilityState={{ disabled: sharing }}
-            disabled={sharing}
-            hitSlop={10}
-            onPress={() => void shareNote()}
+            accessibilityLabel="Zurück"
+            hitSlop={8}
+            onPress={() => router.back()}
+            style={({ pressed }) => [
+              styles.navButton,
+              styles.backButton,
+              pressed && styles.navButtonPressed,
+            ]}
           >
-            {sharing ? (
+            <Ionicons name="chevron-back" size={24} color={C.ink60} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Weitere Aktionen"
+            accessibilityState={{ disabled: deleting || sharing }}
+            disabled={deleting || sharing}
+            hitSlop={8}
+            onPress={() => setActionMenuOpen(true)}
+            style={({ pressed }) => [
+              styles.navButton,
+              styles.menuButton,
+              pressed && styles.navButtonPressed,
+            ]}
+          >
+            {deleting || sharing ? (
               <ActivityIndicator size="small" color={C.skyDeep} />
             ) : (
-              <Ionicons name="share-outline" size={20} color={C.ink60} />
+              <Ionicons name="ellipsis-horizontal" size={23} color={C.ink60} />
             )}
           </Pressable>
         </View>
@@ -427,17 +475,21 @@ export default function ThoughtDetailScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: 10,
-            paddingBottom:
-              insets.bottom + (activeRecording.active ? 112 : 40),
+            paddingTop: NOTE_SCREEN_CONTENT_TOP_GAP,
+            paddingBottom: insets.bottom + (activeRecording.active ? 112 : 40),
           },
         ]}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.title}>{note.title}</Text>
-        <Text style={styles.metaLine}>
-          {formatNoteDate(note.recordedAt)} · {formatDuration(note.durationSeconds)} min
-        </Text>
+        <View style={styles.metaRow}>
+          <Text style={styles.metaText}>
+            {formatNoteDate(note.recordedAt, true)}
+          </Text>
+          <Text style={styles.metaText}>
+            {formatDuration(note.durationSeconds)} min
+          </Text>
+        </View>
         {theme ? <Text style={styles.themeLine}>{theme}</Text> : null}
 
         <View style={styles.segmentedControl}>
@@ -451,7 +503,12 @@ export default function ThoughtDetailScreen() {
                 onPress={() => setDetailView(view)}
                 style={[styles.segment, active && styles.segmentActive]}
               >
-                <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
+                <Text
+                  style={[
+                    styles.segmentText,
+                    active && styles.segmentTextActive,
+                  ]}
+                >
                   {view === "summary" ? "Summary" : "Transkript"}
                 </Text>
               </Pressable>
@@ -477,8 +534,48 @@ export default function ThoughtDetailScreen() {
             onCopy={() => void copyTranscript()}
           />
         )}
-
       </ScrollView>
+      <BottomSheetModal
+        closeLabel="Aktionsmenü schließen"
+        onClose={() => setActionMenuOpen(false)}
+        visible={actionMenuOpen}
+      >
+        <View
+          style={[
+            styles.actionSheet,
+            { paddingBottom: Math.max(insets.bottom, 16) },
+          ]}
+        >
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setActionMenuOpen(false);
+              setTimeout(() => void shareNote(), 200);
+            }}
+            style={({ pressed }) => [
+              styles.actionRow,
+              pressed && styles.actionRowPressed,
+            ]}
+          >
+            <Ionicons name="share-outline" size={21} color={C.ink60} />
+            <Text style={styles.actionText}>Teilen</Text>
+          </Pressable>
+          <View style={styles.actionDivider} />
+          <Pressable
+            accessibilityRole="button"
+            onPress={confirmDeletion}
+            style={({ pressed }) => [
+              styles.actionRow,
+              pressed && styles.actionRowPressed,
+            ]}
+          >
+            <Ionicons name="trash-outline" size={21} color={DELETE_COLOR} />
+            <Text style={[styles.actionText, styles.actionDanger]}>
+              Löschen
+            </Text>
+          </Pressable>
+        </View>
+      </BottomSheetModal>
     </View>
   );
 }
@@ -499,47 +596,51 @@ const styles = StyleSheet.create({
     height: 14,
   },
   nav: {
-    minHeight: 38,
-    paddingHorizontal: 4,
-    paddingBottom: 8,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  navLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
-  kind: {
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 13,
-    opacity: NOTE_CATEGORY_TEXT_OPACITY,
+  navButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  backButton: { marginLeft: -4 },
+  menuButton: { marginRight: -4 },
+  navButtonPressed: { opacity: 0.5 },
   title: {
     paddingHorizontal: 6,
     fontFamily: NOTE_SERIF,
     fontSize: 26,
     lineHeight: 33,
     color: C.ink,
-    marginBottom: 8,
+    marginBottom: 14,
   },
-  metaLine: {
+  metaRow: {
     paddingHorizontal: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  metaText: {
     fontFamily: NOTE_SANS,
     fontSize: 11,
     lineHeight: 17,
     color: C.ink40,
-    marginBottom: 8,
   },
   themeLine: {
     paddingHorizontal: 6,
-    marginTop: -3,
-    marginBottom: 14,
+    marginTop: 8,
     fontFamily: NOTE_SANS,
     fontSize: 13,
     color: C.ink40,
   },
   segmentedControl: {
     marginHorizontal: 6,
-    marginTop: 7,
-    marginBottom: 20,
+    marginTop: 24,
+    marginBottom: 28,
     padding: 3,
     borderRadius: 99,
     backgroundColor: C.skyLight,
@@ -567,9 +668,9 @@ const styles = StyleSheet.create({
   },
   segmentTextActive: { color: C.ink60 },
   detailsToggle: {
-    minHeight: 48,
+    minHeight: 54,
     marginHorizontal: 6,
-    marginBottom: 14,
+    marginBottom: 24,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: C.divider,
     flexDirection: "row",
@@ -582,25 +683,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: C.ink60,
   },
-  detailsContent: { paddingTop: 2 },
-  section: { paddingHorizontal: 6, marginBottom: 14 },
+  detailsContent: { paddingTop: 4 },
+  section: { paddingHorizontal: 6, marginBottom: 26 },
   sectionHeading: {
     fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 11,
     letterSpacing: 1.2,
     textTransform: "uppercase",
     color: C.ink40,
-    marginBottom: 8,
+    marginBottom: 11,
   },
   paragraph: {
     fontFamily: NOTE_SANS,
-    fontSize: 13,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 23,
     color: C.ink70,
   },
-  paragraphGap: { marginTop: 8 },
+  paragraphGap: { marginTop: 12 },
   pointRow: {
-    paddingVertical: 4,
+    paddingVertical: 6,
     paddingLeft: 15,
     position: "relative",
   },
@@ -608,7 +709,7 @@ const styles = StyleSheet.create({
   bullet: {
     position: "absolute",
     left: 2,
-    top: 12,
+    top: 14,
     width: 4,
     height: 4,
     borderRadius: 2,
@@ -617,12 +718,12 @@ const styles = StyleSheet.create({
   pointText: {
     flex: 1,
     fontFamily: NOTE_SANS,
-    fontSize: 13,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 23,
     color: C.ink70,
   },
   stepRow: {
-    paddingVertical: 4,
+    paddingVertical: 6,
     flexDirection: "row",
     gap: 12,
   },
@@ -641,10 +742,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
     marginBottom: 8,
   },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 },
   transcriptHeader: {
     minHeight: 32,
-    marginBottom: 6,
+    marginBottom: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -657,17 +758,49 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   copyButtonPressed: { opacity: 0.5 },
-  transcriptBlock: { marginBottom: 16 },
+  transcriptBlock: { marginBottom: 22 },
   timestamp: {
     fontFamily: NOTE_SANS,
     fontSize: 11,
     color: C.ink40,
-    marginBottom: 4,
+    marginBottom: 6,
   },
   transcriptText: {
     fontFamily: NOTE_SANS,
-    fontSize: 13,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 23,
     color: C.ink70,
   },
+  actionSheet: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    paddingTop: 8,
+    paddingHorizontal: 12,
+    borderRadius: 22,
+    backgroundColor: C.card,
+    shadowColor: C.ink,
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  actionRow: {
+    minHeight: 54,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  actionRowPressed: { opacity: 0.5 },
+  actionText: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 15,
+    color: C.ink,
+  },
+  actionDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 45,
+    backgroundColor: C.divider,
+  },
+  actionDanger: { color: DELETE_COLOR },
 });

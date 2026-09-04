@@ -135,7 +135,10 @@ async function apiError(response: Response): Promise<Error> {
     detail =
       typeof body.detail === "string"
         ? body.detail
-        : (body.detail?.map(({ msg }) => msg).filter(Boolean).join(", ") ?? "");
+        : (body.detail
+            ?.map(({ msg }) => msg)
+            .filter(Boolean)
+            .join(", ") ?? "");
   } catch {
     // The HTTP status remains useful when the response has no JSON body.
   }
@@ -176,7 +179,8 @@ function toFeaturedNote(recording: BackendRecording): FeaturedNote | null {
     durationSeconds: Math.max(0, (recording.duration_ms ?? 0) / 1_000),
     wordCount:
       recording.word_count ??
-      (recording.transcript?.trim().split(/\s+/).filter(Boolean).length ?? 0),
+      recording.transcript?.trim().split(/\s+/).filter(Boolean).length ??
+      0,
     audioBytes: 0,
     transcript: {
       text: recording.transcript?.trim() ?? "",
@@ -237,15 +241,18 @@ export async function fetchNoteStatus(
   return state.status === "ready" ? state.note : null;
 }
 
-export async function retryNoteProcessing(
-  recordingId: string,
-): Promise<void> {
+export async function retryNoteProcessing(recordingId: string): Promise<void> {
+  const response = await backendFetch(`/recordings/${recordingId}/retry`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) throw await apiError(response);
+}
+
+export async function deleteThought(recordingId: string): Promise<void> {
   const response = await backendFetch(
-    `/recordings/${recordingId}/retry`,
-    {
-      method: "POST",
-      headers: { Accept: "application/json" },
-    },
+    `/recordings/${encodeURIComponent(recordingId)}`,
+    { method: "DELETE" },
   );
   if (!response.ok) throw await apiError(response);
 }

@@ -77,6 +77,26 @@ describe("pending thoughts", () => {
     ]);
   });
 
+  it("removes the local pending entry after its remote thought is deleted", async () => {
+    const {
+      addPendingThought,
+      getPendingThoughts,
+      markPendingThoughtUploaded,
+      removePendingThoughtByRemotePath,
+    } = await import("./pending-thoughts");
+
+    await addPendingThought({
+      id: "local-file",
+      createdAt: "2026-09-04T08:00:00Z",
+      durationSeconds: 12,
+      locationLabel: "Berlin",
+    });
+    await markPendingThoughtUploaded("local-file", "recording-id");
+    await removePendingThoughtByRemotePath("recording-id");
+
+    expect(await getPendingThoughts()).toEqual([]);
+  });
+
   it("recovers safely from malformed local storage", async () => {
     storage.getItem.mockResolvedValueOnce("not-json");
     const { getPendingThoughts } = await import("./pending-thoughts");

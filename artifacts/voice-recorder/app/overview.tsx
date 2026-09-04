@@ -26,7 +26,11 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
-import { NOTE_SANS, NOTE_SERIF } from "@/components/NoteUI";
+import {
+  NOTE_SANS,
+  NOTE_SCREEN_TOP_OFFSET,
+  NOTE_SERIF,
+} from "@/components/NoteUI";
 import { GalaxyGraph } from "@/components/overview/GalaxyGraph";
 import { TimeFlow } from "@/components/overview/TimeFlow";
 import { formatApiDate } from "@/lib/featured-note";
@@ -347,7 +351,10 @@ export default function OverviewScreen() {
       <View
         style={[
           styles.header,
-          { paddingTop: Math.max(insets.top - 4, 0), paddingBottom: 2 },
+          {
+            paddingTop: Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0),
+            paddingBottom: 2,
+          },
         ]}
       >
         <Text style={styles.brand}>thoughts</Text>
