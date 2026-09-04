@@ -12,7 +12,14 @@ import {
   Text,
   View,
 } from "react-native";
-import { Audio, InterruptionModeIOS } from "expo-av";
+import {
+  type AudioRecorder,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from "expo-audio";
 import { BlurView } from "expo-blur";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
@@ -40,6 +47,13 @@ import {
 } from "@/components/NoteUI";
 import { SkyBackground } from "@/components/SkyBackground";
 import { authConfig, backendFetch } from "@/lib/auth";
+import {
+  formatRecordingTime,
+  isBackgroundAudioSessionError,
+  metadataUriFor,
+  meteringToAmplitude,
+  withTimeout,
+} from "@/lib/recording-utils";
 
 const C = {
   ink: "#10180F",
@@ -66,6 +80,10 @@ const INITIAL_AMPLITUDES = Array.from({ length: WAVE_POINT_COUNT }, () => 0);
 const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings-v2/`;
 const NOTE_NUMBER_KEY = "@thoughts/next-note-number";
 const RECORDING_API_URL = authConfig.apiUrl;
+const RECORDING_OPTIONS = {
+  ...RecordingPresets.HIGH_QUALITY,
+  isMeteringEnabled: true,
+};
 
 type CreateRecordingResponse = {
   recording_id: string;
@@ -98,20 +116,6 @@ type StoppedRecording = {
   location: RecordingLocation | null;
 };
 
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  fallback: T,
-): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const timeoutResult = new Promise<T>((resolve) => {
-    timeout = setTimeout(() => resolve(fallback), timeoutMs);
-  });
-  const result = await Promise.race([promise, timeoutResult]);
-  if (timeout) clearTimeout(timeout);
-  return result;
-}
-
 async function waitForActiveAudioSession(): Promise<void> {
   if (Platform.OS !== "ios") return;
 
@@ -135,15 +139,6 @@ async function waitForActiveAudioSession(): Promise<void> {
   // iOS reports the React Native app as active just before AVAudioSession can
   // reliably be activated when entering through a deep link / Action Button.
   await new Promise<void>((resolve) => setTimeout(resolve, 180));
-}
-
-function isBackgroundAudioSessionError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /background|audio session could not be activated/i.test(message);
-}
-
-function metadataUriFor(localUri: string): string {
-  return localUri.replace(/\.m4a$/, ".location.json");
 }
 
 async function readRecordingMetadata(
@@ -180,7 +175,10 @@ async function responseError(
     const detail =
       typeof body.detail === "string"
         ? body.detail
-        : (body.detail?.map(({ msg }) => msg).filter(Boolean).join(", ") ?? "");
+        : (body.detail
+            ?.map(({ msg }) => msg)
+            .filter(Boolean)
+            .join(", ") ?? "");
     return new Error(detail || body.error || fallback);
   } catch {
     return new Error(fallback);
@@ -278,9 +276,7 @@ async function uploadRecording(localUri: string): Promise<string> {
     },
   );
   if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
-    throw new Error(
-      `Audio-Upload fehlgeschlagen (${uploadResponse.status}).`,
-    );
+    throw new Error(`Audio-Upload fehlgeschlagen (${uploadResponse.status}).`);
   }
 
   const completeResponse = await backendFetch(
@@ -330,33 +326,8 @@ function syncPendingRecordings(): Promise<void> {
   return pendingRecordingSync;
 }
 
-function meteringToAmplitude(decibels: number | undefined): number {
-  if (decibels === undefined || !Number.isFinite(decibels)) return 0;
-
-  // Keep ambient room noise still while preserving a soft onset for speech.
-  const silenceFloor = -40;
-  const loudSpeech = -10;
-  if (decibels <= silenceFloor) return 0;
-
-  const normalized = Math.min(
-    1,
-    (decibels - silenceFloor) / (loudSpeech - silenceFloor),
-  );
-  const eased = normalized * normalized * (3 - 2 * normalized);
-  return Math.pow(eased, 1.18);
-}
-
-function formatTime(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60)
-    .toString()
-    .padStart(2, "0");
-  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
-  return `${minutes}:${seconds}`;
-}
-
 function Timer({ durationMs }: { durationMs: number }) {
-  const time = formatTime(durationMs);
+  const time = formatRecordingTime(durationMs);
 
   return (
     <Text
@@ -496,7 +467,9 @@ function RecorderScreen() {
   const [saveErrorTitle, setSaveErrorTitle] = useState(
     "Aufnahme noch nicht abgelegt",
   );
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const audioRecorder = useAudioRecorder(RECORDING_OPTIONS);
+  const recorderState = useAudioRecorderState(audioRecorder, 65);
+  const recordingRef = useRef<AudioRecorder | null>(null);
   const stoppedRecordingRef = useRef<StoppedRecording | null>(null);
   const startingRef = useRef(false);
   const locationEnabledRef = useRef(false);
@@ -509,6 +482,41 @@ function RecorderScreen() {
   const levelHistoryRef = useRef<number[]>(
     Array.from({ length: WAVE_HISTORY_POINTS }, () => 0),
   );
+
+  useEffect(() => {
+    if (!recorderState.isRecording) return;
+    setDurationMs(recorderState.durationMillis);
+    const target = meteringToAmplitude(recorderState.metering);
+    const current = smoothedLevelRef.current;
+    const response = target > current ? 0.82 : 0.26;
+    const nextLevel = current + (target - current) * response;
+    const settledLevel = nextLevel < 0.012 ? 0 : nextLevel;
+    smoothedLevelRef.current = settledLevel;
+
+    const history = [
+      settledLevel,
+      ...levelHistoryRef.current.slice(0, WAVE_HISTORY_POINTS - 1),
+    ];
+    levelHistoryRef.current = history;
+
+    const mirrored = [
+      ...history.slice(1).reverse(),
+      history[0],
+      ...history.slice(1),
+    ];
+    const center = (mirrored.length - 1) / 2;
+    setAmplitudes(
+      mirrored.map((sample, index) => {
+        const distance = Math.abs(index - center) / center;
+        const envelope = 0.28 + 0.72 * (1 - Math.pow(distance, 1.45));
+        return sample * envelope;
+      }),
+    );
+  }, [
+    recorderState.durationMillis,
+    recorderState.isRecording,
+    recorderState.metering,
+  ]);
 
   const captureLocation =
     useCallback(async (): Promise<RecordingLocation | null> => {
@@ -582,60 +590,24 @@ function RecorderScreen() {
     if (startingRef.current || recordingRef.current) return;
     startingRef.current = true;
     try {
-      const onRecordingStatusUpdate = (status: Audio.RecordingStatus) => {
-        if (!status.isRecording) return;
-        setDurationMs(status.durationMillis ?? 0);
-        const target = meteringToAmplitude(status.metering);
-        const current = smoothedLevelRef.current;
-        const response = target > current ? 0.82 : 0.26;
-        const nextLevel = current + (target - current) * response;
-        const settledLevel = nextLevel < 0.012 ? 0 : nextLevel;
-        smoothedLevelRef.current = settledLevel;
-
-        const history = [
-          settledLevel,
-          ...levelHistoryRef.current.slice(0, WAVE_HISTORY_POINTS - 1),
-        ];
-        levelHistoryRef.current = history;
-
-        const mirrored = [
-          ...history.slice(1).reverse(),
-          history[0],
-          ...history.slice(1),
-        ];
-        const center = (mirrored.length - 1) / 2;
-        setAmplitudes(
-          mirrored.map((sample, index) => {
-            const distance = Math.abs(index - center) / center;
-            const envelope = 0.28 + 0.72 * (1 - Math.pow(distance, 1.45));
-            return sample * envelope;
-          }),
-        );
-      };
-
-      let recording: Audio.Recording | null = null;
+      let recording: AudioRecorder | null = null;
       for (let attempt = 0; attempt < 2 && !recording; attempt += 1) {
         await waitForActiveAudioSession();
         try {
-          await Audio.setAudioModeAsync({
-            allowsRecordingIOS: true,
-            playsInSilentModeIOS: true,
+          await setAudioModeAsync({
+            allowsRecording: true,
+            playsInSilentMode: true,
             // Paired with the UIBackgroundModes "audio" entitlement so leaving
             // the app does not cut the recording short.
-            staysActiveInBackground: true,
-            interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+            allowsBackgroundRecording: true,
+            shouldPlayInBackground: true,
+            interruptionMode: "doNotMix",
           });
-          const created = await Audio.Recording.createAsync(
-            {
-              ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-              isMeteringEnabled: true,
-            },
-            onRecordingStatusUpdate,
-            65,
-          );
-          recording = created.recording;
+          await audioRecorder.prepareToRecordAsync();
+          audioRecorder.record();
+          recording = audioRecorder;
         } catch (error) {
-          await Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(
+          await setAudioModeAsync({ allowsRecording: false }).catch(
             () => undefined,
           );
           if (attempt === 0 && isBackgroundAudioSessionError(error)) continue;
@@ -664,7 +636,7 @@ function RecorderScreen() {
     } finally {
       startingRef.current = false;
     }
-  }, [captureLocation]);
+  }, [audioRecorder, captureLocation]);
 
   const startNextRecording = useCallback(() => {
     if (
@@ -773,23 +745,26 @@ function RecorderScreen() {
 
     setScreenState("stopping");
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const sourceUri = recording.getURI();
+    let sourceUri = recording.uri;
+    let stoppedDurationMs = durationMs;
     try {
-      setSavedDurationMs(durationMs);
-      await recording.stopAndUnloadAsync();
+      await recording.stop();
+      const status = recording.getStatus();
+      sourceUri = recording.uri ?? status.url ?? sourceUri;
+      stoppedDurationMs = Math.max(durationMs, status.durationMillis);
       recordingRef.current = null;
     } catch (error) {
       console.error("stop error:", error);
-      const status = await recording.getStatusAsync().catch(() => null);
+      const status = recording.getStatus();
+      sourceUri = recording.uri ?? status.url ?? sourceUri;
       if (status?.isRecording) {
         setScreenState("recording");
         return;
       }
       recordingRef.current = null;
     }
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(
-      () => undefined,
-    );
+    setSavedDurationMs(stoppedDurationMs);
+    await setAudioModeAsync({ allowsRecording: false }).catch(() => undefined);
 
     if (!sourceUri) {
       setSaveErrorTitle("Aufnahme noch nicht abgelegt");
@@ -802,7 +777,7 @@ function RecorderScreen() {
     const location = locationEnabledRef.current
       ? await withTimeout(captureLocation(), 2_000, fallbackLocation)
       : null;
-    const stopped = { sourceUri, durationMs, location };
+    const stopped = { sourceUri, durationMs: stoppedDurationMs, location };
     stoppedRecordingRef.current = stopped;
     await finishStoppedRecording(stopped);
   }, [captureLocation, durationMs, finishStoppedRecording]);
@@ -819,10 +794,11 @@ function RecorderScreen() {
     recordingRef.current = null;
     setScreenState("discarding");
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const uri = recording.getURI();
+    let uri = recording.uri;
     try {
-      await recording.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      await recording.stop();
+      uri = recording.uri ?? recording.getStatus().url ?? uri;
+      await setAudioModeAsync({ allowsRecording: false });
     } catch (error) {
       console.error("discard error:", error);
     } finally {
@@ -931,10 +907,7 @@ function RecorderScreen() {
 
   useEffect(() => {
     if (screenState !== "saved" || !isFocusedRef.current) return;
-    const timeout = setTimeout(
-      () => router.replace("/" as Href),
-      1_000,
-    );
+    const timeout = setTimeout(() => router.replace("/" as Href), 1_000);
     return () => clearTimeout(timeout);
   }, [router, screenState]);
 
@@ -981,14 +954,14 @@ function RecorderScreen() {
         void captureLocation();
       }
 
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status === "granted") await startRecording();
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (granted) await startRecording();
       else setScreenState("denied");
     })();
 
     return () => {
       clearActiveRecording();
-      void recordingRef.current?.stopAndUnloadAsync().catch(() => {});
+      void recordingRef.current?.stop().catch(() => {});
     };
   }, [captureLocation, startRecording]);
 
@@ -1067,7 +1040,7 @@ function RecorderScreen() {
           </View>
           <Text style={styles.status}>abgelegt</Text>
           <Text style={styles.savedDuration}>
-            {formatTime(savedDurationMs)}
+            {formatRecordingTime(savedDurationMs)}
           </Text>
           <Text style={styles.savedPath}>
             {syncState === "uploaded" && remotePath

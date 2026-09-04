@@ -9,7 +9,7 @@ dist/
 web-build/
 expo-env.d.ts
 
-# Native
+# Native projects are generated with `pnpm prebuild:ios` (Expo CNG).
 ios/
 android/
 *.orig.*

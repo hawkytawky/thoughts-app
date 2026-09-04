@@ -1,39 +1,21 @@
 # thoughts
 
-An organic, minimal voice recorder for capturing thoughts without friction.
+A calm place to record and revisit thoughts. The app is built with Expo and talks to the FastAPI backend hosted on Azure.
 
-## Run & Operate
+## Develop
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm --filter @workspace/thoughts run dev` — start the Expo dev server for the mobile app
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+```sh
+pnpm install --frozen-lockfile
+pnpm --filter @workspace/thoughts dev
+```
 
-### Environment
+The app needs `EXPO_PUBLIC_THOUGHTS_API_URL`, `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`, and `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`.
 
-- `DATABASE_URL` — Postgres connection string (required by the API server)
-- `EXPO_PUBLIC_THOUGHTS_API_URL` — public HTTPS URL of the Azure Thoughts API
-- `EXPO_PUBLIC_ENTRA_AUTHORITY` — Microsoft Entra External ID authority
-- `EXPO_PUBLIC_ENTRA_IOS_CLIENT_ID` — public iOS application client ID
-- `EXPO_PUBLIC_ENTRA_API_SCOPE` — delegated Thoughts API scope
-- `EXPO_PUBLIC_ENTRA_REDIRECT_URI` — native iOS authentication redirect URI
+## Check
 
-## Stack
+```sh
+pnpm typecheck
+pnpm test
+```
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- Mobile: Expo / React Native (expo-router)
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
-
-## Layout
-
-- `artifacts/voice-recorder` — Expo/React Native mobile app
-- `artifacts/api-server` — Express API server
-- `artifacts/mockup-sandbox` — Vite design/mockup sandbox
-- `lib/*` — shared packages (db, api-spec, api-zod, api-client-react)
-- `scripts` — workspace operational scripts
+The native folders are generated and intentionally ignored. Recreate iOS with `pnpm --filter @workspace/thoughts prebuild:ios`. EAS profiles live in [artifacts/voice-recorder/eas.json](artifacts/voice-recorder/eas.json); the Maestro smoke test runs with `pnpm --filter @workspace/thoughts e2e` after installing Maestro.

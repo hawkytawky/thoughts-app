@@ -1,0 +1,8 @@
+appId: com.otto.thoughts
+name: App starts at sign in
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Gedanken brauchen Raum."
+- assertVisible: "Mit Google fortfahren"
+- assertVisible: "Privat. Sicher. Nur für dich."

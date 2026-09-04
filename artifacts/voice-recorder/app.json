@@ -5,9 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": [
-      "thoughts"
-    ],
+    "scheme": ["thoughts"],
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -17,10 +15,9 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.otto.thoughts",
       "buildNumber": "3",
+      "appleTeamId": "J2NG98FJQ5",
       "infoPlist": {
-        "UIBackgroundModes": [
-          "audio"
-        ]
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
@@ -35,7 +32,7 @@
       "expo-web-browser",
       "expo-secure-store",
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": "Allow thoughts to access your microphone to record audio."
         }

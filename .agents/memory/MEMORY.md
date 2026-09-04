@@ -1,1 +1,0 @@
-- [Expo Go SDK 54 crash causes](expo-audio-expo-go.md) — SplashScreen.hideAsync() is the main silent crash; expo-audio also crashes; expo-av works

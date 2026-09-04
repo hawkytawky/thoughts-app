@@ -1992,21 +1992,6 @@ export function GalaxyGraph({
         </View>
       </GestureDetector>
 
-      {period !== "today" && selectedTheme && !themeClosing ? (
-        <Pressable
-          accessibilityLabel="Zurück zur allgemeinen Themenansicht"
-          accessibilityRole="button"
-          hitSlop={10}
-          onPress={closeTheme}
-          style={({ pressed }) => [
-            styles.overviewButton,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text style={styles.overviewButtonText}>← Alle Themen</Text>
-        </Pressable>
-      ) : null}
-
       {status === "loading" ? (
         <View pointerEvents="none" style={styles.center}>
           <ActivityIndicator color={C.sky} />
@@ -2083,27 +2068,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.07,
     lineHeight: 16,
     textAlign: "center",
-  },
-  overviewButton: {
-    position: "absolute",
-    top: 12,
-    left: 14,
-    zIndex: 18,
-    minHeight: 36,
-    justifyContent: "center",
-    borderRadius: 18,
-    backgroundColor: "rgba(255, 255, 255, 0.88)",
-    paddingHorizontal: 14,
-    shadowColor: C.ink,
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 4,
-  },
-  overviewButtonText: {
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 12.5,
-    color: C.ink70,
   },
   sheet: {
     position: "absolute",

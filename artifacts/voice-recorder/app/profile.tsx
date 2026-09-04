@@ -33,7 +33,6 @@ const COLORS = {
 function providerLabel(provider: string | undefined): string {
   const labels: Record<string, string> = {
     apple: "Apple",
-    entra: "Microsoft Entra",
     google: "Google",
   };
   if (!provider) return "Nicht verfügbar";
