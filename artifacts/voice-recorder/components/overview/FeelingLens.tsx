@@ -102,6 +102,21 @@ function bandPath(samples: FeelingFlowSample[]) {
   return path;
 }
 
+function percentageBars(layout: FeelingLayout) {
+  const centerGap = Math.min(
+    layout.percentageX[1] - layout.percentageX[0],
+    layout.percentageX[2] - layout.percentageX[1],
+  );
+  const maxWidth = Math.max(1, centerGap - 18);
+  const largestPercentage = Math.max(1, ...layout.percentages);
+  return layout.percentages.map((percentage, index) => ({
+    centerX: layout.percentageX[index],
+    color: feelingColor([-0.8, 0, 0.8][index]),
+    percentage,
+    width: maxWidth * (percentage / largestPercentage),
+  }));
+}
+
 function drawSwarm(
   layout: FeelingLayout,
   selectedThoughtId: string | null,
@@ -137,20 +152,12 @@ function drawSwarm(
     segmentPaint.setStrokeWidth(0.8);
     segmentPaint.setAlphaf(0.55);
     const segmentY = FEELING_SWARM_HEIGHT - 22;
-    const segments: [number, number, number][] = [
-      [-1, -FEELING_THRESHOLD, -0.8],
-      [-FEELING_THRESHOLD, FEELING_THRESHOLD, 0],
-      [FEELING_THRESHOLD, 1, 0.8],
-    ];
-    for (const [start, end, value] of segments) {
-      const xForValue = (valence: number) =>
-        FEELING_HORIZONTAL_PAD +
-        ((valence + 1) / 2) * (layout.width - 2 * FEELING_HORIZONTAL_PAD);
-      segmentPaint.setColor(Skia.Color(feelingColor(value)));
+    for (const bar of percentageBars(layout)) {
+      segmentPaint.setColor(Skia.Color(bar.color));
       canvas.drawLine(
-        xForValue(start) + 3,
+        bar.centerX - bar.width / 2,
         segmentY,
-        xForValue(end) - 3,
+        bar.centerX + bar.width / 2,
         segmentY,
         segmentPaint,
       );
@@ -497,18 +504,18 @@ export function FeelingLens({
           </GestureDetector>
           {layout.swarmPoints.length > 0 ? (
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-              {layout.percentages.map((percentage, index) => (
+              {percentageBars(layout).map((bar, index) => (
                 <Text
                   key={index}
                   style={[
                     styles.percentage,
                     {
-                      color: feelingColor([-0.8, 0, 0.8][index]),
-                      left: layout.percentageX[index] - 34,
+                      color: bar.color,
+                      left: bar.centerX - 34,
                     },
                   ]}
                 >
-                  {percentage} %
+                  {bar.percentage} %
                 </Text>
               ))}
             </View>
@@ -520,7 +527,15 @@ export function FeelingLens({
           style={[styles.thoughtPreview, { opacity: selectionOpacity }]}
         >
           {selectedThought ? (
-            <View style={styles.previewRow}>
+            <Pressable
+              accessibilityLabel={`${selectedThought.title}. Vollständigen Thought öffnen`}
+              accessibilityRole="button"
+              onPress={openSelectedThought}
+              style={({ pressed }) => [
+                styles.previewRow,
+                pressed && styles.previewRowPressed,
+              ]}
+            >
               <Text style={styles.selectionPrimary} numberOfLines={2}>
                 {selectedThought.title}
                 {selectedThought.themeLabel ? (
@@ -529,20 +544,10 @@ export function FeelingLens({
                   </Text>
                 ) : null}
               </Text>
-              <Pressable
-                accessibilityLabel="Vollständigen Thought öffnen"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={openSelectedThought}
-                style={({ pressed }) => [
-                  styles.openButton,
-                  pressed && styles.openButtonPressed,
-                ]}
-              >
-                <Text style={styles.openButtonText}>öffnen</Text>
-                <Ionicons name="arrow-forward" size={12} color={MUTED} />
-              </Pressable>
-            </View>
+              <View pointerEvents="none" style={styles.previewArrow}>
+                <Ionicons name="arrow-forward" size={14} color={MUTED} />
+              </View>
+            </Pressable>
           ) : null}
         </NativeAnimated.View>
 
@@ -665,9 +670,13 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
   },
   previewRow: {
+    minHeight: 36,
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 10,
+  },
+  previewRowPressed: {
+    opacity: 0.5,
   },
   selectionPrimary: {
     flex: 1,
@@ -681,25 +690,13 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     color: MUTED,
   },
-  openButton: {
-    minHeight: 28,
-    marginTop: -3,
-    paddingHorizontal: 9,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(138,148,156,0.42)",
+  previewArrow: {
+    width: 28,
+    height: 28,
     borderRadius: 14,
-    flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-  },
-  openButtonPressed: {
-    opacity: 0.5,
-  },
-  openButtonText: {
-    fontFamily: NOTE_SANS,
-    fontSize: 10.5,
-    lineHeight: 13,
-    color: MUTED,
+    justifyContent: "center",
+    backgroundColor: "rgba(36,53,66,0.045)",
   },
   flowSectionLabel: {
     marginTop: 18,
