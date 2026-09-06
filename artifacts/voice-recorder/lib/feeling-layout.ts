@@ -1,7 +1,8 @@
 import type { Graph, GraphNode } from "@/lib/visualizations";
 
-export const FEELING_SWARM_HEIGHT = 150;
-export const FEELING_FLOW_HEIGHT = 190;
+export const FEELING_SWARM_HEIGHT = 160;
+export const FEELING_SWARM_CENTER_Y = 62;
+export const FEELING_FLOW_HEIGHT = 230;
 export const FEELING_HORIZONTAL_PAD = 8;
 export const FEELING_WORD_CAP = 600;
 export const FEELING_THRESHOLD = 0.25;
@@ -257,7 +258,7 @@ export function buildFeelingLayout(
   if (!bounds) return empty;
 
   const radius = 3.6;
-  const centerY = FEELING_SWARM_HEIGHT / 2;
+  const centerY = FEELING_SWARM_CENTER_Y;
   const columnCounts = new Map<number, number>();
   const sorted = [...thoughts].sort(
     (left, right) =>

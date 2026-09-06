@@ -131,10 +131,12 @@ function graphForPeriod(graph: Graph | null, period: Period): Graph | null {
 }
 
 function ViewModeButton({
+  feelingStyle,
   index,
   selected,
   onPress,
 }: {
+  feelingStyle: boolean;
   index: number;
   selected: boolean;
   onPress: () => void;
@@ -148,11 +150,13 @@ function ViewModeButton({
     });
   }, [progress, selected]);
 
-  const textStyle = useAnimatedStyle(() => ({
-    color: `rgba(${Math.round(182 + (29 - 182) * progress.value)}, ${Math.round(
-      196 + (59 - 196) * progress.value,
-    )}, ${Math.round(203 + (79 - 203) * progress.value)}, 1)`,
-  }));
+  const textStyle = useAnimatedStyle(() => {
+    const inactive = feelingStyle ? [179, 187, 194] : [182, 196, 203];
+    const active = feelingStyle ? [36, 53, 66] : [29, 59, 79];
+    return {
+      color: `rgba(${Math.round(inactive[0] + (active[0] - inactive[0]) * progress.value)}, ${Math.round(inactive[1] + (active[1] - inactive[1]) * progress.value)}, ${Math.round(inactive[2] + (active[2] - inactive[2]) * progress.value)}, 1)`,
+    };
+  });
 
   return (
     <Pressable
@@ -162,7 +166,13 @@ function ViewModeButton({
       onPress={onPress}
       style={({ pressed }) => pressed && styles.pressed}
     >
-      <Animated.Text style={[styles.viewModeLabel, textStyle]}>
+      <Animated.Text
+        style={[
+          styles.viewModeLabel,
+          feelingStyle && styles.viewModeLabelFeeling,
+          textStyle,
+        ]}
+      >
         {VIEW_MODES[index]}
       </Animated.Text>
     </Pressable>
@@ -357,13 +367,16 @@ export default function OverviewScreen() {
       <View
         style={[
           styles.header,
+          feelingActive && styles.headerFeeling,
           {
             paddingTop: Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0),
             paddingBottom: 2,
           },
         ]}
       >
-        <Text style={styles.brand}>thoughts</Text>
+        <Text style={[styles.brand, feelingActive && styles.brandFeeling]}>
+          thoughts
+        </Text>
         <Pressable
           accessibilityLabel={`Zeitraum auswählen. Aktuell ${periodLabel}`}
           accessibilityRole="button"
@@ -373,15 +386,30 @@ export default function OverviewScreen() {
             pressed && styles.pressed,
           ]}
         >
-          <Text style={styles.periodButtonText}>{periodLabel}</Text>
-          <Ionicons name="chevron-down" size={12} color={COLORS.inkSoft} />
+          <Text
+            style={[
+              styles.periodButtonText,
+              feelingActive && styles.periodButtonTextFeeling,
+            ]}
+          >
+            {periodLabel}
+          </Text>
+          <Ionicons
+            name="chevron-down"
+            size={12}
+            color={feelingActive ? "#8A949C" : COLORS.inkSoft}
+          />
         </Pressable>
       </View>
 
-      <View accessibilityRole="tablist" style={styles.viewModes}>
+      <View
+        accessibilityRole="tablist"
+        style={[styles.viewModes, feelingActive && styles.viewModesFeeling]}
+      >
         {VIEW_MODES.map((viewMode, index) => (
           <ViewModeButton
             key={viewMode}
+            feelingStyle={feelingActive}
             index={index}
             onPress={() => selectViewMode(index)}
             selected={index === activeViewModeIndex}
@@ -471,11 +499,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  headerFeeling: {
+    paddingHorizontal: 22,
+    alignItems: "baseline",
+  },
   brand: {
     fontFamily: NOTE_SERIF,
     fontSize: 18,
     letterSpacing: 0.1,
     color: COLORS.ink,
+  },
+  brandFeeling: {
+    fontSize: 27,
+    letterSpacing: -0.27,
+    color: "#243542",
   },
   periodButton: {
     minHeight: 44,
@@ -490,6 +527,11 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     color: COLORS.inkSoft,
   },
+  periodButtonTextFeeling: {
+    fontFamily: NOTE_SANS,
+    fontSize: 14,
+    color: "#8A949C",
+  },
   viewModes: {
     paddingTop: 10,
     paddingBottom: 2,
@@ -498,12 +540,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 22,
   },
+  viewModesFeeling: {
+    paddingTop: 14,
+    paddingHorizontal: 22,
+    gap: 20,
+  },
   viewModeLabel: {
     fontFamily: NOTE_SANS,
     fontSize: 12.5,
     fontWeight: "400",
     letterSpacing: 0.875,
     color: COLORS.viewModeInactive,
+  },
+  viewModeLabelFeeling: {
+    fontSize: 15,
+    letterSpacing: 0,
   },
   pager: { flex: 1, position: "relative" },
   page: {

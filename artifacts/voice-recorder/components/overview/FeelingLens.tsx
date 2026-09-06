@@ -1,11 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated as NativeAnimated,
   LayoutChangeEvent,
+  Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import {
   Canvas,
   createPicture,
@@ -18,12 +20,14 @@ import {
   vec,
 } from "@shopify/react-native-skia";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { type Href, useRouter } from "expo-router";
 import { runOnJS } from "react-native-reanimated";
 import { NOTE_SANS, NOTE_SERIF } from "@/components/NoteUI";
 import {
   buildFeelingLayout,
   FEELING_FLOW_HEIGHT,
   FEELING_HORIZONTAL_PAD,
+  FEELING_SWARM_CENTER_Y,
   FEELING_SWARM_HEIGHT,
   FEELING_THRESHOLD,
   feelingColor,
@@ -43,6 +47,7 @@ const GRAPH_WIDTH = 349;
 const FLOW_TOP = 10;
 const FLOW_BOTTOM = 22;
 const SWARM_RADIUS = 3.6;
+const FLOW_POINT_HIT_RADIUS = 14;
 
 const GRAIN_SHADER = Skia.RuntimeEffect.Make(`
 uniform float2 resolution;
@@ -103,7 +108,7 @@ function drawSwarm(
   selectedDate: string | null,
 ) {
   return createPicture((canvas) => {
-    const centerY = FEELING_SWARM_HEIGHT / 2;
+    const centerY = FEELING_SWARM_CENTER_Y;
     const axisPaint = Skia.Paint();
     axisPaint.setAntiAlias(true);
     axisPaint.setColor(Skia.Color(AXIS));
@@ -125,6 +130,30 @@ function drawSwarm(
         FEELING_HORIZONTAL_PAD +
         ((threshold + 1) / 2) * (layout.width - 2 * FEELING_HORIZONTAL_PAD);
       canvas.drawLine(x, centerY - 6, x, centerY + 6, tickPaint);
+    }
+
+    const segmentPaint = Skia.Paint();
+    segmentPaint.setAntiAlias(true);
+    segmentPaint.setStrokeWidth(0.8);
+    segmentPaint.setAlphaf(0.55);
+    const segmentY = FEELING_SWARM_HEIGHT - 22;
+    const segments: [number, number, number][] = [
+      [-1, -FEELING_THRESHOLD, -0.8],
+      [-FEELING_THRESHOLD, FEELING_THRESHOLD, 0],
+      [FEELING_THRESHOLD, 1, 0.8],
+    ];
+    for (const [start, end, value] of segments) {
+      const xForValue = (valence: number) =>
+        FEELING_HORIZONTAL_PAD +
+        ((valence + 1) / 2) * (layout.width - 2 * FEELING_HORIZONTAL_PAD);
+      segmentPaint.setColor(Skia.Color(feelingColor(value)));
+      canvas.drawLine(
+        xForValue(start) + 3,
+        segmentY,
+        xForValue(end) - 3,
+        segmentY,
+        segmentPaint,
+      );
     }
 
     const selectedDateIds = new Set(
@@ -149,7 +178,11 @@ function drawSwarm(
   });
 }
 
-function drawFlow(layout: FeelingLayout, selectedDate: string | null) {
+function drawFlow(
+  layout: FeelingLayout,
+  selectedDate: string | null,
+  selectedThoughtId: string | null,
+) {
   return createPicture((canvas) => {
     const axisPaint = Skia.Paint();
     axisPaint.setAntiAlias(true);
@@ -196,42 +229,17 @@ function drawFlow(layout: FeelingLayout, selectedDate: string | null) {
     for (const point of layout.flowPoints) {
       pointPaint.setColor(Skia.Color(point.color));
       pointPaint.setAlphaf(
-        selectedDate ? (point.date === selectedDate ? 1 : 0.12) : point.alpha,
+        selectedThoughtId
+          ? point.id === selectedThoughtId
+            ? 1
+            : 0.12
+          : selectedDate
+            ? point.date === selectedDate
+              ? 1
+              : 0.12
+            : point.alpha,
       );
       canvas.drawCircle(point.x, point.y, 1.7, pointPaint);
-    }
-
-    if (selectedDate) {
-      const selectedPoint = layout.flowPoints.find(
-        (point) => point.date === selectedDate,
-      );
-      const dayValue = layout.dayValues[selectedDate];
-      if (selectedPoint && dayValue != null) {
-        const markerY =
-          FLOW_TOP +
-          ((1 - dayValue) / 2) * (FEELING_FLOW_HEIGHT - FLOW_TOP - FLOW_BOTTOM);
-        const markerLine = Skia.Paint();
-        markerLine.setAntiAlias(true);
-        markerLine.setColor(Skia.Color(INK));
-        markerLine.setStrokeWidth(0.7);
-        markerLine.setAlphaf(0.35);
-        canvas.drawLine(
-          selectedPoint.x,
-          FLOW_TOP,
-          selectedPoint.x,
-          FEELING_FLOW_HEIGHT - FLOW_BOTTOM + 2,
-          markerLine,
-        );
-
-        const marker = Skia.Paint();
-        marker.setAntiAlias(true);
-        marker.setColor(Skia.Color(feelingColor(dayValue)));
-        canvas.drawCircle(selectedPoint.x, markerY, 4.2, marker);
-        marker.setStyle(PaintStyle.Stroke);
-        marker.setStrokeWidth(0.9);
-        marker.setColor(Skia.Color(INK));
-        canvas.drawCircle(selectedPoint.x, markerY, 4.2, marker);
-      }
     }
   });
 }
@@ -271,12 +279,30 @@ export function FeelingLens({
   graph: Graph | null;
   period: FeelingPeriod;
 }) {
+  const router = useRouter();
   const [width, setWidth] = useState(GRAPH_WIDTH);
   const [selectedThoughtId, setSelectedThoughtId] = useState<string | null>(
     null,
   );
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const selectionOpacity = useMemo(() => new NativeAnimated.Value(0), []);
+  const markerOpacity = useMemo(() => new NativeAnimated.Value(0), []);
+  const markerX = useMemo(() => new NativeAnimated.Value(0), []);
+  const markerY = useMemo(() => new NativeAnimated.Value(0), []);
+  const markerColor = useMemo(
+    () =>
+      markerY.interpolate({
+        inputRange: [
+          FLOW_TOP,
+          FLOW_TOP + (FEELING_FLOW_HEIGHT - FLOW_TOP - FLOW_BOTTOM) / 2,
+          FEELING_FLOW_HEIGHT - FLOW_BOTTOM,
+        ],
+        outputRange: [feelingColor(1), feelingColor(0), feelingColor(-1)],
+      }),
+    [markerY],
+  );
+  const selectedDateRef = useRef<string | null>(null);
+  const selectionVisibleRef = useRef(false);
   const thoughts = useMemo(() => feelingThoughtsFromGraph(graph), [graph]);
   const layout = useMemo(
     () => buildFeelingLayout(thoughts, period, width),
@@ -286,8 +312,11 @@ export function FeelingLens({
   useEffect(() => {
     setSelectedThoughtId(null);
     setSelectedDate(null);
+    selectedDateRef.current = null;
+    selectionVisibleRef.current = false;
     selectionOpacity.setValue(0);
-  }, [layout, selectionOpacity]);
+    markerOpacity.setValue(0);
+  }, [layout, markerOpacity, selectionOpacity]);
 
   const selectedThought = selectedThoughtId
     ? (layout.thoughts.find(({ id }) => id === selectedThoughtId) ?? null)
@@ -301,12 +330,46 @@ export function FeelingLens({
     : null;
 
   const animateSelection = () => {
+    if (selectionVisibleRef.current) return;
+    selectionVisibleRef.current = true;
     selectionOpacity.setValue(0);
     NativeAnimated.timing(selectionOpacity, {
       toValue: 1,
       duration: 200,
       useNativeDriver: true,
     }).start();
+  };
+
+  const showMarker = (x: number) => {
+    if (layout.flowSamples.length === 0) return;
+    const clampedX = Math.min(
+      layout.width - FEELING_HORIZONTAL_PAD,
+      Math.max(FEELING_HORIZONTAL_PAD, x),
+    );
+    const usableWidth = Math.max(1, layout.width - 2 * FEELING_HORIZONTAL_PAD);
+    const samplePosition =
+      ((clampedX - FEELING_HORIZONTAL_PAD) / usableWidth) *
+      (layout.flowSamples.length - 1);
+    const leftIndex = Math.floor(samplePosition);
+    const rightIndex = Math.min(layout.flowSamples.length - 1, leftIndex + 1);
+    const progress = samplePosition - leftIndex;
+    const easedProgress = progress * progress * (3 - 2 * progress);
+    const left = layout.flowSamples[leftIndex];
+    const right = layout.flowSamples[rightIndex];
+    markerX.setValue(clampedX);
+    markerY.setValue(left.y + (right.y - left.y) * easedProgress);
+    markerOpacity.setValue(1);
+  };
+
+  const selectThought = (thoughtId: string) => {
+    const thought = layout.thoughts.find(({ id }) => id === thoughtId);
+    const flowPoint = layout.flowPoints.find(({ id }) => id === thoughtId);
+    if (!thought || !flowPoint) return;
+    selectedDateRef.current = thought.date;
+    setSelectedDate(thought.date);
+    setSelectedThoughtId(thought.id);
+    showMarker(flowPoint.x);
+    animateSelection();
   };
 
   const chooseThoughtAt = (x: number, y: number) => {
@@ -319,9 +382,16 @@ export function FeelingLens({
         distance = nextDistance;
       }
     }
+    if (closest) {
+      selectThought(closest.id);
+      return;
+    }
+    selectedDateRef.current = null;
     setSelectedDate(null);
-    setSelectedThoughtId(closest?.id ?? null);
-    if (closest) animateSelection();
+    setSelectedThoughtId(null);
+    markerOpacity.setValue(0);
+    selectionVisibleRef.current = false;
+    selectionOpacity.setValue(0);
   };
 
   const chooseDayAt = (x: number) => {
@@ -332,8 +402,13 @@ export function FeelingLens({
     ) {
       setSelectedDate(null);
       setSelectedThoughtId(null);
+      selectedDateRef.current = null;
+      markerOpacity.setValue(0);
+      selectionVisibleRef.current = false;
+      selectionOpacity.setValue(0);
       return;
     }
+    showMarker(x);
     const dates = Object.keys(layout.thoughtIdsByDate);
     let closestDate: string | null = null;
     let distance = Number.POSITIVE_INFINITY;
@@ -348,25 +423,59 @@ export function FeelingLens({
         distance = nextDistance;
       }
     }
+    if (!closestDate) return;
     setSelectedThoughtId(null);
-    setSelectedDate(closestDate);
-    if (closestDate) animateSelection();
+    if (selectedDateRef.current !== closestDate) {
+      selectedDateRef.current = closestDate;
+      setSelectedDate(closestDate);
+      animateSelection();
+    }
+  };
+
+  const chooseFlowPointAt = (x: number, y: number) => {
+    let closest: (typeof layout.flowPoints)[number] | null = null;
+    let distance = Number.POSITIVE_INFINITY;
+    for (const point of layout.flowPoints) {
+      const nextDistance = (point.x - x) ** 2 + (point.y - y) ** 2;
+      if (
+        nextDistance <= FLOW_POINT_HIT_RADIUS ** 2 &&
+        nextDistance < distance
+      ) {
+        closest = point;
+        distance = nextDistance;
+      }
+    }
+    if (closest) selectThought(closest.id);
+    else chooseDayAt(x);
+  };
+
+  const openSelectedThought = () => {
+    if (!selectedThought) return;
+    router.push(
+      `/thoughts/detail?path=${encodeURIComponent(selectedThought.id)}` as Href,
+    );
   };
 
   const swarmGesture = Gesture.Tap()
     .maxDistance(12)
     .onEnd(({ x, y }) => runOnJS(chooseThoughtAt)(x, y));
-  const flowGesture = Gesture.Tap()
-    .maxDistance(12)
-    .onEnd(({ x }) => runOnJS(chooseDayAt)(x));
+  const flowGesture = Gesture.Pan()
+    .minDistance(0)
+    .onBegin(({ x }) => runOnJS(chooseDayAt)(x))
+    .onUpdate(({ x }) => runOnJS(chooseDayAt)(x))
+    .onFinalize(({ x, y, translationX, translationY }) => {
+      if (Math.hypot(translationX, translationY) <= 6) {
+        runOnJS(chooseFlowPointAt)(x, y);
+      }
+    });
 
   const swarmPicture = useMemo(
     () => drawSwarm(layout, selectedThoughtId, selectedDate),
     [layout, selectedDate, selectedThoughtId],
   );
   const flowPicture = useMemo(
-    () => drawFlow(layout, selectedDate),
-    [layout, selectedDate],
+    () => drawFlow(layout, selectedDate, selectedThoughtId),
+    [layout, selectedDate, selectedThoughtId],
   );
 
   const onLayout = (event: LayoutChangeEvent) => {
@@ -377,6 +486,7 @@ export function FeelingLens({
   return (
     <View style={styles.root}>
       <View style={styles.content} onLayout={onLayout}>
+        <Text style={styles.sectionLabel}>VERTEILUNG</Text>
         <View style={styles.swarmWrap}>
           <GestureDetector gesture={swarmGesture}>
             <View style={styles.swarmCanvas}>
@@ -406,20 +516,45 @@ export function FeelingLens({
         </View>
 
         <NativeAnimated.View
-          pointerEvents="none"
-          style={[styles.selectionLine, { opacity: selectionOpacity }]}
+          pointerEvents={selectedThought ? "auto" : "none"}
+          style={[styles.thoughtPreview, { opacity: selectionOpacity }]}
         >
           {selectedThought ? (
-            <Text style={styles.selectionPrimary} numberOfLines={2}>
-              {selectedThought.title}
-              {selectedThought.themeLabel ? (
-                <Text style={styles.selectionSecondary}>
-                  {`  ${selectedThought.themeLabel}`}
-                </Text>
-              ) : null}
-            </Text>
-          ) : selectedDate && selectedDay ? (
-            <Text style={styles.selectionPrimary} numberOfLines={2}>
+            <View style={styles.previewRow}>
+              <Text style={styles.selectionPrimary} numberOfLines={2}>
+                {selectedThought.title}
+                {selectedThought.themeLabel ? (
+                  <Text style={styles.selectionSecondary}>
+                    {`  ${selectedThought.themeLabel}`}
+                  </Text>
+                ) : null}
+              </Text>
+              <Pressable
+                accessibilityLabel="Vollständigen Thought öffnen"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={openSelectedThought}
+                style={({ pressed }) => [
+                  styles.openButton,
+                  pressed && styles.openButtonPressed,
+                ]}
+              >
+                <Text style={styles.openButtonText}>öffnen</Text>
+                <Ionicons name="arrow-forward" size={12} color={MUTED} />
+              </Pressable>
+            </View>
+          ) : null}
+        </NativeAnimated.View>
+
+        <Text style={[styles.sectionLabel, styles.flowSectionLabel]}>
+          VERLAUF
+        </Text>
+        <NativeAnimated.View
+          pointerEvents="none"
+          style={[styles.daySelection, { opacity: selectionOpacity }]}
+        >
+          {selectedDate && selectedDay ? (
+            <Text style={styles.selectionPrimary} numberOfLines={1}>
               {selectedDay.primary}
               <Text style={styles.selectionSecondary}>
                 {`  ${selectedDay.secondary}`}
@@ -434,6 +569,30 @@ export function FeelingLens({
               <Canvas style={StyleSheet.absoluteFill}>
                 <Picture picture={flowPicture} />
               </Canvas>
+              <NativeAnimated.View
+                pointerEvents="none"
+                style={[
+                  styles.markerLine,
+                  {
+                    opacity: markerOpacity,
+                    transform: [{ translateX: markerX }],
+                  },
+                ]}
+              />
+              <NativeAnimated.View
+                pointerEvents="none"
+                style={[
+                  styles.marker,
+                  {
+                    opacity: markerOpacity,
+                    transform: [
+                      { translateX: markerX },
+                      { translateY: markerY },
+                    ],
+                    backgroundColor: markerColor,
+                  },
+                ]}
+              />
             </View>
           </GestureDetector>
           {layout.flowPoints.length > 0 ? (
@@ -456,7 +615,7 @@ export function FeelingLens({
             <Fill>
               <Shader
                 source={GRAIN_SHADER}
-                uniforms={{ resolution: [width, 458] }}
+                uniforms={{ resolution: [width, 600] }}
               />
             </Fill>
           </Canvas>
@@ -473,8 +632,16 @@ const styles = StyleSheet.create({
     backgroundColor: FIELD,
   },
   content: {
-    paddingTop: 34,
+    paddingTop: 26,
     paddingHorizontal: 22,
+  },
+  sectionLabel: {
+    marginBottom: 10,
+    fontFamily: NOTE_SANS,
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 1.32,
+    color: MUTED,
   },
   swarmWrap: {
     height: FEELING_SWARM_HEIGHT,
@@ -485,19 +652,25 @@ const styles = StyleSheet.create({
   },
   percentage: {
     position: "absolute",
-    top: FEELING_SWARM_HEIGHT - 16,
+    top: FEELING_SWARM_HEIGHT - 18,
     width: 68,
     fontFamily: NOTE_SANS,
     fontSize: 12,
     lineHeight: 16,
     textAlign: "center",
   },
-  selectionLine: {
+  thoughtPreview: {
     minHeight: 44,
     marginTop: 14,
     justifyContent: "flex-start",
   },
+  previewRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
   selectionPrimary: {
+    flex: 1,
     fontFamily: NOTE_SERIF,
     fontSize: 15.5,
     lineHeight: 22,
@@ -508,13 +681,59 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     color: MUTED,
   },
+  openButton: {
+    minHeight: 28,
+    marginTop: -3,
+    paddingHorizontal: 9,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(138,148,156,0.42)",
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  openButtonPressed: {
+    opacity: 0.5,
+  },
+  openButtonText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 10.5,
+    lineHeight: 13,
+    color: MUTED,
+  },
+  flowSectionLabel: {
+    marginTop: 18,
+  },
+  daySelection: {
+    minHeight: 24,
+    marginBottom: 6,
+    justifyContent: "flex-start",
+  },
   flowWrap: {
     height: FEELING_FLOW_HEIGHT,
-    marginTop: 26,
     position: "relative",
   },
   flowCanvas: {
     height: FEELING_FLOW_HEIGHT,
+    overflow: "hidden",
+  },
+  markerLine: {
+    position: "absolute",
+    top: FLOW_TOP,
+    left: -0.35,
+    width: 0.7,
+    height: FEELING_FLOW_HEIGHT - FLOW_TOP - FLOW_BOTTOM + 2,
+    backgroundColor: "rgba(36,53,66,0.35)",
+  },
+  marker: {
+    position: "absolute",
+    top: -4.2,
+    left: -4.2,
+    width: 8.4,
+    height: 8.4,
+    borderRadius: 4.2,
+    borderWidth: 0.9,
+    borderColor: INK,
   },
   month: {
     position: "absolute",
