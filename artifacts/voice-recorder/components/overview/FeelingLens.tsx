@@ -239,7 +239,12 @@ function drawFlow(
               : 0.12
             : point.alpha,
       );
-      canvas.drawCircle(point.x, point.y, 1.7, pointPaint);
+      canvas.drawCircle(
+        point.x,
+        point.y,
+        point.id === selectedThoughtId ? 3.2 : 1.7,
+        pointPaint,
+      );
     }
   });
 }
@@ -340,7 +345,7 @@ export function FeelingLens({
     }).start();
   };
 
-  const showMarker = (x: number) => {
+  const showCurveMarker = (x: number) => {
     if (layout.flowSamples.length === 0) return;
     const clampedX = Math.min(
       layout.width - FEELING_HORIZONTAL_PAD,
@@ -361,6 +366,12 @@ export function FeelingLens({
     markerOpacity.setValue(1);
   };
 
+  const showThoughtMarker = (point: (typeof layout.flowPoints)[number]) => {
+    markerX.setValue(point.x);
+    markerY.setValue(point.y);
+    markerOpacity.setValue(1);
+  };
+
   const selectThought = (thoughtId: string) => {
     const thought = layout.thoughts.find(({ id }) => id === thoughtId);
     const flowPoint = layout.flowPoints.find(({ id }) => id === thoughtId);
@@ -368,7 +379,7 @@ export function FeelingLens({
     selectedDateRef.current = thought.date;
     setSelectedDate(thought.date);
     setSelectedThoughtId(thought.id);
-    showMarker(flowPoint.x);
+    showThoughtMarker(flowPoint);
     animateSelection();
   };
 
@@ -408,7 +419,7 @@ export function FeelingLens({
       selectionOpacity.setValue(0);
       return;
     }
-    showMarker(x);
+    showCurveMarker(x);
     const dates = Object.keys(layout.thoughtIdsByDate);
     let closestDate: string | null = null;
     let distance = Number.POSITIVE_INFINITY;
