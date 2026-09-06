@@ -55,7 +55,8 @@ import {
   buildNetworkPointOffsets,
   NETWORK_POINT_RADIUS,
   placeNetworkLabels,
-  type NetworkPointOffset,
+  selectNetworkOverviewEdges,
+  type NetworkOverviewEdge,
 } from "@/lib/network-overview-layout";
 
 const W = 361;
@@ -67,8 +68,7 @@ const LABEL_HEIGHT = 16;
 const LABEL_MAX_WIDTH = 138;
 const MIN_THEME_RADIUS = 14;
 const OVERVIEW_TOP = 48;
-const OVERVIEW_BOTTOM = H - 122;
-const LEGACY_LAYOUT_BOTTOM = H - 86;
+const OVERVIEW_BOTTOM = H - 86;
 const SHEET_BOTTOM_INSET = 104;
 const SHEET_CLOSE_DISTANCE = 32;
 const SHEET_CLOSE_VELOCITY = 650;
@@ -104,9 +104,10 @@ const HAZE_PALETTE = [
   "#B19A4A",
   "#A777BF",
 ] as const;
-const OVERVIEW_PALETTE = ["#768FBE", "#779E85", "#C57F87", "#9E90B8"] as const;
+const OVERVIEW_PALETTE = ["#7E94C2", "#91AD9A", "#C88F96", "#AA9ABC"] as const;
 const GREY = "#969EA6";
 const OVERVIEW_INK = "#59636B";
+const OVERVIEW_EDGE = "#8A949C";
 const MAX_RETAINED_POSITIONS = 400;
 
 type ThemeLayout = {
@@ -127,9 +128,6 @@ type ThemeLayout = {
   cx: number;
   cy: number;
   radius: number;
-  overviewCx: number;
-  overviewCy: number;
-  overviewRadius: number;
   tilt: number;
   eccentricity: number;
   labelX: number;
@@ -167,6 +165,7 @@ type GalaxyLayout = {
   thoughts: ThoughtLayout[];
   dust: DustLayout[];
   similarities: number[];
+  overviewEdges: NetworkOverviewEdge[];
   signature: string;
 };
 
@@ -274,12 +273,12 @@ function fallbackShortLabel(title: string): string {
   const head = normalized.split(/[,;:–—]|\sund\s/i)[0];
   const words = head.split(" ").filter(Boolean).slice(0, 2);
   const label = words.join(" ") || first;
-  if (words.length === 2 && estimatedLabelWidth(label) > LABEL_MAX_WIDTH) {
-    return words.join("\n");
-  }
   const hyphenParts = label.split("-").filter(Boolean);
   if (hyphenParts.length > 1) {
     return `${hyphenParts[0]}\n${hyphenParts.slice(1).join("-")}`;
+  }
+  if (words.length === 2 && estimatedLabelWidth(label) > LABEL_MAX_WIDTH) {
+    return words.join("\n");
   }
   return label;
 }
@@ -333,7 +332,7 @@ function buildSimilarityMap(graph: Graph): Map<string, number> {
 
 function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
   const signature = JSON.stringify({
-    layoutVersion: 10,
+    layoutVersion: 9,
     period,
     topics: graph.clusters.map(({ id, label }) => ({ id, label })),
     nodes: graph.nodes.map(({ id, keyword, title }) => ({
@@ -429,9 +428,6 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
         MIN_THEME_RADIUS,
         4.1 * Math.pow(visible.length, 0.75) * radiusFactor,
       ),
-      overviewCx: retained?.x ?? initialX,
-      overviewCy: retained?.y ?? initialY,
-      overviewRadius: MIN_THEME_RADIUS,
       tilt: random() * Math.PI,
       eccentricity: 0.6 + random() * 0.22,
       labelX: 0,
@@ -502,14 +498,14 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
     const fit = Math.min(
       1,
       (W - 28) / Math.max(1, maxX - minX),
-      (LEGACY_LAYOUT_BOTTOM - OVERVIEW_TOP) / Math.max(1, maxY - minY),
+      (OVERVIEW_BOTTOM - OVERVIEW_TOP) / Math.max(1, maxY - minY),
     );
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
     for (const theme of themes) {
       theme.cx = W / 2 + (theme.cx - centerX) * fit;
       theme.cy =
-        (OVERVIEW_TOP + LEGACY_LAYOUT_BOTTOM) / 2 + (theme.cy - centerY) * fit;
+        (OVERVIEW_TOP + OVERVIEW_BOTTOM) / 2 + (theme.cy - centerY) * fit;
       theme.radius = Math.max(MIN_THEME_RADIUS, theme.radius * fit);
       retainThemePosition(`${period}:${theme.id}`, {
         x: theme.cx,
@@ -518,59 +514,16 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
     }
   }
 
-  const overviewOffsetsByTheme = new Map<string, NetworkPointOffset[]>();
-  const overviewBoundsByTheme = new Map<
-    string,
-    { left: number; right: number; top: number; bottom: number }
-  >();
-  for (const theme of themes) {
-    const visible = visibleByTheme.get(theme.id) ?? [];
-    theme.overviewRadius = Math.max(12, theme.radius * 0.84);
-    const offsets = buildNetworkPointOffsets(
-      visible.length,
-      theme.overviewRadius,
-      theme.eccentricity,
-      theme.tilt,
-      theme.id,
-    );
-    overviewOffsetsByTheme.set(theme.id, offsets);
-    overviewBoundsByTheme.set(theme.id, {
-      left:
-        offsets.length > 0
-          ? Math.min(...offsets.map(({ x }) => x)) - NETWORK_POINT_RADIUS
-          : -NETWORK_POINT_RADIUS,
-      right:
-        offsets.length > 0
-          ? Math.max(...offsets.map(({ x }) => x)) + NETWORK_POINT_RADIUS
-          : NETWORK_POINT_RADIUS,
-      top:
-        offsets.length > 0
-          ? Math.min(...offsets.map(({ y }) => y)) - NETWORK_POINT_RADIUS
-          : -NETWORK_POINT_RADIUS,
-      bottom:
-        offsets.length > 0
-          ? Math.max(...offsets.map(({ y }) => y)) + NETWORK_POINT_RADIUS
-          : NETWORK_POINT_RADIUS,
-    });
-  }
-
   const labelPlacements = placeNetworkLabels(
-    themes.map((theme) => {
-      const bounds = overviewBoundsByTheme.get(theme.id);
-      return {
-        id: theme.id,
-        cx: theme.cx,
-        cy: theme.cy,
-        radius: theme.overviewRadius,
-        cloudLeft: bounds?.left,
-        cloudRight: bounds?.right,
-        cloudTop: bounds?.top,
-        cloudBottom: bounds?.bottom,
-        width: theme.labelWidth,
-        height: theme.labelHeight,
-        importance: theme.count * 10 + theme.weight,
-      };
-    }),
+    themes.map((theme) => ({
+      id: theme.id,
+      cx: theme.cx,
+      cy: theme.cy,
+      radius: theme.radius,
+      width: theme.labelWidth,
+      height: theme.labelHeight,
+      importance: theme.count * 10 + theme.weight,
+    })),
     W,
     H,
     OVERVIEW_TOP,
@@ -579,8 +532,6 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
   );
   for (const theme of themes) {
     const placement = labelPlacements[theme.id];
-    theme.overviewCx = placement.centerX;
-    theme.overviewCy = placement.centerY;
     theme.labelX = placement.x;
     theme.labelY = placement.y;
     theme.labelVisible = placement.visible;
@@ -594,7 +545,13 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
   for (const theme of themes) {
     const themeIndex = themeIndexById.get(theme.id) ?? -1;
     const visible = visibleByTheme.get(theme.id) ?? [];
-    const overviewOffsets = overviewOffsetsByTheme.get(theme.id) ?? [];
+    const overviewOffsets = buildNetworkPointOffsets(
+      visible.length,
+      theme.radius,
+      theme.eccentricity,
+      theme.tilt,
+      theme.id,
+    );
     for (let index = 0; index < visible.length; index += 1) {
       const node = visible[index];
       const random = randomFrom(`${theme.id}:${node.id}`);
@@ -642,8 +599,7 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
     const y = 28 + dustRandom() * (H - 68);
     const clearsThemes = themes.every(
       (theme) =>
-        Math.hypot(theme.overviewCx - x, theme.overviewCy - y) >
-        theme.overviewRadius * 1.25 + 16,
+        Math.hypot(theme.cx - x, theme.cy - y) > theme.radius * 1.25 + 16,
     );
     const clearsDust = dust.every(
       (point) => Math.hypot(point.x - x, point.y - y) >= 28,
@@ -669,11 +625,20 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
     }
   }
 
+  const overviewEdges = selectNetworkOverviewEdges(
+    themes.map(({ id }) => id),
+    [...similarityByPair].map(([key, similarity]) => {
+      const [sourceId, targetId] = JSON.parse(key) as [string, string];
+      return { sourceId, targetId, similarity };
+    }),
+  );
+
   const result = {
     themes,
     thoughts,
     dust,
     similarities,
+    overviewEdges,
     signature,
   };
   layoutCache.set(signature, result);
@@ -706,8 +671,8 @@ function worldPoint(
     theme.cy + ex * Math.sin(theme.tilt) + ey * Math.cos(theme.tilt) + driftY;
   const blend = clamp(overviewBlend, 0, 1);
   return {
-    x: legacyX + (theme.overviewCx + thought.overviewX - legacyX) * blend,
-    y: legacyY + (theme.overviewCy + thought.overviewY - legacyY) * blend,
+    x: legacyX + (theme.cx + thought.overviewX - legacyX) * blend,
+    y: legacyY + (theme.cy + thought.overviewY - legacyY) * blend,
   };
 }
 
@@ -1206,6 +1171,7 @@ export function GalaxyGraph({
             thoughts: [],
             dust: [],
             similarities: [],
+            overviewEdges: [],
             signature: "empty",
           } satisfies GalaxyLayout),
     [graph, period],
@@ -1631,8 +1597,8 @@ export function GalaxyGraph({
       for (let index = 0; index < layout.themes.length; index += 1) {
         const theme = layout.themes[index];
         const center = projectPoint(
-          theme.overviewCx,
-          theme.overviewCy,
+          theme.cx,
+          theme.cy,
           currentX,
           currentY,
           currentZoom,
@@ -1656,7 +1622,7 @@ export function GalaxyGraph({
           Math.abs(label.y - logicalY) <= theme.labelHeight / 2 + 8;
         const selectionDistance = labelHit ? labelDistance * 0.1 : distance;
         if (
-          (labelHit || distance < theme.overviewRadius * currentZoom * 1.6) &&
+          (labelHit || distance < theme.radius * currentZoom * 1.6) &&
           selectionDistance < bestDistance
         ) {
           bestDistance = selectionDistance;
@@ -1808,9 +1774,56 @@ export function GalaxyGraph({
       ringPaint.setStrokeWidth(1);
       const textPaint = Skia.Paint();
       textPaint.setAntiAlias(true);
+      const edgePaint = Skia.Paint();
+      edgePaint.setAntiAlias(true);
+      edgePaint.setStyle(PaintStyle.Stroke);
+      edgePaint.setStrokeWidth(0.65);
+      edgePaint.setColor(color(OVERVIEW_EDGE));
       const now = Date.now();
 
       canvas.save();
+
+      if (period !== "today" && drillTransition < 0.999) {
+        edgePaint.setAlphaf(0.24 * (1 - drillTransition));
+        for (const edge of layout.overviewEdges) {
+          const sourceTheme = layout.themes[edge.source];
+          const targetTheme = layout.themes[edge.target];
+          if (!sourceTheme || !targetTheme) continue;
+          const sourceOffset = focusedThemeOffset(
+            sourceTheme,
+            focusedTheme,
+            currentDrill,
+          );
+          const targetOffset = focusedThemeOffset(
+            targetTheme,
+            focusedTheme,
+            currentDrill,
+          );
+          const source = projectPoint(
+            sourceTheme.cx + sourceOffset.x,
+            sourceTheme.cy + sourceOffset.y,
+            cameraX.value,
+            cameraY.value,
+            currentZoom,
+            currentDrill,
+          );
+          const target = projectPoint(
+            targetTheme.cx + targetOffset.x,
+            targetTheme.cy + targetOffset.y,
+            cameraX.value,
+            cameraY.value,
+            currentZoom,
+            currentDrill,
+          );
+          canvas.drawLine(
+            source.x * sx,
+            source.y * sy,
+            target.x * sx,
+            target.y * sy,
+            edgePaint,
+          );
+        }
+      }
 
       const dustAlpha = selectedIndex >= 0 ? 1 - 0.75 * currentDrill : 1;
       pointPaint.setColor(color(GREY));
@@ -1826,9 +1839,8 @@ export function GalaxyGraph({
         const legacyRadius =
           point.size * Math.sqrt(currentZoom) * 0.75 * pointScale;
         const radius =
-          NETWORK_POINT_RADIUS * Math.sqrt(currentZoom) * pointScale +
-          (legacyRadius -
-            NETWORK_POINT_RADIUS * Math.sqrt(currentZoom) * pointScale) *
+          NETWORK_POINT_RADIUS * Math.sqrt(currentZoom) +
+          (legacyRadius - NETWORK_POINT_RADIUS * Math.sqrt(currentZoom)) *
             drillTransition;
         pointPaint.setAlphaf(
           0.62 + (point.alpha * dustAlpha - 0.62) * drillTransition,
@@ -1840,14 +1852,9 @@ export function GalaxyGraph({
         for (let index = 0; index < layout.themes.length; index += 1) {
           const theme = layout.themes[index];
           const offset = focusedThemeOffset(theme, focusedTheme, currentDrill);
-          const overviewCenterBlend = 1 - drillTransition;
           const center = projectPoint(
-            theme.cx +
-              (theme.overviewCx - theme.cx) * overviewCenterBlend +
-              offset.x,
-            theme.cy +
-              (theme.overviewCy - theme.cy) * overviewCenterBlend +
-              offset.y,
+            theme.cx + offset.x,
+            theme.cy + offset.y,
             cameraX.value,
             cameraY.value,
             currentZoom,
@@ -1922,8 +1929,7 @@ export function GalaxyGraph({
           Math.sqrt(currentZoom) *
           0.75 *
           pointScale;
-        const overviewRadius =
-          NETWORK_POINT_RADIUS * Math.sqrt(currentZoom) * pointScale;
+        const overviewRadius = NETWORK_POINT_RADIUS * Math.sqrt(currentZoom);
         const radius =
           overviewRadius + (legacyRadius - overviewRadius) * drillTransition;
         const screenX = screen.x * sx;
@@ -1940,7 +1946,7 @@ export function GalaxyGraph({
           (1 - 0.9 * dim) *
           activityFactor *
           selectedFactor;
-        const alpha = 0.7 + (legacyAlpha - 0.7) * drillTransition;
+        const alpha = 0.62 + (legacyAlpha - 0.62) * drillTransition;
 
         if (drillTransition > 0.001 && !theme.proto && thought.recency > 0.85) {
           const glowRadius = radius * 3.5;
@@ -2053,8 +2059,8 @@ export function GalaxyGraph({
           <Canvas style={StyleSheet.absoluteFill}>
             <Picture picture={picture} />
           </Canvas>
-          {layout.themes.map((theme) =>
-            period === "today" ? null : (
+          {layout.themes.map((theme, index) =>
+            period === "today" || theme.proto ? null : (
               <GalaxyLabel
                 key={theme.id}
                 camera={camera}
