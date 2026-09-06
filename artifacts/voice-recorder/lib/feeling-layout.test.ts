@@ -50,8 +50,7 @@ describe("feeling layout", () => {
     ];
     const layout = buildFeelingLayout(thoughts, "week", 349, TODAY);
 
-    expect(layout.percentages).toEqual([34, 33, 33]);
-    expect(layout.percentages.reduce((sum, value) => sum + value, 0)).toBe(100);
+    expect(layout.percentages).toEqual([33, 33, 33]);
     expect(layout.swarmPoints.map(({ id }) => id).sort()).toEqual(
       layout.flowPoints.map(({ id }) => id).sort(),
     );
@@ -74,6 +73,18 @@ describe("feeling layout", () => {
     ];
 
     expect(feelingPercentages(thoughts)).toEqual([20, 30, 50]);
+  });
+
+  it("keeps the threshold values in the neutral area", () => {
+    const thoughts = [
+      thought("below", "2026-09-04", -0.251),
+      thought("lower-bound", "2026-09-04", -0.25),
+      thought("zero", "2026-09-05", 0),
+      thought("upper-bound", "2026-09-05", 0.25),
+      thought("above", "2026-09-06", 0.251),
+    ];
+
+    expect(feelingPercentages(thoughts)).toEqual([20, 60, 20]);
   });
 
   it("keeps both charts structurally empty when no valence exists", () => {

@@ -209,21 +209,9 @@ export function feelingPercentages(
     ({ valence }) => valence > FEELING_THRESHOLD,
   ).length;
   const neutral = thoughts.length - negative - positive;
-  const exact = [negative, neutral, positive].map(
-    (count) => (count / thoughts.length) * 100,
-  );
-  const roundedDown = exact.map(Math.floor);
-  let remaining = 100 - roundedDown.reduce((sum, value) => sum + value, 0);
-  const remainderOrder = exact
-    .map((value, index) => ({ index, remainder: value - roundedDown[index] }))
-    .sort(
-      (left, right) =>
-        right.remainder - left.remainder || left.index - right.index,
-    );
-  for (let index = 0; index < remaining; index += 1) {
-    roundedDown[remainderOrder[index].index] += 1;
-  }
-  return roundedDown as [number, number, number];
+  return [negative, neutral, positive].map((count) =>
+    Math.round((count / thoughts.length) * 100),
+  ) as [number, number, number];
 }
 
 function recencyAlpha(
@@ -249,7 +237,7 @@ export function buildFeelingLayout(
   const xForValence = (value: number) =>
     FEELING_HORIZONTAL_PAD +
     ((clamp(value, -1, 1) + 1) / 2) * (chartWidth - 2 * FEELING_HORIZONTAL_PAD);
-  const percentageX = [-0.62, 0, 0.62].map(xForValence) as [
+  const percentageX = [-0.625, 0, 0.625].map(xForValence) as [
     number,
     number,
     number,

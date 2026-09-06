@@ -47,7 +47,7 @@ const GRAPH_WIDTH = 349;
 const FLOW_TOP = 10;
 const FLOW_BOTTOM = 22;
 const SWARM_RADIUS = 3.6;
-const FLOW_POINT_HIT_RADIUS = 14;
+const DISTRIBUTION_SEGMENT_GAP = 6;
 
 const GRAIN_SHADER = Skia.RuntimeEffect.Make(`
 uniform float2 resolution;
@@ -102,18 +102,24 @@ function bandPath(samples: FeelingFlowSample[]) {
   return path;
 }
 
-function percentageBars(layout: FeelingLayout) {
-  const centerGap = Math.min(
-    layout.percentageX[1] - layout.percentageX[0],
-    layout.percentageX[2] - layout.percentageX[1],
-  );
-  const trackWidth = Math.max(1, centerGap - 18);
+function percentageSegments(layout: FeelingLayout) {
+  const usableWidth = Math.max(1, layout.width - 2 * FEELING_HORIZONTAL_PAD);
+  const xForValence = (value: number) =>
+    FEELING_HORIZONTAL_PAD + ((value + 1) / 2) * usableWidth;
+  const negativeEnd = xForValence(-FEELING_THRESHOLD);
+  const positiveStart = xForValence(FEELING_THRESHOLD);
+  const halfGap = DISTRIBUTION_SEGMENT_GAP / 2;
+  const bounds = [
+    [FEELING_HORIZONTAL_PAD, negativeEnd - halfGap],
+    [negativeEnd + halfGap, positiveStart - halfGap],
+    [positiveStart + halfGap, layout.width - FEELING_HORIZONTAL_PAD],
+  ] as const;
   return layout.percentages.map((percentage, index) => ({
     centerX: layout.percentageX[index],
     color: feelingColor([-0.8, 0, 0.8][index]),
     percentage,
-    trackWidth,
-    fillWidth: trackWidth * (percentage / 100),
+    startX: bounds[index][0],
+    endX: bounds[index][1],
   }));
 }
 
@@ -147,32 +153,19 @@ function drawSwarm(
       canvas.drawLine(x, centerY - 6, x, centerY + 6, tickPaint);
     }
 
-    const segmentTrackPaint = Skia.Paint();
-    segmentTrackPaint.setAntiAlias(true);
-    segmentTrackPaint.setStrokeWidth(1.2);
-    segmentTrackPaint.setColor(Skia.Color(AXIS));
-    segmentTrackPaint.setAlphaf(0.7);
-    const segmentFillPaint = Skia.Paint();
-    segmentFillPaint.setAntiAlias(true);
-    segmentFillPaint.setStrokeWidth(1.8);
-    segmentFillPaint.setAlphaf(0.76);
+    const segmentPaint = Skia.Paint();
+    segmentPaint.setAntiAlias(true);
+    segmentPaint.setStrokeWidth(1.2);
+    segmentPaint.setAlphaf(0.58);
     const segmentY = FEELING_SWARM_HEIGHT - 22;
-    for (const bar of percentageBars(layout)) {
-      const startX = bar.centerX - bar.trackWidth / 2;
+    for (const segment of percentageSegments(layout)) {
+      segmentPaint.setColor(Skia.Color(segment.color));
       canvas.drawLine(
-        startX,
+        segment.startX,
         segmentY,
-        startX + bar.trackWidth,
+        segment.endX,
         segmentY,
-        segmentTrackPaint,
-      );
-      segmentFillPaint.setColor(Skia.Color(bar.color));
-      canvas.drawLine(
-        startX,
-        segmentY,
-        startX + bar.fillWidth,
-        segmentY,
-        segmentFillPaint,
+        segmentPaint,
       );
     }
 
@@ -452,21 +445,15 @@ export function FeelingLens({
     }
   };
 
-  const chooseFlowPointAt = (x: number, y: number) => {
-    let closest: (typeof layout.flowPoints)[number] | null = null;
-    let distance = Number.POSITIVE_INFINITY;
-    for (const point of layout.flowPoints) {
-      const nextDistance = (point.x - x) ** 2 + (point.y - y) ** 2;
-      if (
-        nextDistance <= FLOW_POINT_HIT_RADIUS ** 2 &&
-        nextDistance < distance
-      ) {
-        closest = point;
-        distance = nextDistance;
-      }
-    }
-    if (closest) selectThought(closest.id);
-    else chooseDayAt(x);
+  const resetToDefault = () => {
+    selectedDateRef.current = null;
+    selectionVisibleRef.current = false;
+    setSelectedDate(null);
+    setSelectedThoughtId(null);
+    selectionOpacity.stopAnimation();
+    selectionOpacity.setValue(0);
+    markerOpacity.stopAnimation();
+    markerOpacity.setValue(0);
   };
 
   const openSelectedThought = () => {
@@ -483,11 +470,7 @@ export function FeelingLens({
     .minDistance(0)
     .onBegin(({ x }) => runOnJS(chooseDayAt)(x))
     .onUpdate(({ x }) => runOnJS(chooseDayAt)(x))
-    .onFinalize(({ x, y, translationX, translationY }) => {
-      if (Math.hypot(translationX, translationY) <= 6) {
-        runOnJS(chooseFlowPointAt)(x, y);
-      }
-    });
+    .onFinalize(() => runOnJS(resetToDefault)());
 
   const swarmPicture = useMemo(
     () => drawSwarm(layout, selectedThoughtId, selectedDate),
@@ -517,18 +500,17 @@ export function FeelingLens({
           </GestureDetector>
           {layout.swarmPoints.length > 0 ? (
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-              {percentageBars(layout).map((bar, index) => (
+              {percentageSegments(layout).map((segment, index) => (
                 <Text
                   key={index}
                   style={[
                     styles.percentage,
                     {
-                      color: bar.color,
-                      left: bar.centerX - 34,
+                      left: segment.centerX - 34,
                     },
                   ]}
                 >
-                  {bar.percentage} %
+                  {segment.percentage} %
                 </Text>
               ))}
             </View>
@@ -676,6 +658,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     textAlign: "center",
+    color: MUTED,
   },
   thoughtPreview: {
     minHeight: 44,
