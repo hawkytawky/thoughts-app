@@ -107,13 +107,13 @@ function percentageBars(layout: FeelingLayout) {
     layout.percentageX[1] - layout.percentageX[0],
     layout.percentageX[2] - layout.percentageX[1],
   );
-  const maxWidth = Math.max(1, centerGap - 18);
-  const largestPercentage = Math.max(1, ...layout.percentages);
+  const trackWidth = Math.max(1, centerGap - 18);
   return layout.percentages.map((percentage, index) => ({
     centerX: layout.percentageX[index],
     color: feelingColor([-0.8, 0, 0.8][index]),
     percentage,
-    width: maxWidth * (percentage / largestPercentage),
+    trackWidth,
+    fillWidth: trackWidth * (percentage / 100),
   }));
 }
 
@@ -147,19 +147,32 @@ function drawSwarm(
       canvas.drawLine(x, centerY - 6, x, centerY + 6, tickPaint);
     }
 
-    const segmentPaint = Skia.Paint();
-    segmentPaint.setAntiAlias(true);
-    segmentPaint.setStrokeWidth(0.8);
-    segmentPaint.setAlphaf(0.55);
+    const segmentTrackPaint = Skia.Paint();
+    segmentTrackPaint.setAntiAlias(true);
+    segmentTrackPaint.setStrokeWidth(1.2);
+    segmentTrackPaint.setColor(Skia.Color(AXIS));
+    segmentTrackPaint.setAlphaf(0.7);
+    const segmentFillPaint = Skia.Paint();
+    segmentFillPaint.setAntiAlias(true);
+    segmentFillPaint.setStrokeWidth(1.8);
+    segmentFillPaint.setAlphaf(0.76);
     const segmentY = FEELING_SWARM_HEIGHT - 22;
     for (const bar of percentageBars(layout)) {
-      segmentPaint.setColor(Skia.Color(bar.color));
+      const startX = bar.centerX - bar.trackWidth / 2;
       canvas.drawLine(
-        bar.centerX - bar.width / 2,
+        startX,
         segmentY,
-        bar.centerX + bar.width / 2,
+        startX + bar.trackWidth,
         segmentY,
-        segmentPaint,
+        segmentTrackPaint,
+      );
+      segmentFillPaint.setColor(Skia.Color(bar.color));
+      canvas.drawLine(
+        startX,
+        segmentY,
+        startX + bar.fillWidth,
+        segmentY,
+        segmentFillPaint,
       );
     }
 

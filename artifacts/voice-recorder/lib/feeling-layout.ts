@@ -198,7 +198,9 @@ export function feelingThoughtsFromGraph(
   );
 }
 
-function percentages(thoughts: FeelingThought[]): [number, number, number] {
+export function feelingPercentages(
+  thoughts: FeelingThought[],
+): [number, number, number] {
   if (thoughts.length === 0) return [0, 0, 0];
   const negative = thoughts.filter(
     ({ valence }) => valence < -FEELING_THRESHOLD,
@@ -207,9 +209,21 @@ function percentages(thoughts: FeelingThought[]): [number, number, number] {
     ({ valence }) => valence > FEELING_THRESHOLD,
   ).length;
   const neutral = thoughts.length - negative - positive;
-  return [negative, neutral, positive].map((count) =>
-    Math.round((count / thoughts.length) * 100),
-  ) as [number, number, number];
+  const exact = [negative, neutral, positive].map(
+    (count) => (count / thoughts.length) * 100,
+  );
+  const roundedDown = exact.map(Math.floor);
+  let remaining = 100 - roundedDown.reduce((sum, value) => sum + value, 0);
+  const remainderOrder = exact
+    .map((value, index) => ({ index, remainder: value - roundedDown[index] }))
+    .sort(
+      (left, right) =>
+        right.remainder - left.remainder || left.index - right.index,
+    );
+  for (let index = 0; index < remaining; index += 1) {
+    roundedDown[remainderOrder[index].index] += 1;
+  }
+  return roundedDown as [number, number, number];
 }
 
 function recencyAlpha(
@@ -248,7 +262,7 @@ export function buildFeelingLayout(
     flowSamples: [],
     thoughtIdsByDate: {},
     dayValues: {},
-    percentages: percentages(thoughts),
+    percentages: feelingPercentages(thoughts),
     percentageX,
     monthLabels: [],
     zeroY: FLOW_TOP + (FEELING_FLOW_HEIGHT - FLOW_TOP - FLOW_BOTTOM) / 2,

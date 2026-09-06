@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildFeelingLayout,
   feelingColor,
+  feelingPercentages,
   weightedFeelingMean,
   type FeelingThought,
 } from "./feeling-layout";
@@ -49,14 +50,30 @@ describe("feeling layout", () => {
     ];
     const layout = buildFeelingLayout(thoughts, "week", 349, TODAY);
 
-    expect(layout.percentages).toEqual([33, 33, 33]);
-    expect(layout.percentages.reduce((sum, value) => sum + value, 0)).toBe(99);
+    expect(layout.percentages).toEqual([34, 33, 33]);
+    expect(layout.percentages.reduce((sum, value) => sum + value, 0)).toBe(100);
     expect(layout.swarmPoints.map(({ id }) => id).sort()).toEqual(
       layout.flowPoints.map(({ id }) => id).sort(),
     );
     expect(layout.thoughtIdsByDate["2026-09-06"]).toEqual(["positive"]);
     expect(layout.startDate).toBe("2026-08-31");
     expect(layout.endDate).toBe("2026-09-06");
+  });
+
+  it("calculates the actual share of all three feeling areas", () => {
+    const thoughts = [
+      ...Array.from({ length: 2 }, (_, index) =>
+        thought(`negative-${index}`, "2026-09-04", -0.8),
+      ),
+      ...Array.from({ length: 3 }, (_, index) =>
+        thought(`neutral-${index}`, "2026-09-05", 0),
+      ),
+      ...Array.from({ length: 5 }, (_, index) =>
+        thought(`positive-${index}`, "2026-09-06", 0.8),
+      ),
+    ];
+
+    expect(feelingPercentages(thoughts)).toEqual([20, 30, 50]);
   });
 
   it("keeps both charts structurally empty when no valence exists", () => {
