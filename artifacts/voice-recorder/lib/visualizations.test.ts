@@ -45,6 +45,7 @@ function graphPayload() {
         summary: "Zusammenfassung",
         capturedAt: "2026-09-03T08:00:00+02:00",
         wordCount: 20,
+        valence: -0.4,
         date: "2026-09-03",
         dateLabel: "3. September 2026",
         keyword: "Produkt",
@@ -63,6 +64,7 @@ function graphPayload() {
         summary: "Zusammenfassung",
         capturedAt: "2026-09-03T09:00:00+02:00",
         wordCount: 30,
+        valence: 0.6,
         date: "2026-09-03",
         dateLabel: "3. September 2026",
         keyword: "Lernen",
@@ -125,6 +127,7 @@ describe("fetchGraph", () => {
       { id: "thought-2", idx: 1 },
     ]);
     expect(graph.edges).toEqual([{ source: 0, target: 1, weight: 0.8 }]);
+    expect(graph.nodes.map(({ valence }) => valence)).toEqual([-0.4, 0.6]);
     expect(graph.secondaryTopicEdges).toEqual([
       { source: 0, targetTopicId: "topic-2", relevance: 0.4 },
     ]);

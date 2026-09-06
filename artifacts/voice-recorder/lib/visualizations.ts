@@ -16,6 +16,7 @@ export type GraphNode = {
   summary: string;
   capturedAt: string;
   wordCount: number;
+  valence: number | null;
   date: string;
   dateLabel: string;
   keyword: string;
@@ -129,6 +130,7 @@ const topicGraphResponseSchema = z.object({
       summary: z.string(),
       capturedAt: z.string().datetime({ offset: true }),
       wordCount: z.number().int().nonnegative(),
+      valence: z.number().finite().min(-1).max(1).nullable().default(null),
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       dateLabel: z.string(),
       keyword: z.string(),

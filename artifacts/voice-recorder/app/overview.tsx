@@ -32,6 +32,7 @@ import {
   NOTE_SERIF,
 } from "@/components/NoteUI";
 import { GalaxyGraph } from "@/components/overview/GalaxyGraph";
+import { FeelingLens } from "@/components/overview/FeelingLens";
 import { TimeFlow } from "@/components/overview/TimeFlow";
 import { formatApiDate } from "@/lib/featured-note";
 import { fetchGraph, type Graph, type GraphNode } from "@/lib/visualizations";
@@ -45,7 +46,7 @@ const COLORS = {
   divider: "#EDF0F1",
 };
 
-const VIEW_MODES = ["base", "network", "time"] as const;
+const VIEW_MODES = ["base", "network", "time", "gefühl"] as const;
 type Period = "all" | "today" | "week" | "month";
 
 type PeriodOption = { id: Period; label: string };
@@ -296,6 +297,7 @@ export default function OverviewScreen() {
   const noData = status === "ready" && (visibleGraph?.nodes.length ?? 0) === 0;
   const periodLabel =
     PERIODS.find(({ id }) => id === period)?.label ?? "Gesamt";
+  const feelingActive = VIEW_MODES[activeViewModeIndex] === "gefühl";
 
   useEffect(() => {
     if (status !== "ready") {
@@ -343,7 +345,11 @@ export default function OverviewScreen() {
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={["#DBE3E8", "#E7EBEC", "#EAEDED"]}
+        colors={
+          feelingActive
+            ? ["#F2F3F5", "#F2F3F5", "#F2F3F5"]
+            : ["#DBE3E8", "#E7EBEC", "#EAEDED"]
+        }
         locations={[0, 0.46, 1]}
         style={StyleSheet.absoluteFill}
       />
@@ -391,6 +397,7 @@ export default function OverviewScreen() {
             style={[
               styles.page,
               viewMode === "network" && styles.networkPage,
+              viewMode === "gefühl" && styles.feelingPage,
               {
                 opacity: viewModeOpacities[index],
                 zIndex: index === activeViewModeIndex ? 1 : 0,
@@ -413,7 +420,7 @@ export default function OverviewScreen() {
                   <Text style={styles.retryText}>Erneut versuchen</Text>
                 </Pressable>
               </View>
-            ) : noData && viewMode !== "network" ? (
+            ) : noData && viewMode !== "network" && viewMode !== "gefühl" ? (
               <EmptyMessage>
                 In diesem Zeitraum nichts aufgenommen.
               </EmptyMessage>
@@ -430,12 +437,14 @@ export default function OverviewScreen() {
                     period={period}
                     status="ready"
                   />
-                ) : (
+                ) : viewMode === "time" ? (
                   <TimeFlow
                     graph={visibleGraph}
                     onRetry={loadGraph}
                     status="ready"
                   />
+                ) : (
+                  <FeelingLens graph={visibleGraph} period={period} />
                 )}
               </NativeAnimated.View>
             )}
@@ -504,6 +513,11 @@ const styles = StyleSheet.create({
     paddingBottom: 104,
   },
   networkPage: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
+  feelingPage: {
     paddingHorizontal: 0,
     paddingTop: 0,
     paddingBottom: 0,
