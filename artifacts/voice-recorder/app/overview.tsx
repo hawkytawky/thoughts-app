@@ -131,12 +131,12 @@ function graphForPeriod(graph: Graph | null, period: Period): Graph | null {
 }
 
 function ViewModeButton({
-  quietStyle,
+  feelingStyle,
   index,
   selected,
   onPress,
 }: {
-  quietStyle: boolean;
+  feelingStyle: boolean;
   index: number;
   selected: boolean;
   onPress: () => void;
@@ -151,8 +151,8 @@ function ViewModeButton({
   }, [progress, selected]);
 
   const textStyle = useAnimatedStyle(() => {
-    const inactive = quietStyle ? [179, 187, 194] : [182, 196, 203];
-    const active = quietStyle ? [36, 53, 66] : [29, 59, 79];
+    const inactive = feelingStyle ? [179, 187, 194] : [182, 196, 203];
+    const active = feelingStyle ? [36, 53, 66] : [29, 59, 79];
     return {
       color: `rgba(${Math.round(inactive[0] + (active[0] - inactive[0]) * progress.value)}, ${Math.round(inactive[1] + (active[1] - inactive[1]) * progress.value)}, ${Math.round(inactive[2] + (active[2] - inactive[2]) * progress.value)}, 1)`,
     };
@@ -169,7 +169,7 @@ function ViewModeButton({
       <Animated.Text
         style={[
           styles.viewModeLabel,
-          quietStyle && styles.viewModeLabelQuiet,
+          feelingStyle && styles.viewModeLabelFeeling,
           textStyle,
         ]}
       >
@@ -307,9 +307,7 @@ export default function OverviewScreen() {
   const noData = status === "ready" && (visibleGraph?.nodes.length ?? 0) === 0;
   const periodLabel =
     PERIODS.find(({ id }) => id === period)?.label ?? "Gesamt";
-  const quietFrameActive = ["network", "gefühl"].includes(
-    VIEW_MODES[activeViewModeIndex],
-  );
+  const feelingActive = VIEW_MODES[activeViewModeIndex] === "gefühl";
 
   useEffect(() => {
     if (status !== "ready") {
@@ -358,7 +356,7 @@ export default function OverviewScreen() {
     <View style={styles.root}>
       <LinearGradient
         colors={
-          quietFrameActive
+          feelingActive
             ? ["#F2F3F5", "#F2F3F5", "#F2F3F5"]
             : ["#DBE3E8", "#E7EBEC", "#EAEDED"]
         }
@@ -369,14 +367,14 @@ export default function OverviewScreen() {
       <View
         style={[
           styles.header,
-          quietFrameActive && styles.headerQuiet,
+          feelingActive && styles.headerFeeling,
           {
             paddingTop: Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0),
             paddingBottom: 2,
           },
         ]}
       >
-        <Text style={[styles.brand, quietFrameActive && styles.brandQuiet]}>
+        <Text style={[styles.brand, feelingActive && styles.brandFeeling]}>
           thoughts
         </Text>
         <Pressable
@@ -391,7 +389,7 @@ export default function OverviewScreen() {
           <Text
             style={[
               styles.periodButtonText,
-              quietFrameActive && styles.periodButtonTextQuiet,
+              feelingActive && styles.periodButtonTextFeeling,
             ]}
           >
             {periodLabel}
@@ -399,19 +397,19 @@ export default function OverviewScreen() {
           <Ionicons
             name="chevron-down"
             size={12}
-            color={quietFrameActive ? "#8A949C" : COLORS.inkSoft}
+            color={feelingActive ? "#8A949C" : COLORS.inkSoft}
           />
         </Pressable>
       </View>
 
       <View
         accessibilityRole="tablist"
-        style={[styles.viewModes, quietFrameActive && styles.viewModesQuiet]}
+        style={[styles.viewModes, feelingActive && styles.viewModesFeeling]}
       >
         {VIEW_MODES.map((viewMode, index) => (
           <ViewModeButton
             key={viewMode}
-            quietStyle={quietFrameActive}
+            feelingStyle={feelingActive}
             index={index}
             onPress={() => selectViewMode(index)}
             selected={index === activeViewModeIndex}
@@ -501,7 +499,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  headerQuiet: {
+  headerFeeling: {
     paddingHorizontal: 22,
     alignItems: "baseline",
   },
@@ -511,7 +509,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.1,
     color: COLORS.ink,
   },
-  brandQuiet: {
+  brandFeeling: {
     fontSize: 27,
     letterSpacing: -0.27,
     color: "#243542",
@@ -529,7 +527,7 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     color: COLORS.inkSoft,
   },
-  periodButtonTextQuiet: {
+  periodButtonTextFeeling: {
     fontFamily: NOTE_SANS,
     fontSize: 14,
     color: "#8A949C",
@@ -542,7 +540,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 22,
   },
-  viewModesQuiet: {
+  viewModesFeeling: {
     paddingTop: 14,
     paddingHorizontal: 22,
     gap: 20,
@@ -554,7 +552,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.875,
     color: COLORS.viewModeInactive,
   },
-  viewModeLabelQuiet: {
+  viewModeLabelFeeling: {
     fontSize: 15,
     letterSpacing: 0,
   },

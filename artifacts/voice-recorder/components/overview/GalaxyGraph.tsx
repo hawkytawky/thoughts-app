@@ -51,13 +51,6 @@ import {
   type GraphCluster,
   type GraphNode,
 } from "@/lib/visualizations";
-import {
-  buildNetworkPointOffsets,
-  NETWORK_POINT_RADIUS,
-  placeNetworkLabels,
-  selectNetworkOverviewEdges,
-  type NetworkOverviewEdge,
-} from "@/lib/network-overview-layout";
 
 const W = 361;
 const H = 560;
@@ -65,10 +58,9 @@ const MIN_ZOOM = 0.7;
 const MAX_ZOOM = 5.2;
 const FOCUS_Y = H * 0.235;
 const LABEL_HEIGHT = 16;
+const LABEL_GAP = 4;
 const LABEL_MAX_WIDTH = 138;
 const MIN_THEME_RADIUS = 14;
-const OVERVIEW_TOP = 48;
-const OVERVIEW_BOTTOM = H - 86;
 const SHEET_BOTTOM_INSET = 104;
 const SHEET_CLOSE_DISTANCE = 32;
 const SHEET_CLOSE_VELOCITY = 650;
@@ -104,10 +96,7 @@ const HAZE_PALETTE = [
   "#B19A4A",
   "#A777BF",
 ] as const;
-const OVERVIEW_PALETTE = ["#7E94C2", "#91AD9A", "#C88F96", "#AA9ABC"] as const;
 const GREY = "#969EA6";
-const OVERVIEW_INK = "#59636B";
-const OVERVIEW_EDGE = "#8A949C";
 const MAX_RETAINED_POSITIONS = 400;
 
 type ThemeLayout = {
@@ -116,7 +105,6 @@ type ThemeLayout = {
   fullTitle: string;
   description: string;
   color: string;
-  overviewColor: string;
   hazeColor: string;
   weight: number;
   status: string;
@@ -134,8 +122,6 @@ type ThemeLayout = {
   labelY: number;
   labelWidth: number;
   labelHeight: number;
-  labelVisible: boolean;
-  compactLabelVisible: boolean;
 };
 
 type ThoughtLayout = {
@@ -149,8 +135,6 @@ type ThoughtLayout = {
   recency: number;
   driftPhase: number;
   driftSpeed: number;
-  overviewX: number;
-  overviewY: number;
 };
 
 type DustLayout = {
@@ -165,7 +149,6 @@ type GalaxyLayout = {
   thoughts: ThoughtLayout[];
   dust: DustLayout[];
   similarities: number[];
-  overviewEdges: NetworkOverviewEdge[];
   signature: string;
 };
 
@@ -213,9 +196,7 @@ function rubberClamp(
 }
 
 function pairKey(left: string, right: string): string {
-  return left < right
-    ? JSON.stringify([left, right])
-    : JSON.stringify([right, left]);
+  return left < right ? `${left}:${right}` : `${right}:${left}`;
 }
 
 function seedFrom(value: string): number {
@@ -252,17 +233,6 @@ function paletteColor(index: number): string {
 
 function hazeColor(index: number): string {
   return HAZE_PALETTE[index % HAZE_PALETTE.length];
-}
-
-function overviewPaletteColor(index: number): string {
-  const base = OVERVIEW_PALETTE[index % OVERVIEW_PALETTE.length];
-  const cycle = Math.floor(index / OVERVIEW_PALETTE.length);
-  if (cycle === 0) return base;
-  const shift = (cycle % 2 === 1 ? 1 : -1) * Math.min(12, cycle * 3);
-  const channels = [1, 3, 5].map((offset) =>
-    clamp(parseInt(base.slice(offset, offset + 2), 16) + shift, 0, 255),
-  );
-  return `#${channels.map((channel) => Math.round(channel).toString(16).padStart(2, "0")).join("")}`;
 }
 
 function fallbackShortLabel(title: string): string {
@@ -330,9 +300,118 @@ function buildSimilarityMap(graph: Graph): Map<string, number> {
   return result;
 }
 
+function overlaps(
+  left: { x: number; y: number; width: number; height: number },
+  right: { x: number; y: number; width: number; height: number },
+): boolean {
+  return (
+    left.x < right.x + right.width &&
+    left.x + left.width > right.x &&
+    left.y < right.y + right.height &&
+    left.y + left.height > right.y
+  );
+}
+
+function rectangleHitsCircle(
+  rect: { x: number; y: number; width: number; height: number },
+  cx: number,
+  cy: number,
+  radius: number,
+): boolean {
+  const nearestX = clamp(cx, rect.x, rect.x + rect.width);
+  const nearestY = clamp(cy, rect.y, rect.y + rect.height);
+  return Math.hypot(cx - nearestX, cy - nearestY) < radius;
+}
+
+function placeLabels(themes: ThemeLayout[]): void {
+  const placed: Array<{ x: number; y: number; width: number; height: number }> =
+    [];
+  const ordered = [...themes].sort(
+    (left, right) =>
+      right.radius - left.radius || left.id.localeCompare(right.id),
+  );
+  const angles = [
+    Math.PI / 2,
+    -Math.PI / 2,
+    0,
+    Math.PI,
+    Math.PI / 4,
+    (3 * Math.PI) / 4,
+    -Math.PI / 4,
+    (-3 * Math.PI) / 4,
+    Math.PI / 6,
+    (5 * Math.PI) / 6,
+    -Math.PI / 6,
+    (-5 * Math.PI) / 6,
+  ];
+  for (const theme of ordered) {
+    const width = theme.labelWidth;
+    const height = theme.labelHeight;
+    let best = { x: theme.cx, y: theme.cy + theme.radius + LABEL_GAP };
+    let bestRect = {
+      x: best.x - width / 2,
+      y: best.y - height / 2,
+      width,
+      height,
+    };
+    let bestScore = Infinity;
+    for (const extraGap of [0, 3, 6]) {
+      for (let angleIndex = 0; angleIndex < angles.length; angleIndex += 1) {
+        const angle = angles[angleIndex];
+        const dx = Math.cos(angle);
+        const dy = Math.sin(angle);
+        const halfExtent =
+          (Math.abs(dx) * width) / 2 + (Math.abs(dy) * height) / 2;
+        const distance = theme.radius + LABEL_GAP + extraGap + halfExtent;
+        const centerX = theme.cx + dx * distance;
+        const centerY = theme.cy + dy * distance;
+        const rect = {
+          x: centerX - width / 2,
+          y: centerY - height / 2,
+          width,
+          height,
+        };
+        let score = extraGap * 0.8 + angleIndex * 0.15;
+        if (
+          rect.x < 8 ||
+          rect.x + rect.width > W - 8 ||
+          rect.y < 6 ||
+          rect.y + rect.height > H - 8
+        ) {
+          score += 1000;
+        }
+        for (const existing of placed) {
+          if (overlaps(rect, existing)) score += 500;
+        }
+        for (const other of themes) {
+          if (other.id === theme.id) continue;
+          if (rectangleHitsCircle(rect, other.cx, other.cy, other.radius + 7)) {
+            score += 400;
+          }
+          const ownDistance =
+            Math.hypot(centerX - theme.cx, centerY - theme.cy) - theme.radius;
+          const otherDistance =
+            Math.hypot(centerX - other.cx, centerY - other.cy) - other.radius;
+          if (otherDistance + 4 < ownDistance) score += 2000;
+        }
+        if (score < bestScore) {
+          bestScore = score;
+          best = { x: centerX, y: centerY };
+          bestRect = rect;
+        }
+        if (score < 1) break;
+      }
+      if (bestScore < 20) break;
+    }
+    theme.labelX = best.x;
+    theme.labelY = best.y;
+    placed.push(bestRect);
+  }
+}
+
 function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
   const signature = JSON.stringify({
-    layoutVersion: 9,
+    layoutVersion: 8,
     period,
     topics: graph.clusters.map(({ id, label }) => ({ id, label })),
     nodes: graph.nodes.map(({ id, keyword, title }) => ({
@@ -410,7 +489,6 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
       fullTitle: cluster.fullTitle || cluster.label,
       description: cluster.description,
       color,
-      overviewColor: overviewPaletteColor(stablePaletteIndex),
       hazeColor: hazeColor(stablePaletteIndex),
       weight: clamp((all.length - minPrimaryCount) / countRange, 0, 1),
       status: cluster.status,
@@ -434,8 +512,6 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
       labelY: 0,
       labelWidth: metrics.width,
       labelHeight: metrics.height,
-      labelVisible: true,
-      compactLabelVisible: true,
     };
   });
   for (const theme of themes) {
@@ -498,14 +574,13 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
     const fit = Math.min(
       1,
       (W - 28) / Math.max(1, maxX - minX),
-      (OVERVIEW_BOTTOM - OVERVIEW_TOP) / Math.max(1, maxY - minY),
+      (H - 70) / Math.max(1, maxY - minY),
     );
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
     for (const theme of themes) {
       theme.cx = W / 2 + (theme.cx - centerX) * fit;
-      theme.cy =
-        (OVERVIEW_TOP + OVERVIEW_BOTTOM) / 2 + (theme.cy - centerY) * fit;
+      theme.cy = H * 0.49 + (theme.cy - centerY) * fit;
       theme.radius = Math.max(MIN_THEME_RADIUS, theme.radius * fit);
       retainThemePosition(`${period}:${theme.id}`, {
         x: theme.cx,
@@ -514,29 +589,7 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
     }
   }
 
-  const labelPlacements = placeNetworkLabels(
-    themes.map((theme) => ({
-      id: theme.id,
-      cx: theme.cx,
-      cy: theme.cy,
-      radius: theme.radius,
-      width: theme.labelWidth,
-      height: theme.labelHeight,
-      importance: theme.count * 10 + theme.weight,
-    })),
-    W,
-    H,
-    OVERVIEW_TOP,
-    OVERVIEW_BOTTOM,
-    MIN_ZOOM,
-  );
-  for (const theme of themes) {
-    const placement = labelPlacements[theme.id];
-    theme.labelX = placement.x;
-    theme.labelY = placement.y;
-    theme.labelVisible = placement.visible;
-    theme.compactLabelVisible = placement.compactVisible;
-  }
+  placeLabels(themes);
 
   const themeIndexById = new Map(
     themes.map((theme, index) => [theme.id, index]),
@@ -545,13 +598,6 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
   for (const theme of themes) {
     const themeIndex = themeIndexById.get(theme.id) ?? -1;
     const visible = visibleByTheme.get(theme.id) ?? [];
-    const overviewOffsets = buildNetworkPointOffsets(
-      visible.length,
-      theme.radius,
-      theme.eccentricity,
-      theme.tilt,
-      theme.id,
-    );
     for (let index = 0; index < visible.length; index += 1) {
       const node = visible[index];
       const random = randomFrom(`${theme.id}:${node.id}`);
@@ -573,8 +619,6 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
         recency: 1 - ageBucket / 9,
         driftPhase: random() * Math.PI * 2,
         driftSpeed: (Math.PI * 2) / (22000 + random() * 14000),
-        overviewX: overviewOffsets[index].x,
-        overviewY: overviewOffsets[index].y,
       });
     }
   }
@@ -625,22 +669,7 @@ function buildGalaxyLayout(graph: Graph, period: GalaxyPeriod): GalaxyLayout {
     }
   }
 
-  const overviewEdges = selectNetworkOverviewEdges(
-    themes.map(({ id }) => id),
-    [...similarityByPair].map(([key, similarity]) => {
-      const [sourceId, targetId] = JSON.parse(key) as [string, string];
-      return { sourceId, targetId, similarity };
-    }),
-  );
-
-  const result = {
-    themes,
-    thoughts,
-    dust,
-    similarities,
-    overviewEdges,
-    signature,
-  };
+  const result = { themes, thoughts, dust, similarities, signature };
   layoutCache.set(signature, result);
   if (layoutCache.size > 8) {
     const oldest = layoutCache.keys().next().value;
@@ -654,7 +683,6 @@ function worldPoint(
   theme: ThemeLayout,
   drill: number,
   time = 0,
-  overviewBlend = 0,
 ): { x: number; y: number } {
   "worklet";
   const radius = thought.rho * theme.radius * (1 + 1.1 * drill);
@@ -665,28 +693,12 @@ function worldPoint(
     Math.sin(time * thought.driftSpeed + thought.driftPhase) * 0.38;
   const driftY =
     Math.cos(time * thought.driftSpeed * 0.81 + thought.driftPhase) * 0.3;
-  const legacyX =
-    theme.cx + ex * Math.cos(theme.tilt) - ey * Math.sin(theme.tilt) + driftX;
-  const legacyY =
-    theme.cy + ex * Math.sin(theme.tilt) + ey * Math.cos(theme.tilt) + driftY;
-  const blend = clamp(overviewBlend, 0, 1);
   return {
-    x: legacyX + (theme.cx + thought.overviewX - legacyX) * blend,
-    y: legacyY + (theme.cy + thought.overviewY - legacyY) * blend,
+    x:
+      theme.cx + ex * Math.cos(theme.tilt) - ey * Math.sin(theme.tilt) + driftX,
+    y:
+      theme.cy + ex * Math.sin(theme.tilt) + ey * Math.cos(theme.tilt) + driftY,
   };
-}
-
-function mixHexColor(from: string, to: string, amount: number): string {
-  "worklet";
-  const progress = clamp(amount, 0, 1);
-  const channel = (offset: number) =>
-    Math.round(
-      parseInt(from.slice(offset, offset + 2), 16) +
-        (parseInt(to.slice(offset, offset + 2), 16) -
-          parseInt(from.slice(offset, offset + 2), 16)) *
-          progress,
-    );
-  return `rgb(${channel(1)},${channel(3)},${channel(5)})`;
 }
 
 function focusedThemeOffset(
@@ -749,14 +761,8 @@ function GalaxyLabel({
       camera.zoom.value,
       camera.drill.value,
     );
-    const compactProgress = clamp((camera.zoom.value - MIN_ZOOM) / 0.2, 0, 1);
-    const responsiveAlpha = theme.compactLabelVisible ? 1 : compactProgress;
     return {
-      opacity:
-        (1 - camera.drill.value) *
-        labelAlpha *
-        responsiveAlpha *
-        (theme.labelVisible ? 1 : 0),
+      opacity: (1 - camera.drill.value) * labelAlpha,
       width: theme.labelWidth * scaleX,
       transform: [
         { translateX: point.x * scaleX - (theme.labelWidth * scaleX) / 2 },
@@ -773,7 +779,7 @@ function GalaxyLabel({
           adjustsFontSizeToFit
           minimumFontScale={0.82}
           numberOfLines={1}
-          style={styles.galaxyLabel}
+          style={[styles.galaxyLabel, { color: theme.color }]}
         >
           {line}
         </Text>
@@ -1171,7 +1177,6 @@ export function GalaxyGraph({
             thoughts: [],
             dust: [],
             similarities: [],
-            overviewEdges: [],
             signature: "empty",
           } satisfies GalaxyLayout),
     [graph, period],
@@ -1219,9 +1224,6 @@ export function GalaxyGraph({
 
   const scaleX = size.width > 0 ? size.width / W : 1;
   const scaleY = size.height > 0 ? size.height / H : 1;
-  const overviewChromeStyle = useAnimatedStyle(() => ({
-    opacity: 1 - drill.value,
-  }));
 
   useEffect(() => {
     if (!selectedThemeId) return;
@@ -1518,7 +1520,7 @@ export function GalaxyGraph({
         for (const thought of layout.thoughts) {
           const theme = layout.themes[thought.themeIndex];
           if (!theme) continue;
-          const world = worldPoint(thought, theme, 0, tapTime, 1);
+          const world = worldPoint(thought, theme, 0, tapTime);
           const screen = projectPoint(
             world.x,
             world.y,
@@ -1545,13 +1547,7 @@ export function GalaxyGraph({
         const tapTime = Date.now();
         for (const thought of layout.thoughts) {
           if (thought.themeIndex !== currentThemeIndex) continue;
-          const world = worldPoint(
-            thought,
-            theme,
-            currentDrill,
-            tapTime,
-            1 - currentDrill,
-          );
+          const world = worldPoint(thought, theme, currentDrill, tapTime);
           const screen = projectPoint(
             world.x,
             world.y,
@@ -1752,8 +1748,6 @@ export function GalaxyGraph({
       const currentDrill = drill.value;
       const currentTime = clock.value;
       const selectedIndex = selectedThemeIndexSV.value;
-      const drillTransition = selectedIndex >= 0 ? currentDrill : 0;
-      const overviewBlend = 1 - drillTransition;
       const selectedThoughtIndex = selectedThoughtIndexSV.value;
       const currentThoughtSelection = thoughtSelectionProgress.value;
       const focusedTheme =
@@ -1774,56 +1768,9 @@ export function GalaxyGraph({
       ringPaint.setStrokeWidth(1);
       const textPaint = Skia.Paint();
       textPaint.setAntiAlias(true);
-      const edgePaint = Skia.Paint();
-      edgePaint.setAntiAlias(true);
-      edgePaint.setStyle(PaintStyle.Stroke);
-      edgePaint.setStrokeWidth(0.65);
-      edgePaint.setColor(color(OVERVIEW_EDGE));
       const now = Date.now();
 
       canvas.save();
-
-      if (period !== "today" && drillTransition < 0.999) {
-        edgePaint.setAlphaf(0.24 * (1 - drillTransition));
-        for (const edge of layout.overviewEdges) {
-          const sourceTheme = layout.themes[edge.source];
-          const targetTheme = layout.themes[edge.target];
-          if (!sourceTheme || !targetTheme) continue;
-          const sourceOffset = focusedThemeOffset(
-            sourceTheme,
-            focusedTheme,
-            currentDrill,
-          );
-          const targetOffset = focusedThemeOffset(
-            targetTheme,
-            focusedTheme,
-            currentDrill,
-          );
-          const source = projectPoint(
-            sourceTheme.cx + sourceOffset.x,
-            sourceTheme.cy + sourceOffset.y,
-            cameraX.value,
-            cameraY.value,
-            currentZoom,
-            currentDrill,
-          );
-          const target = projectPoint(
-            targetTheme.cx + targetOffset.x,
-            targetTheme.cy + targetOffset.y,
-            cameraX.value,
-            cameraY.value,
-            currentZoom,
-            currentDrill,
-          );
-          canvas.drawLine(
-            source.x * sx,
-            source.y * sy,
-            target.x * sx,
-            target.y * sy,
-            edgePaint,
-          );
-        }
-      }
 
       const dustAlpha = selectedIndex >= 0 ? 1 - 0.75 * currentDrill : 1;
       pointPaint.setColor(color(GREY));
@@ -1836,19 +1783,16 @@ export function GalaxyGraph({
           currentZoom,
           currentDrill,
         );
-        const legacyRadius =
-          point.size * Math.sqrt(currentZoom) * 0.75 * pointScale;
-        const radius =
-          NETWORK_POINT_RADIUS * Math.sqrt(currentZoom) +
-          (legacyRadius - NETWORK_POINT_RADIUS * Math.sqrt(currentZoom)) *
-            drillTransition;
-        pointPaint.setAlphaf(
-          0.62 + (point.alpha * dustAlpha - 0.62) * drillTransition,
+        pointPaint.setAlphaf(point.alpha * dustAlpha);
+        canvas.drawCircle(
+          screen.x * sx,
+          screen.y * sy,
+          point.size * Math.sqrt(currentZoom) * 0.75 * pointScale,
+          pointPaint,
         );
-        canvas.drawCircle(screen.x * sx, screen.y * sy, radius, pointPaint);
       }
 
-      if (period !== "today" && drillTransition > 0.001) {
+      if (period !== "today") {
         for (let index = 0; index < layout.themes.length; index += 1) {
           const theme = layout.themes[index];
           const offset = focusedThemeOffset(theme, focusedTheme, currentDrill);
@@ -1889,7 +1833,7 @@ export function GalaxyGraph({
               TileMode.Clamp,
             );
             hazePaint.setShader(shader);
-            hazePaint.setAlphaf(alpha * (1 - 0.8 * dim) * drillTransition);
+            hazePaint.setAlphaf(alpha * (1 - 0.8 * dim));
             canvas.drawCircle(centerX, centerY, physicalRadius, hazePaint);
           }
         }
@@ -1914,7 +1858,7 @@ export function GalaxyGraph({
         const activityFactor =
           now - theme.lastActivity > 60 * 86400000 ? 0.55 : 1;
         const offset = focusedThemeOffset(theme, focusedTheme, currentDrill);
-        const world = worldPoint(thought, theme, f, currentTime, overviewBlend);
+        const world = worldPoint(thought, theme, f, currentTime);
         const screen = projectPoint(
           world.x + offset.x,
           world.y + offset.y,
@@ -1923,15 +1867,12 @@ export function GalaxyGraph({
           currentZoom,
           currentDrill,
         );
-        const legacyRadius =
+        const radius =
           thought.size *
           (1 + 0.9 * f) *
           Math.sqrt(currentZoom) *
           0.75 *
           pointScale;
-        const overviewRadius = NETWORK_POINT_RADIUS * Math.sqrt(currentZoom);
-        const radius =
-          overviewRadius + (legacyRadius - overviewRadius) * drillTransition;
         const screenX = screen.x * sx;
         const screenY = screen.y * sy;
         const selectedFactor =
@@ -1941,14 +1882,13 @@ export function GalaxyGraph({
         const overviewAlpha = 0.45 + 0.5 * thought.recency;
         const timelineAlpha = 0.28 + 0.62 * thought.recency;
         const baseAlpha = overviewAlpha + (timelineAlpha - overviewAlpha) * f;
-        const legacyAlpha =
+        const alpha =
           (theme.proto ? 0.55 : baseAlpha) *
           (1 - 0.9 * dim) *
           activityFactor *
           selectedFactor;
-        const alpha = 0.62 + (legacyAlpha - 0.62) * drillTransition;
 
-        if (drillTransition > 0.001 && !theme.proto && thought.recency > 0.85) {
+        if (!theme.proto && thought.recency > 0.85) {
           const glowRadius = radius * 3.5;
           const shader = Skia.Shader.MakeRadialGradient(
             { x: screenX, y: screenY },
@@ -1959,30 +1899,18 @@ export function GalaxyGraph({
           );
           hazePaint.setShader(shader);
           hazePaint.setAlphaf(
-            0.18 *
-              (1 - 0.9 * dim) *
-              activityFactor *
-              selectedFactor *
-              drillTransition,
+            0.18 * (1 - 0.9 * dim) * activityFactor * selectedFactor,
           );
           canvas.drawCircle(screenX, screenY, glowRadius, hazePaint);
         }
 
         pointPaint.setShader(null);
-        pointPaint.setColor(
-          color(
-            mixHexColor(
-              theme.overviewColor,
-              theme.proto ? GREY : theme.color,
-              drillTransition,
-            ),
-          ),
-        );
+        pointPaint.setColor(color(theme.proto ? GREY : theme.color));
         pointPaint.setAlphaf(alpha);
         canvas.drawCircle(screenX, screenY, radius, pointPaint);
         if (selectedThoughtIndex === index) {
           ringPaint.setColor(color(theme.color));
-          ringPaint.setAlphaf(0.72 * currentThoughtSelection * drillTransition);
+          ringPaint.setAlphaf(0.72 * currentThoughtSelection);
           canvas.drawCircle(
             screenX,
             screenY,
@@ -1993,6 +1921,7 @@ export function GalaxyGraph({
       }
 
       if (thoughtFont && period !== "today") {
+        const overviewLabelProgress = clamp((currentZoom - 2.35) / 0.9, 0, 1);
         const focusLabelProgress =
           0.68 + 0.32 * clamp((currentZoom - 1) / 0.65, 0, 1);
         for (let index = 0; index < layout.thoughts.length; index += 1) {
@@ -2002,17 +1931,13 @@ export function GalaxyGraph({
           const focused = selectedIndex === thought.themeIndex;
           if (selectedIndex >= 0 && !focused) continue;
           const labelProgress =
-            selectedIndex >= 0 ? focusLabelProgress * currentDrill : 0;
+            selectedIndex >= 0
+              ? focusLabelProgress * currentDrill
+              : overviewLabelProgress;
           if (labelProgress <= 0.01) continue;
           const f = focused ? currentDrill : 0;
           const offset = focusedThemeOffset(theme, focusedTheme, currentDrill);
-          const world = worldPoint(
-            thought,
-            theme,
-            f,
-            currentTime,
-            overviewBlend,
-          );
+          const world = worldPoint(thought, theme, f, currentTime);
           const screen = projectPoint(
             world.x + offset.x,
             world.y + offset.y,
@@ -2048,12 +1973,6 @@ export function GalaxyGraph({
 
   return (
     <View style={styles.root} onLayout={onLayout}>
-      <Animated.Text
-        pointerEvents="none"
-        style={[styles.networkHeading, overviewChromeStyle]}
-      >
-        THEMEN
-      </Animated.Text>
       <GestureDetector gesture={gesture}>
         <View style={StyleSheet.absoluteFill}>
           <Canvas style={StyleSheet.absoluteFill}>
@@ -2072,12 +1991,6 @@ export function GalaxyGraph({
           )}
         </View>
       </GestureDetector>
-      <Animated.Text
-        pointerEvents="none"
-        style={[styles.networkHint, overviewChromeStyle]}
-      >
-        Ziehen zum Entdecken · Tippen zum Vertiefen
-      </Animated.Text>
 
       {status === "loading" ? (
         <View pointerEvents="none" style={styles.center}>
@@ -2140,31 +2053,6 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     overflow: "hidden",
-    backgroundColor: "#F2F3F5",
-  },
-  networkHeading: {
-    position: "absolute",
-    top: 26,
-    left: 22,
-    zIndex: 8,
-    fontFamily: NOTE_SANS,
-    fontSize: 11,
-    lineHeight: 14,
-    letterSpacing: 1.32,
-    color: "#8A949C",
-  },
-  networkHint: {
-    position: "absolute",
-    left: 22,
-    right: 22,
-    bottom: 102,
-    zIndex: 8,
-    fontFamily: NOTE_SANS,
-    fontSize: 10.5,
-    lineHeight: 14,
-    letterSpacing: 0.08,
-    color: "#9AA3AA",
-    textAlign: "center",
   },
   labelAnchor: {
     position: "absolute",
@@ -2175,12 +2063,11 @@ const styles = StyleSheet.create({
   galaxyLabel: {
     width: "100%",
     fontFamily: NOTE_SANS,
-    fontSize: 12,
+    fontSize: 13.5,
     fontWeight: "400",
-    letterSpacing: 0,
+    letterSpacing: -0.07,
     lineHeight: 16,
     textAlign: "center",
-    color: OVERVIEW_INK,
   },
   sheet: {
     position: "absolute",
