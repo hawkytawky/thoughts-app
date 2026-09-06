@@ -16,6 +16,7 @@ import {
   Picture,
   Shader,
   Skia,
+  StrokeCap,
   TileMode,
   vec,
 } from "@shopify/react-native-skia";
@@ -24,12 +25,12 @@ import { type Href, useRouter } from "expo-router";
 import { runOnJS } from "react-native-reanimated";
 import { NOTE_SANS, NOTE_SERIF } from "@/components/NoteUI";
 import {
+  buildFeelingDistributionSegments,
   buildFeelingLayout,
   FEELING_FLOW_HEIGHT,
   FEELING_HORIZONTAL_PAD,
   FEELING_SWARM_CENTER_Y,
   FEELING_SWARM_HEIGHT,
-  FEELING_THRESHOLD,
   feelingColor,
   feelingThoughtsFromGraph,
   type FeelingFlowSample,
@@ -42,12 +43,13 @@ const FIELD = "#F2F3F5";
 const INK = "#243542";
 const MUTED = "#8A949C";
 const AXIS = "#D5DBE0";
-const TICK = "#C9D0D6";
 const GRAPH_WIDTH = 349;
 const FLOW_TOP = 10;
 const FLOW_BOTTOM = 22;
 const SWARM_RADIUS = 3.6;
-const DISTRIBUTION_SEGMENT_GAP = 6;
+const DISTRIBUTION_SEGMENT_GAP = 3;
+const DISTRIBUTION_BAR_Y = FEELING_SWARM_CENTER_Y + 24;
+const DISTRIBUTION_PERCENTAGE_TOP = DISTRIBUTION_BAR_Y + 7;
 
 const GRAIN_SHADER = Skia.RuntimeEffect.Make(`
 uniform float2 resolution;
@@ -103,24 +105,19 @@ function bandPath(samples: FeelingFlowSample[]) {
 }
 
 function percentageSegments(layout: FeelingLayout) {
-  const usableWidth = Math.max(1, layout.width - 2 * FEELING_HORIZONTAL_PAD);
-  const xForValence = (value: number) =>
-    FEELING_HORIZONTAL_PAD + ((value + 1) / 2) * usableWidth;
-  const negativeEnd = xForValence(-FEELING_THRESHOLD);
-  const positiveStart = xForValence(FEELING_THRESHOLD);
-  const halfGap = DISTRIBUTION_SEGMENT_GAP / 2;
-  const bounds = [
-    [FEELING_HORIZONTAL_PAD, negativeEnd - halfGap],
-    [negativeEnd + halfGap, positiveStart - halfGap],
-    [positiveStart + halfGap, layout.width - FEELING_HORIZONTAL_PAD],
-  ] as const;
-  return layout.percentages.map((percentage, index) => ({
-    centerX: layout.percentageX[index],
-    color: feelingColor([-0.8, 0, 0.8][index]),
-    percentage,
-    startX: bounds[index][0],
-    endX: bounds[index][1],
-  }));
+  const segments = buildFeelingDistributionSegments(
+    layout.width,
+    layout.distributionShares,
+    FEELING_HORIZONTAL_PAD,
+    DISTRIBUTION_SEGMENT_GAP,
+  );
+  return layout.percentages.map((percentage, index) => {
+    return {
+      ...segments[index],
+      color: feelingColor([-0.8, 0, 0.8][index]),
+      percentage,
+    };
+  });
 }
 
 function drawSwarm(
@@ -142,29 +139,19 @@ function drawSwarm(
       axisPaint,
     );
 
-    const tickPaint = Skia.Paint();
-    tickPaint.setAntiAlias(true);
-    tickPaint.setColor(Skia.Color(TICK));
-    tickPaint.setStrokeWidth(0.8);
-    for (const threshold of [-FEELING_THRESHOLD, FEELING_THRESHOLD]) {
-      const x =
-        FEELING_HORIZONTAL_PAD +
-        ((threshold + 1) / 2) * (layout.width - 2 * FEELING_HORIZONTAL_PAD);
-      canvas.drawLine(x, centerY - 6, x, centerY + 6, tickPaint);
-    }
-
     const segmentPaint = Skia.Paint();
     segmentPaint.setAntiAlias(true);
-    segmentPaint.setStrokeWidth(1.2);
-    segmentPaint.setAlphaf(0.58);
-    const segmentY = FEELING_SWARM_HEIGHT - 22;
+    segmentPaint.setStrokeWidth(2);
+    segmentPaint.setStrokeCap(StrokeCap.Round);
+    segmentPaint.setAlphaf(0.85);
     for (const segment of percentageSegments(layout)) {
+      if (segment.endX <= segment.startX) continue;
       segmentPaint.setColor(Skia.Color(segment.color));
       canvas.drawLine(
         segment.startX,
-        segmentY,
+        DISTRIBUTION_BAR_Y,
         segment.endX,
-        segmentY,
+        DISTRIBUTION_BAR_Y,
         segmentPaint,
       );
     }
@@ -506,6 +493,7 @@ export function FeelingLens({
                   style={[
                     styles.percentage,
                     {
+                      color: segment.color,
                       left: segment.centerX - 34,
                     },
                   ]}
@@ -652,13 +640,12 @@ const styles = StyleSheet.create({
   },
   percentage: {
     position: "absolute",
-    top: FEELING_SWARM_HEIGHT - 18,
+    top: DISTRIBUTION_PERCENTAGE_TOP,
     width: 68,
     fontFamily: NOTE_SANS,
     fontSize: 12,
     lineHeight: 16,
     textAlign: "center",
-    color: MUTED,
   },
   thoughtPreview: {
     minHeight: 44,

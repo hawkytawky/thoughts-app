@@ -71,6 +71,12 @@ export type FeelingMonthLabel = {
   x: number;
 };
 
+export type FeelingDistributionSegment = {
+  startX: number;
+  endX: number;
+  centerX: number;
+};
+
 export type FeelingLayout = {
   width: number;
   thoughts: FeelingThought[];
@@ -79,8 +85,8 @@ export type FeelingLayout = {
   flowSamples: FeelingFlowSample[];
   thoughtIdsByDate: Record<string, string[]>;
   dayValues: Record<string, number>;
+  distributionShares: [number, number, number];
   percentages: [number, number, number];
-  percentageX: [number, number, number];
   monthLabels: FeelingMonthLabel[];
   zeroY: number;
   startDate: string | null;
@@ -201,6 +207,14 @@ export function feelingThoughtsFromGraph(
 export function feelingPercentages(
   thoughts: FeelingThought[],
 ): [number, number, number] {
+  return feelingDistributionShares(thoughts).map((share) =>
+    Math.round(share * 100),
+  ) as [number, number, number];
+}
+
+export function feelingDistributionShares(
+  thoughts: FeelingThought[],
+): [number, number, number] {
   if (thoughts.length === 0) return [0, 0, 0];
   const negative = thoughts.filter(
     ({ valence }) => valence < -FEELING_THRESHOLD,
@@ -209,9 +223,33 @@ export function feelingPercentages(
     ({ valence }) => valence > FEELING_THRESHOLD,
   ).length;
   const neutral = thoughts.length - negative - positive;
-  return [negative, neutral, positive].map((count) =>
-    Math.round((count / thoughts.length) * 100),
+  return [negative, neutral, positive].map(
+    (count) => count / thoughts.length,
   ) as [number, number, number];
+}
+
+export function buildFeelingDistributionSegments(
+  width: number,
+  shares: [number, number, number],
+  padding = FEELING_HORIZONTAL_PAD,
+  gap = 3,
+): [
+  FeelingDistributionSegment,
+  FeelingDistributionSegment,
+  FeelingDistributionSegment,
+] {
+  const totalSegmentWidth = Math.max(0, width - 2 * padding - 2 * gap);
+  let cursor = padding;
+  return shares.map((share) => {
+    const startX = cursor;
+    const endX = startX + share * totalSegmentWidth;
+    cursor = endX + gap;
+    return { startX, endX, centerX: (startX + endX) / 2 };
+  }) as [
+    FeelingDistributionSegment,
+    FeelingDistributionSegment,
+    FeelingDistributionSegment,
+  ];
 }
 
 function recencyAlpha(
@@ -237,11 +275,7 @@ export function buildFeelingLayout(
   const xForValence = (value: number) =>
     FEELING_HORIZONTAL_PAD +
     ((clamp(value, -1, 1) + 1) / 2) * (chartWidth - 2 * FEELING_HORIZONTAL_PAD);
-  const percentageX = [-0.625, 0, 0.625].map(xForValence) as [
-    number,
-    number,
-    number,
-  ];
+  const distributionShares = feelingDistributionShares(thoughts);
   const empty: FeelingLayout = {
     width: chartWidth,
     thoughts,
@@ -250,8 +284,8 @@ export function buildFeelingLayout(
     flowSamples: [],
     thoughtIdsByDate: {},
     dayValues: {},
+    distributionShares,
     percentages: feelingPercentages(thoughts),
-    percentageX,
     monthLabels: [],
     zeroY: FLOW_TOP + (FEELING_FLOW_HEIGHT - FLOW_TOP - FLOW_BOTTOM) / 2,
     startDate: bounds?.start ?? null,

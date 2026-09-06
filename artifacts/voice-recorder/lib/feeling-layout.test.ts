@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildFeelingDistributionSegments,
   buildFeelingLayout,
   feelingColor,
+  feelingDistributionShares,
   feelingPercentages,
   weightedFeelingMean,
   type FeelingThought,
@@ -51,6 +53,7 @@ describe("feeling layout", () => {
     const layout = buildFeelingLayout(thoughts, "week", 349, TODAY);
 
     expect(layout.percentages).toEqual([33, 33, 33]);
+    expect(layout.distributionShares).toEqual([1 / 3, 1 / 3, 1 / 3]);
     expect(layout.swarmPoints.map(({ id }) => id).sort()).toEqual(
       layout.flowPoints.map(({ id }) => id).sort(),
     );
@@ -73,6 +76,31 @@ describe("feeling layout", () => {
     ];
 
     expect(feelingPercentages(thoughts)).toEqual([20, 30, 50]);
+    expect(feelingDistributionShares(thoughts)).toEqual([0.2, 0.3, 0.5]);
+  });
+
+  it("uses counts rather than word weights for distribution shares", () => {
+    const thoughts = [
+      thought("long-negative", "2026-09-04", -0.8, 5000),
+      thought("short-neutral", "2026-09-05", 0, 1),
+      thought("short-positive-a", "2026-09-06", 0.8, 1),
+      thought("short-positive-b", "2026-09-06", 0.9, 1),
+    ];
+
+    expect(feelingDistributionShares(thoughts)).toEqual([0.25, 0.25, 0.5]);
+    expect(feelingPercentages(thoughts)).toEqual([25, 25, 50]);
+  });
+
+  it("sizes distribution segments from unrounded shares with fixed gaps", () => {
+    const segments = buildFeelingDistributionSegments(349, [0.2, 0.3, 0.5]);
+
+    expect(segments[0].startX).toBe(8);
+    expect(segments[0].endX - segments[0].startX).toBeCloseTo(65.4);
+    expect(segments[1].startX - segments[0].endX).toBe(3);
+    expect(segments[1].endX - segments[1].startX).toBeCloseTo(98.1);
+    expect(segments[2].startX - segments[1].endX).toBe(3);
+    expect(segments[2].endX - segments[2].startX).toBeCloseTo(163.5);
+    expect(segments[2].endX).toBeCloseTo(341);
   });
 
   it("keeps the threshold values in the neutral area", () => {
@@ -94,5 +122,6 @@ describe("feeling layout", () => {
     expect(layout.flowPoints).toEqual([]);
     expect(layout.flowSamples).toEqual([]);
     expect(layout.monthLabels).toEqual([]);
+    expect(layout.distributionShares).toEqual([0, 0, 0]);
   });
 });
