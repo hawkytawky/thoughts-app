@@ -278,9 +278,11 @@ function selectedDayText(dateKey: string, count: number, value: number) {
 }
 
 export function FeelingLens({
+  active,
   graph,
   period,
 }: {
+  active: boolean;
   graph: Graph | null;
   period: FeelingPeriod;
 }) {
@@ -321,7 +323,7 @@ export function FeelingLens({
     selectionVisibleRef.current = false;
     selectionOpacity.setValue(0);
     markerOpacity.setValue(0);
-  }, [layout, markerOpacity, selectionOpacity]);
+  }, [active, layout, markerOpacity, selectionOpacity]);
 
   const selectedThought = selectedThoughtId
     ? (layout.thoughts.find(({ id }) => id === selectedThoughtId) ?? null)
@@ -487,6 +489,14 @@ export function FeelingLens({
   return (
     <View style={styles.root}>
       <View style={styles.content} onLayout={onLayout}>
+        {selectedThought ? (
+          <Pressable
+            accessibilityLabel="Auswahl schließen"
+            accessibilityRole="button"
+            onPress={resetToDefault}
+            style={styles.selectionDismissLayer}
+          />
+        ) : null}
         <Text style={styles.sectionLabel}>VERTEILUNG</Text>
         <View style={styles.swarmWrap}>
           <GestureDetector gesture={swarmGesture}>
@@ -631,8 +641,13 @@ const styles = StyleSheet.create({
     backgroundColor: FIELD,
   },
   content: {
+    position: "relative",
     paddingTop: 26,
     paddingHorizontal: 22,
+  },
+  selectionDismissLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
   },
   sectionLabel: {
     marginBottom: 10,
@@ -659,6 +674,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   thoughtPreview: {
+    position: "relative",
+    zIndex: 21,
     minHeight: 44,
     marginTop: 14,
     justifyContent: "flex-start",

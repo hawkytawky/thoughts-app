@@ -472,7 +472,11 @@ export default function OverviewScreen() {
                     status="ready"
                   />
                 ) : (
-                  <FeelingLens graph={visibleGraph} period={period} />
+                  <FeelingLens
+                    active={index === activeViewModeIndex}
+                    graph={visibleGraph}
+                    period={period}
+                  />
                 )}
               </NativeAnimated.View>
             )}
