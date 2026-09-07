@@ -47,6 +47,8 @@ export type FeaturedNote = {
   durationSeconds: number;
   wordCount: number;
   audioBytes: number;
+  // Emotional tone from the backend; null while a Thought has no affect yet.
+  valence: number | null;
   transcript: {
     text: string;
     language: string;
@@ -109,6 +111,7 @@ type BackendRecording = {
     text: string;
   }[];
   thought_card: BackendThoughtCard | null;
+  valence?: number | null;
 };
 
 export type NoteProcessingState =
@@ -172,6 +175,10 @@ function toFeaturedNote(recording: BackendRecording): FeaturedNote | null {
     projects: card.projects,
     mentionedLocations: card.mentioned_locations,
     recordedAt: recording.captured_at,
+    valence:
+      typeof recording.valence === "number" && Number.isFinite(recording.valence)
+        ? recording.valence
+        : null,
     locationStatus:
       recording.city || recording.suburb ? "captured" : "unavailable",
     location: null,

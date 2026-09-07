@@ -111,6 +111,37 @@ export function feelingColor(value: number): string {
   return `rgb(${channels.join(",")})`;
 }
 
+// The valence chip is a 9px dot, so a near-zero value would disappear into
+// MID grey. Both helpers apply a floor to the mix so the tone stays readable
+// at that size; the text variant is darkened for contrast against the field.
+const VALENCE_DOT_FLOOR = 0.22;
+const VALENCE_TEXT_FLOOR = 0.3;
+const VALENCE_TEXT_SHADE = 0.78;
+
+function valenceChannels(value: number, floor: number): number[] {
+  const normalized = clamp(value, -1, 1);
+  const amount = Math.max(Math.abs(normalized), floor);
+  return normalized < 0 ? mix(MID, ROSE, amount) : mix(MID, SAGE, amount);
+}
+
+export function valenceDotColor(value: number): string {
+  return `rgb(${valenceChannels(value, VALENCE_DOT_FLOOR).join(",")})`;
+}
+
+export function valenceTextColor(value: number): string {
+  const channels = valenceChannels(value, VALENCE_TEXT_FLOOR).map((channel) =>
+    Math.round(channel * VALENCE_TEXT_SHADE),
+  );
+  return `rgb(${channels.join(",")})`;
+}
+
+export function formatValence(value: number): string {
+  const normalized = clamp(value, -1, 1);
+  // Never render a signless or negative zero.
+  const sign = normalized < 0 ? "\u2212" : "+";
+  return `${sign}${Math.abs(normalized).toFixed(2).replace(".", ",")}`;
+}
+
 function utcDate(dateKey: string): Date {
   return new Date(`${dateKey}T12:00:00Z`);
 }

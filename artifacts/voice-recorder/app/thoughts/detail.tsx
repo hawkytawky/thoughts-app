@@ -39,6 +39,11 @@ import {
   formatNoteDate,
   formatTimestamp,
 } from "@/lib/featured-note";
+import {
+  formatValence,
+  valenceDotColor,
+  valenceTextColor,
+} from "@/lib/feeling-layout";
 import { useActiveRecording } from "@/lib/active-recording";
 import { clearFeedCache } from "@/lib/feed-bootstrap";
 import { removePendingThoughtByRemotePath } from "@/lib/pending-thoughts";
@@ -483,12 +488,36 @@ export default function ThoughtDetailScreen() {
       >
         <Text style={styles.title}>{note.title}</Text>
         <View style={styles.metaRow}>
-          <Text style={styles.metaText}>
-            {formatNoteDate(note.recordedAt, true)}
-          </Text>
-          <Text style={styles.metaText}>
-            {formatDuration(note.durationSeconds)} min
-          </Text>
+          {note.valence !== null && (
+            <View
+              accessibilityLabel={`Stimmung ${formatValence(note.valence)}`}
+              style={styles.valence}
+            >
+              <View
+                style={[
+                  styles.valenceDot,
+                  { backgroundColor: valenceDotColor(note.valence) },
+                ]}
+              />
+              <Text
+                style={[
+                  styles.valenceText,
+                  { color: valenceTextColor(note.valence) },
+                ]}
+              >
+                {formatValence(note.valence)}
+              </Text>
+            </View>
+          )}
+          <View style={styles.metaTrailing}>
+            <Text style={styles.metaText}>
+              {formatNoteDate(note.recordedAt, true)}
+            </Text>
+            <View style={styles.metaSeparator} />
+            <Text style={styles.metaText}>
+              {formatDuration(note.durationSeconds)} min
+            </Text>
+          </View>
         </View>
         {theme ? <Text style={styles.themeLine}>{theme}</Text> : null}
 
@@ -622,7 +651,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+  },
+  valence: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  valenceDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  // Sized against the screen's existing meta text rather than the mockup's
+  // slightly larger scale, so the row stays consistent with the rest.
+  valenceText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 11,
+    lineHeight: 17,
+  },
+  // Date and duration read as one trailing unit, so they stay grouped and are
+  // pushed to the right edge whether or not a valence chip precedes them.
+  metaTrailing: {
+    marginLeft: "auto",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  metaSeparator: {
+    width: 1,
+    height: 11,
+    marginHorizontal: 11,
+    backgroundColor: C.divider,
   },
   metaText: {
     fontFamily: NOTE_SANS,

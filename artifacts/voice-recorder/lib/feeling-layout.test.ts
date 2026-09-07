@@ -5,6 +5,9 @@ import {
   feelingColor,
   feelingDistributionShares,
   feelingPercentages,
+  formatValence,
+  valenceDotColor,
+  valenceTextColor,
   weightedFeelingMean,
   type FeelingThought,
 } from "./feeling-layout";
@@ -139,5 +142,50 @@ describe("feeling layout", () => {
     expect(layout.dayValues["2026-09-06"]).toBeCloseTo(0.4);
     expect(layout.endDateLabel).toEqual({ label: "6. Sep", x: 341 });
     expect(layout.flowPoints[0].x).toBeLessThan(349 - 8);
+  });
+});
+
+describe("valence chip", () => {
+  const channels = (color: string) =>
+    color
+      .replace(/rgb\(|\)/g, "")
+      .split(",")
+      .map((part) => Number(part.trim()));
+
+  it("formats with a German decimal comma and an explicit sign", () => {
+    expect(formatValence(0.48)).toBe("+0,48");
+    expect(formatValence(-0.62)).toBe("\u22120,62");
+    expect(formatValence(-0.05)).toBe("\u22120,05");
+  });
+
+  it("never renders a negative zero", () => {
+    expect(formatValence(0)).toBe("+0,00");
+  });
+
+  it("clamps values outside the backend range", () => {
+    expect(formatValence(1.4)).toBe("+1,00");
+    expect(formatValence(-3)).toBe("\u22121,00");
+  });
+
+  it("keeps a near-zero dot visible instead of fading into grey", () => {
+    // Without the floor a 0.02 valence would be indistinguishable from MID.
+    expect(valenceDotColor(0.02)).not.toBe(feelingColor(0.02));
+    expect(channels(valenceDotColor(0.02))).not.toEqual([190, 198, 205]);
+  });
+
+  it("tints negative rose and positive sage", () => {
+    // ROSE and SAGE share a blue channel, so red and green carry the contrast.
+    const [negR, negG] = channels(valenceDotColor(-0.8));
+    const [posR, posG] = channels(valenceDotColor(0.8));
+    expect(negR).toBeGreaterThan(posR);
+    expect(negG).toBeLessThan(posG);
+  });
+
+  it("darkens the label so it stays readable on the field", () => {
+    const dot = channels(valenceDotColor(0.48));
+    const text = channels(valenceTextColor(0.48));
+    text.forEach((value, index) => {
+      expect(value).toBeLessThan(dot[index]);
+    });
   });
 });
