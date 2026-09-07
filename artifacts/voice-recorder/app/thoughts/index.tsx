@@ -54,6 +54,7 @@ import {
   todayKey,
   writeFeedCache,
 } from "@/lib/feed-bootstrap";
+import { MEMORY_FRAME, MEMORY_THEME } from "@/lib/memory-theme";
 import {
   type PendingThought,
   getPendingThoughts,
@@ -666,7 +667,7 @@ export default function ThoughtsFeedScreen() {
           ]}
         >
           <Text style={styles.topDate}>{topDate(selectedDate)}</Text>
-          <Ionicons name="chevron-down" size={12} color={COLORS.inkSoft} />
+          <Ionicons name="chevron-down" size={12} color={MEMORY_THEME.muted} />
         </Pressable>
       </View>
 
@@ -737,16 +738,16 @@ export default function ThoughtsFeedScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#E7EBEC" },
   header: {
-    paddingHorizontal: 20,
+    paddingHorizontal: MEMORY_FRAME.horizontalPadding,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "baseline",
     justifyContent: "space-between",
   },
   brand: {
     fontFamily: NOTE_SERIF,
-    fontSize: 18,
-    letterSpacing: 0.1,
-    color: COLORS.ink,
+    fontSize: MEMORY_FRAME.titleFontSize,
+    letterSpacing: -0.23,
+    color: MEMORY_THEME.ink,
   },
   dateButton: {
     minHeight: 44,
@@ -756,9 +757,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   topDate: {
-    fontFamily: NOTE_SERIF,
-    fontSize: 13.5,
-    color: COLORS.inkSoft,
+    fontFamily: NOTE_SANS,
+    fontSize: MEMORY_FRAME.periodFontSize,
+    color: MEMORY_THEME.muted,
   },
   listContent: {
     flexGrow: 1,
