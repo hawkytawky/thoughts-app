@@ -494,7 +494,7 @@ export function FeelingLens({
 
   return (
     <View style={styles.root}>
-      <View style={styles.content} onLayout={onLayout}>
+      <View style={styles.content}>
         {selectedThought ? (
           <Pressable
             accessibilityLabel="Auswahl schließen"
@@ -504,7 +504,7 @@ export function FeelingLens({
           />
         ) : null}
         <Text style={styles.sectionLabel}>VERTEILUNG</Text>
-        <View style={styles.swarmWrap}>
+        <View style={styles.swarmWrap} onLayout={onLayout}>
           <GestureDetector gesture={swarmGesture}>
             <View style={styles.swarmCanvas}>
               <Canvas style={StyleSheet.absoluteFill}>
