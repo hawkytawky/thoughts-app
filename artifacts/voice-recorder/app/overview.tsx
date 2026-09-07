@@ -25,7 +25,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
-import { NOTE_SANS, NOTE_SERIF } from "@/components/NoteUI";
+import { NOTE_SANS } from "@/components/NoteUI";
 import { PrimaryScreenHeader } from "@/components/PrimaryScreenHeader";
 import { GalaxyGraph } from "@/components/overview/GalaxyGraph";
 import { FeelingLens } from "@/components/overview/FeelingLens";
@@ -188,7 +188,6 @@ function PeriodMenu({
           entering={FadeInDown.duration(180).easing(Easing.out(Easing.cubic))}
           style={[styles.periodMenu, { top: insets.top + 48 }]}
         >
-          <Text style={styles.menuLabel}>ZEITRAUM</Text>
           {PERIODS.map((option, index) => {
             const active = option.id === selected;
             return (
@@ -531,7 +530,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 16,
     width: 206,
-    paddingTop: 12,
+    paddingVertical: 4,
     paddingHorizontal: 16,
     borderRadius: 18,
     backgroundColor: "rgba(252,252,251,0.98)",
@@ -542,13 +541,6 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
     elevation: 12,
-  },
-  menuLabel: {
-    marginBottom: 7,
-    fontFamily: NOTE_SANS,
-    fontSize: 9.5,
-    letterSpacing: 1.5,
-    color: COLORS.inkFaint,
   },
   periodRow: {
     minHeight: 46,
@@ -562,8 +554,8 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.divider,
   },
   periodLabel: {
-    fontFamily: NOTE_SERIF,
-    fontSize: 15.5,
+    fontFamily: NOTE_SANS,
+    fontSize: MEMORY_FRAME.periodFontSize,
     color: COLORS.inkSoft,
   },
   periodLabelActive: { color: COLORS.ink },
