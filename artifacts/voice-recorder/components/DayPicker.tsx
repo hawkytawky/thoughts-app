@@ -7,7 +7,6 @@ import {
   NOTE_COLORS as C,
   NOTE_SANS,
   NOTE_SANS_SEMIBOLD,
-  NOTE_SERIF,
 } from "@/components/NoteUI";
 import { fetchThoughtDays, formatApiDate } from "@/lib/featured-note";
 
@@ -93,16 +92,13 @@ export function DayPicker({
       >
         <View style={styles.handle} />
         <View style={styles.sheetHeader}>
-          <View>
-            <Text style={styles.eyebrow}>TAG AUSWÄHLEN</Text>
-            <Text style={styles.selectedDate}>
-              {new Intl.DateTimeFormat("de-DE", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-              }).format(value)}
-            </Text>
-          </View>
+          <Text style={styles.selectedDate}>
+            {new Intl.DateTimeFormat("de-DE", {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+            }).format(value)}
+          </Text>
           <Pressable
             accessibilityLabel="Heute anzeigen"
             onPress={() => onChange(today)}
@@ -239,14 +235,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 24,
   },
-  eyebrow: {
-    fontFamily: NOTE_SANS_SEMIBOLD,
-    fontSize: 9,
-    letterSpacing: 1.8,
-    color: C.ink30,
-    marginBottom: 5,
-  },
-  selectedDate: { fontFamily: NOTE_SERIF, fontSize: 19, color: C.ink },
+  selectedDate: { fontFamily: NOTE_SANS, fontSize: 19, color: C.ink },
   todayButton: {
     borderWidth: 1,
     borderColor: C.border,
