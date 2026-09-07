@@ -97,6 +97,7 @@ function graphPayload() {
 describe("fetchGraph", () => {
   beforeEach(() => {
     backendFetchMock.mockReset();
+    vi.spyOn(Date, "now").mockReturnValue(123456789);
   });
 
   it("validates and maps the network-v2 response", async () => {
@@ -108,7 +109,7 @@ describe("fetchGraph", () => {
     const graph = await fetchGraph();
 
     expect(backendFetchMock).toHaveBeenCalledWith(
-      "/visualizations/graph?surface=network-v2",
+      "/visualizations/graph?surface=network-v2&refresh=123456789",
       { cache: "no-store" },
     );
     expect(graph.nodes.map(({ id, idx }) => ({ id, idx }))).toEqual([

@@ -148,8 +148,9 @@ export type GraphSurface = "network-v2";
 export async function fetchGraph(
   surface: GraphSurface = "network-v2",
 ): Promise<Graph> {
+  const refresh = Date.now();
   const response = await backendFetch(
-    `/visualizations/graph?surface=${surface}`,
+    `/visualizations/graph?surface=${surface}&refresh=${refresh}`,
     { cache: "no-store" },
   );
   if (!response.ok) {

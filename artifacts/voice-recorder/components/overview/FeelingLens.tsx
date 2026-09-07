@@ -625,7 +625,7 @@ export function FeelingLens({
                   style={[
                     styles.month,
                     styles.endDate,
-                    { left: layout.endDateLabel.x - 44 },
+                    { left: layout.endDateLabel.x - 60 },
                   ]}
                 >
                   {layout.endDateLabel.label}
@@ -775,7 +775,7 @@ const styles = StyleSheet.create({
     color: MUTED,
   },
   endDate: {
-    width: 44,
+    width: 60,
     textAlign: "right",
   },
   grain: {
