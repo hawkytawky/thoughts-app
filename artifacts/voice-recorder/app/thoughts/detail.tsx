@@ -17,7 +17,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BottomSheetModal } from "@/components/BottomSheetModal";
 import {
   NOTE_COLORS as C,
   NOTE_SANS,
@@ -31,6 +30,7 @@ import {
   NoteLoading,
   NoteTag,
 } from "@/components/NoteUI";
+import { TopRightMenu } from "@/components/TopRightMenu";
 import {
   type FeaturedNote,
   deleteThought,
@@ -50,7 +50,6 @@ import { removePendingThoughtByRemotePath } from "@/lib/pending-thoughts";
 import { buildThoughtPdfHtml } from "@/lib/thought-share";
 
 type DetailView = "summary" | "transcript";
-const DELETE_COLOR = "#A0524D";
 
 function Section({
   title,
@@ -227,40 +226,10 @@ function SummaryView({
   );
 }
 
-function TranscriptView({
-  copied,
-  note,
-  onCopy,
-}: {
-  copied: boolean;
-  note: FeaturedNote;
-  onCopy: () => void;
-}) {
+function TranscriptView({ note }: { note: FeaturedNote }) {
   return (
     <View style={styles.section}>
-      <View style={styles.transcriptHeader}>
-        <Text style={[styles.sectionHeading, styles.transcriptHeading]}>
-          Transkript
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={
-            copied ? "Transkript kopiert" : "Transkript kopieren"
-          }
-          hitSlop={8}
-          onPress={onCopy}
-          style={({ pressed }) => [
-            styles.copyButton,
-            pressed && styles.copyButtonPressed,
-          ]}
-        >
-          <Ionicons
-            name={copied ? "checkmark" : "copy-outline"}
-            size={17}
-            color={copied ? C.skyDeep : C.ink40}
-          />
-        </Pressable>
-      </View>
+      <Text style={styles.sectionHeading}>Transkript</Text>
       {note.transcript.segments.map((segment, index) => (
         <View key={`${segment.start}-${index}`} style={styles.transcriptBlock}>
           <Text style={styles.timestamp}>{formatTimestamp(segment.start)}</Text>
@@ -521,90 +490,72 @@ export default function ThoughtDetailScreen() {
         </View>
         {theme ? <Text style={styles.themeLine}>{theme}</Text> : null}
 
-        <View style={styles.segmentedControl}>
-          {(["summary", "transcript"] as const).map((view) => {
-            const active = detailView === view;
-            return (
-              <Pressable
-                key={view}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                onPress={() => setDetailView(view)}
-                style={[styles.segment, active && styles.segmentActive]}
-              >
-                <Text
-                  style={[
-                    styles.segmentText,
-                    active && styles.segmentTextActive,
-                  ]}
-                >
-                  {view === "summary" ? "Summary" : "Transkript"}
-                </Text>
-              </Pressable>
-            );
-          })}
+        <View style={styles.detailBody}>
+          {detailView === "summary" ? (
+            <SummaryView
+              detailsExpanded={detailsExpanded}
+              note={note}
+              onToggleDetails={() => {
+                LayoutAnimation.configureNext(
+                  LayoutAnimation.Presets.easeInEaseOut,
+                );
+                setDetailsExpanded((expanded) => !expanded);
+              }}
+            />
+          ) : (
+            <TranscriptView note={note} />
+          )}
         </View>
-
-        {detailView === "summary" ? (
-          <SummaryView
-            detailsExpanded={detailsExpanded}
-            note={note}
-            onToggleDetails={() => {
-              LayoutAnimation.configureNext(
-                LayoutAnimation.Presets.easeInEaseOut,
-              );
-              setDetailsExpanded((expanded) => !expanded);
-            }}
-          />
-        ) : (
-          <TranscriptView
-            copied={transcriptCopied}
-            note={note}
-            onCopy={() => void copyTranscript()}
-          />
-        )}
       </ScrollView>
-      <BottomSheetModal
+      <TopRightMenu
         closeLabel="Aktionsmenü schließen"
+        items={[
+          {
+            key: "copy-transcript",
+            label: transcriptCopied
+              ? "Transkript kopiert"
+              : "Transkript kopieren",
+            onPress: () => {
+              setActionMenuOpen(false);
+              void copyTranscript();
+            },
+          },
+          {
+            key: "toggle-transcript",
+            label:
+              detailView === "summary"
+                ? "Transkript anzeigen"
+                : "Zusammenfassung anzeigen",
+            onPress: () => {
+              setDetailView((current) =>
+                current === "summary" ? "transcript" : "summary",
+              );
+              setActionMenuOpen(false);
+            },
+          },
+          {
+            key: "share",
+            label: "Teilen",
+            disabled: sharing,
+            onPress: () => {
+              setActionMenuOpen(false);
+              setTimeout(() => void shareNote(), 100);
+            },
+          },
+          {
+            key: "delete",
+            label: "Löschen",
+            danger: true,
+            disabled: deleting,
+            onPress: () => {
+              setActionMenuOpen(false);
+              setTimeout(confirmDeletion, 100);
+            },
+          },
+        ]}
         onClose={() => setActionMenuOpen(false)}
         visible={actionMenuOpen}
-      >
-        <View
-          style={[
-            styles.actionSheet,
-            { paddingBottom: Math.max(insets.bottom, 16) },
-          ]}
-        >
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              setActionMenuOpen(false);
-              setTimeout(() => void shareNote(), 200);
-            }}
-            style={({ pressed }) => [
-              styles.actionRow,
-              pressed && styles.actionRowPressed,
-            ]}
-          >
-            <Ionicons name="share-outline" size={21} color={C.ink60} />
-            <Text style={styles.actionText}>Teilen</Text>
-          </Pressable>
-          <View style={styles.actionDivider} />
-          <Pressable
-            accessibilityRole="button"
-            onPress={confirmDeletion}
-            style={({ pressed }) => [
-              styles.actionRow,
-              pressed && styles.actionRowPressed,
-            ]}
-          >
-            <Ionicons name="trash-outline" size={21} color={DELETE_COLOR} />
-            <Text style={[styles.actionText, styles.actionDanger]}>
-              Löschen
-            </Text>
-          </Pressable>
-        </View>
-      </BottomSheetModal>
+      />
     </View>
   );
 }
@@ -695,36 +646,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: C.ink40,
   },
-  segmentedControl: {
-    marginHorizontal: 6,
-    marginTop: 24,
-    marginBottom: 28,
-    padding: 3,
-    borderRadius: 99,
-    backgroundColor: C.skyLight,
-    flexDirection: "row",
-  },
-  segment: {
-    flex: 1,
-    paddingVertical: 9,
-    borderRadius: 99,
-    alignItems: "center",
-  },
-  segmentActive: {
-    backgroundColor: C.card,
-    shadowColor: C.skyDeep,
-    shadowOpacity: 0.07,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-  },
-  segmentText: {
-    fontFamily: NOTE_SANS_SEMIBOLD,
-    fontSize: 10.5,
-    letterSpacing: 1.35,
-    textTransform: "uppercase",
-    color: C.inactive,
-  },
-  segmentTextActive: { color: C.ink60 },
+  detailBody: { marginTop: 28 },
   detailsToggle: {
     minHeight: 54,
     marginHorizontal: 6,
@@ -801,21 +723,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 },
-  transcriptHeader: {
-    minHeight: 32,
-    marginBottom: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  transcriptHeading: { marginBottom: 0 },
-  copyButton: {
-    width: 32,
-    minHeight: 32,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  copyButtonPressed: { opacity: 0.5 },
   transcriptBlock: { marginBottom: 22 },
   timestamp: {
     fontFamily: NOTE_SANS,
@@ -829,36 +736,4 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     color: C.ink70,
   },
-  actionSheet: {
-    marginHorizontal: 12,
-    marginBottom: 8,
-    paddingTop: 8,
-    paddingHorizontal: 12,
-    borderRadius: 22,
-    backgroundColor: C.card,
-    shadowColor: C.ink,
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-  },
-  actionRow: {
-    minHeight: 54,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  actionRowPressed: { opacity: 0.5 },
-  actionText: {
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 15,
-    color: C.ink,
-  },
-  actionDivider: {
-    height: StyleSheet.hairlineWidth,
-    marginLeft: 45,
-    backgroundColor: C.divider,
-  },
-  actionDanger: { color: DELETE_COLOR },
 });

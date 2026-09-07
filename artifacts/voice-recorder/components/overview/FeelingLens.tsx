@@ -475,8 +475,7 @@ export function FeelingLens({
   const flowGesture = Gesture.Pan()
     .minDistance(0)
     .onBegin(({ x }) => runOnJS(chooseDayAt)(x))
-    .onUpdate(({ x }) => runOnJS(chooseDayAt)(x))
-    .onFinalize(() => runOnJS(resetToDefault)());
+    .onUpdate(({ x }) => runOnJS(chooseDayAt)(x));
 
   const swarmPicture = useMemo(
     () => drawSwarm(layout, selectedThoughtId, selectedDate),
@@ -554,9 +553,7 @@ export function FeelingLens({
                   </Text>
                 ) : null}
               </Text>
-              <View pointerEvents="none" style={styles.previewArrow}>
-                <Ionicons name="arrow-forward" size={14} color={MUTED} />
-              </View>
+              <Ionicons name="arrow-forward" size={16} color={MUTED} />
             </Pressable>
           ) : null}
         </NativeAnimated.View>
@@ -723,14 +720,6 @@ const styles = StyleSheet.create({
     fontFamily: NOTE_SANS,
     fontSize: 11.5,
     color: MUTED,
-  },
-  previewArrow: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.58)",
   },
   flowSectionLabel: {
     marginTop: 18,

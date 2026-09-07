@@ -8,7 +8,6 @@ import React, {
 import {
   Animated as NativeAnimated,
   Easing as NativeEasing,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -18,15 +17,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import Animated, {
   Easing,
-  FadeInDown,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
 import { NOTE_SANS } from "@/components/NoteUI";
 import { PrimaryScreenHeader } from "@/components/PrimaryScreenHeader";
+import { TopRightMenu } from "@/components/TopRightMenu";
 import { GalaxyGraph } from "@/components/overview/GalaxyGraph";
 import { FeelingLens } from "@/components/overview/FeelingLens";
 import { formatApiDate } from "@/lib/featured-note";
@@ -34,11 +32,8 @@ import { MEMORY_FRAME, MEMORY_THEME } from "@/lib/memory-theme";
 import { fetchGraph, type Graph, type GraphNode } from "@/lib/visualizations";
 
 const COLORS = {
-  ink: "#1D3B4F",
-  inkSoft: "#6E8A9C",
   inkFaint: "#9FB2BD",
   deep: "#2E5E8C",
-  divider: "#EDF0F1",
 };
 
 const VIEW_MODES = ["base", "network", "feeling"] as const;
@@ -168,55 +163,18 @@ function PeriodMenu({
   selected: Period;
   visible: boolean;
 }) {
-  const insets = useSafeAreaInsets();
-
   return (
-    <Modal
-      animationType="fade"
-      onRequestClose={onClose}
-      presentationStyle="overFullScreen"
-      transparent
+    <TopRightMenu
+      closeLabel="Zeitraumauswahl schließen"
+      items={PERIODS.map((option) => ({
+        key: option.id,
+        label: option.label,
+        onPress: () => onSelect(option.id),
+        selected: option.id === selected,
+      }))}
+      onClose={onClose}
       visible={visible}
-    >
-      <View style={styles.menuLayer}>
-        <Pressable
-          accessibilityLabel="Zeitraumauswahl schließen"
-          onPress={onClose}
-          style={StyleSheet.absoluteFill}
-        />
-        <Animated.View
-          entering={FadeInDown.duration(180).easing(Easing.out(Easing.cubic))}
-          style={[styles.periodMenu, { top: insets.top + 48 }]}
-        >
-          {PERIODS.map((option, index) => {
-            const active = option.id === selected;
-            return (
-              <Pressable
-                key={option.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                onPress={() => onSelect(option.id)}
-                style={({ pressed }) => [
-                  styles.periodRow,
-                  index < PERIODS.length - 1 && styles.periodRowDivider,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.periodLabel,
-                    active && styles.periodLabelActive,
-                  ]}
-                >
-                  {option.label}
-                </Text>
-                {active ? <View style={styles.periodDot} /> : null}
-              </Pressable>
-            );
-          })}
-        </Animated.View>
-      </View>
-    </Modal>
+    />
   );
 }
 
@@ -524,46 +482,6 @@ const styles = StyleSheet.create({
     fontFamily: NOTE_SANS,
     fontSize: 12,
     color: COLORS.deep,
-  },
-  menuLayer: { flex: 1 },
-  periodMenu: {
-    position: "absolute",
-    right: 16,
-    width: 206,
-    paddingVertical: 4,
-    paddingHorizontal: 16,
-    borderRadius: 18,
-    backgroundColor: "rgba(252,252,251,0.98)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.86)",
-    shadowColor: COLORS.ink,
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 12,
-  },
-  periodRow: {
-    minHeight: 46,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  periodRowDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.divider,
-  },
-  periodLabel: {
-    fontFamily: NOTE_SANS,
-    fontSize: MEMORY_FRAME.periodFontSize,
-    color: COLORS.inkSoft,
-  },
-  periodLabelActive: { color: COLORS.ink },
-  periodDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: COLORS.deep,
   },
   pressed: { opacity: 0.58 },
 });
