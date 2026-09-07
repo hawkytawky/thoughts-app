@@ -164,20 +164,23 @@ export default function ProfileScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
+      <View
+        style={[
+          styles.header,
           {
-            paddingBottom: 170,
             paddingTop: Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0),
+            paddingBottom: 2,
           },
         ]}
+      >
+        <Text style={styles.brand}>thoughts</Text>
+        <View style={styles.headerControlSpacer} />
+      </View>
+
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: 170 }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.appBar}>
-          <Text style={styles.brand}>thoughts</Text>
-        </View>
-
         <View style={styles.identity}>
           <Text numberOfLines={2} style={styles.name}>
             {displayName(user)}
@@ -266,12 +269,13 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: 20,
   },
-  appBar: {
-    minHeight: 44,
-    marginHorizontal: MEMORY_FRAME.horizontalPadding - 20,
+  header: {
+    paddingHorizontal: MEMORY_FRAME.horizontalPadding,
     flexDirection: "row",
     alignItems: "baseline",
+    justifyContent: "space-between",
   },
+  headerControlSpacer: { minHeight: 44 },
   brand: {
     fontFamily: NOTE_SERIF,
     fontSize: MEMORY_FRAME.titleFontSize,
