@@ -1,4 +1,4 @@
-import React from "react";
+import React, { type ReactNode } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,6 +11,7 @@ export type TopRightMenuItem = {
   onPress: () => void;
   danger?: boolean;
   disabled?: boolean;
+  icon?: ReactNode;
   selected?: boolean;
 };
 
@@ -62,15 +63,18 @@ export function TopRightMenu({
                 pressed && styles.pressed,
               ]}
             >
-              <Text
-                style={[
-                  styles.label,
-                  item.selected && styles.selectedLabel,
-                  item.danger && styles.dangerLabel,
-                ]}
-              >
-                {item.label}
-              </Text>
+              <View style={styles.rowContent}>
+                {item.icon}
+                <Text
+                  style={[
+                    styles.label,
+                    item.selected && styles.selectedLabel,
+                    item.danger && styles.dangerLabel,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </View>
               {item.selected ? <View style={styles.selectedDot} /> : null}
             </Pressable>
           ))}
@@ -108,6 +112,11 @@ const styles = StyleSheet.create({
   rowDivider: {
     borderBottomWidth: 1,
     borderBottomColor: "#EDF0F1",
+  },
+  rowContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   label: {
     fontFamily: NOTE_SANS,

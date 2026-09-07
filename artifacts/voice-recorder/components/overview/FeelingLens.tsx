@@ -494,7 +494,7 @@ export function FeelingLens({
   return (
     <View style={styles.root}>
       <View style={styles.content}>
-        {selectedThought ? (
+        {selectedThought || selectedDate ? (
           <Pressable
             accessibilityLabel="Auswahl schließen"
             accessibilityRole="button"
@@ -674,6 +674,7 @@ const styles = StyleSheet.create({
   swarmWrap: {
     height: FEELING_SWARM_HEIGHT,
     position: "relative",
+    zIndex: 21,
   },
   swarmCanvas: {
     height: FEELING_SWARM_HEIGHT,
@@ -732,6 +733,7 @@ const styles = StyleSheet.create({
   flowWrap: {
     height: FEELING_FLOW_HEIGHT,
     position: "relative",
+    zIndex: 21,
   },
   flowCanvas: {
     height: FEELING_FLOW_HEIGHT,

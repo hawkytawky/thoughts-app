@@ -515,6 +515,13 @@ export default function ThoughtDetailScreen() {
             label: transcriptCopied
               ? "Transkript kopiert"
               : "Transkript kopieren",
+            icon: (
+              <Ionicons
+                name={transcriptCopied ? "checkmark" : "copy-outline"}
+                size={18}
+                color={C.ink60}
+              />
+            ),
             onPress: () => {
               setActionMenuOpen(false);
               void copyTranscript();
@@ -526,6 +533,15 @@ export default function ThoughtDetailScreen() {
               detailView === "summary"
                 ? "Transkript anzeigen"
                 : "Zusammenfassung anzeigen",
+            icon: (
+              <Ionicons
+                name={
+                  detailView === "summary" ? "eye-outline" : "reader-outline"
+                }
+                size={18}
+                color={C.ink60}
+              />
+            ),
             onPress: () => {
               setDetailView((current) =>
                 current === "summary" ? "transcript" : "summary",
@@ -537,6 +553,7 @@ export default function ThoughtDetailScreen() {
             key: "share",
             label: "Teilen",
             disabled: sharing,
+            icon: <Ionicons name="share-outline" size={18} color={C.ink60} />,
             onPress: () => {
               setActionMenuOpen(false);
               setTimeout(() => void shareNote(), 100);
@@ -547,6 +564,7 @@ export default function ThoughtDetailScreen() {
             label: "Löschen",
             danger: true,
             disabled: deleting,
+            icon: <Ionicons name="trash-outline" size={18} color="#A0524D" />,
             onPress: () => {
               setActionMenuOpen(false);
               setTimeout(confirmDeletion, 100);
