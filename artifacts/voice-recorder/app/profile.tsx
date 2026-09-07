@@ -268,8 +268,9 @@ const styles = StyleSheet.create({
   },
   appBar: {
     minHeight: 44,
+    marginHorizontal: MEMORY_FRAME.horizontalPadding - 20,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "baseline",
   },
   brand: {
     fontFamily: NOTE_SERIF,
