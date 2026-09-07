@@ -16,8 +16,10 @@ export function PrimaryScreenHeader({ right }: { right?: ReactNode }) {
         },
       ]}
     >
-      <Text style={styles.brand}>thoughts</Text>
-      {right ?? <View style={styles.controlPlaceholder} />}
+      <View style={styles.row}>
+        <Text style={styles.brand}>thoughts</Text>
+        <View style={styles.controlSlot}>{right}</View>
+      </View>
     </View>
   );
 }
@@ -26,15 +28,23 @@ const styles = StyleSheet.create({
   header: {
     paddingBottom: 2,
     paddingHorizontal: MEMORY_FRAME.horizontalPadding,
+  },
+  row: {
+    height: 44,
     flexDirection: "row",
-    alignItems: "baseline",
+    alignItems: "center",
     justifyContent: "space-between",
   },
   brand: {
     fontFamily: NOTE_SERIF,
     fontSize: MEMORY_FRAME.titleFontSize,
+    lineHeight: 28,
     letterSpacing: -0.23,
     color: MEMORY_THEME.ink,
   },
-  controlPlaceholder: { minHeight: 44 },
+  controlSlot: {
+    height: 44,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
 });
