@@ -50,25 +50,6 @@ export type SecondaryTopicEdge = {
   relevance: number;
 };
 
-export type TimeTopicVolume = {
-  cluster: string;
-  wordCount: number;
-  thoughtCount: number;
-};
-
-export type TimeDayVolume = {
-  date: string;
-  wordCount: number;
-  thoughtCount: number;
-  topics: TimeTopicVolume[];
-};
-
-export type TimeProjection = {
-  timezone: string;
-  maxDailyWordCount: number;
-  days: TimeDayVolume[];
-};
-
 export type Graph = {
   meta: {
     nodes: number;
@@ -85,7 +66,6 @@ export type Graph = {
   edges: GraphEdge[];
   secondaryTopicEdges: SecondaryTopicEdge[];
   topicSimilarities: TopicSimilarity[];
-  time: TimeProjection;
   generatedAt?: string | null;
 };
 
@@ -160,24 +140,6 @@ const topicGraphResponseSchema = z.object({
       relevance: nonNegativeNumber,
     }),
   ),
-  time: z.object({
-    timezone: z.string(),
-    maxDailyWordCount: z.number().int().nonnegative(),
-    days: z.array(
-      z.object({
-        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        wordCount: z.number().int().nonnegative(),
-        thoughtCount: z.number().int().nonnegative(),
-        topics: z.array(
-          z.object({
-            topicId: z.string(),
-            wordCount: z.number().int().nonnegative(),
-            thoughtCount: z.number().int().nonnegative(),
-          }),
-        ),
-      }),
-    ),
-  }),
   generatedAt: z.string().datetime({ offset: true }).nullable().optional(),
 });
 
@@ -188,6 +150,7 @@ export async function fetchGraph(
 ): Promise<Graph> {
   const response = await backendFetch(
     `/visualizations/graph?surface=${surface}`,
+    { cache: "no-store" },
   );
   if (!response.ok) {
     throw new Error(
@@ -244,17 +207,6 @@ export async function fetchGraph(
           ];
     }),
     topicSimilarities: payload.topicSimilarities,
-    time: {
-      ...payload.time,
-      days: payload.time.days.map((day) => ({
-        ...day,
-        topics: day.topics.map((topic) => ({
-          cluster: topic.topicId,
-          wordCount: topic.wordCount,
-          thoughtCount: topic.thoughtCount,
-        })),
-      })),
-    },
     generatedAt: payload.generatedAt,
   };
 }

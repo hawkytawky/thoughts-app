@@ -24,6 +24,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { type Href, useRouter } from "expo-router";
 import { runOnJS } from "react-native-reanimated";
 import { NOTE_SANS, NOTE_SERIF } from "@/components/NoteUI";
+import { MEMORY_THEME } from "@/lib/memory-theme";
 import {
   buildFeelingDistributionSegments,
   buildFeelingLayout,
@@ -39,10 +40,10 @@ import {
 } from "@/lib/feeling-layout";
 import type { Graph } from "@/lib/visualizations";
 
-const FIELD = "#F2F3F5";
-const INK = "#243542";
-const MUTED = "#8A949C";
-const AXIS = "#D5DBE0";
+const FIELD = MEMORY_THEME.field;
+const INK = MEMORY_THEME.ink;
+const MUTED = MEMORY_THEME.muted;
+const AXIS = MEMORY_THEME.axis;
 const GRAPH_WIDTH = 349;
 const FLOW_TOP = 10;
 const FLOW_BOTTOM = 22;
@@ -323,7 +324,18 @@ export function FeelingLens({
     selectionVisibleRef.current = false;
     selectionOpacity.setValue(0);
     markerOpacity.setValue(0);
-  }, [active, layout, markerOpacity, selectionOpacity]);
+  }, [active, markerOpacity, period, selectionOpacity]);
+
+  useEffect(() => {
+    if (!selectedThoughtId) return;
+    if (layout.thoughts.some(({ id }) => id === selectedThoughtId)) return;
+    setSelectedThoughtId(null);
+    setSelectedDate(null);
+    selectedDateRef.current = null;
+    selectionVisibleRef.current = false;
+    selectionOpacity.setValue(0);
+    markerOpacity.setValue(0);
+  }, [layout.thoughts, markerOpacity, selectedThoughtId, selectionOpacity]);
 
   const selectedThought = selectedThoughtId
     ? (layout.thoughts.find(({ id }) => id === selectedThoughtId) ?? null)
@@ -681,10 +693,16 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
   },
   previewRow: {
-    minHeight: 36,
+    minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: MEMORY_THEME.previewBorder,
+    backgroundColor: MEMORY_THEME.preview,
   },
   previewRowPressed: {
     opacity: 0.5,
@@ -707,7 +725,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(36,53,66,0.045)",
+    backgroundColor: "rgba(255,255,255,0.58)",
   },
   flowSectionLabel: {
     marginTop: 18,

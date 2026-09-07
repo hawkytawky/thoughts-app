@@ -118,6 +118,13 @@ function dateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+function localDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function addDays(dateKeyValue: string, days: number): string {
   const date = utcDate(dateKeyValue);
   date.setUTCDate(date.getUTCDate() + days);
@@ -136,13 +143,17 @@ function periodBounds(
   today: Date,
 ): { start: string; end: string } | null {
   if (thoughts.length === 0) return null;
-  const todayKey = dateKey(today);
+  const todayKey = localDateKey(today);
   if (period === "today") return { start: todayKey, end: todayKey };
   if (period === "week") return { start: addDays(todayKey, -6), end: todayKey };
   if (period === "month")
     return { start: addDays(todayKey, -29), end: todayKey };
   const dates = thoughts.map(({ date }) => date).sort();
-  return { start: dates[0], end: dates[dates.length - 1] };
+  return {
+    start: dates[0],
+    end:
+      dates[dates.length - 1] > todayKey ? dates[dates.length - 1] : todayKey,
+  };
 }
 
 function weight(thought: FeelingThought): number {

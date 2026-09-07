@@ -15,7 +15,6 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
 import Animated, {
   Easing,
@@ -33,20 +32,20 @@ import {
 } from "@/components/NoteUI";
 import { GalaxyGraph } from "@/components/overview/GalaxyGraph";
 import { FeelingLens } from "@/components/overview/FeelingLens";
-import { TimeFlow } from "@/components/overview/TimeFlow";
 import { formatApiDate } from "@/lib/featured-note";
+import { MEMORY_FRAME, MEMORY_THEME } from "@/lib/memory-theme";
 import { fetchGraph, type Graph, type GraphNode } from "@/lib/visualizations";
 
 const COLORS = {
   ink: "#1D3B4F",
   inkSoft: "#6E8A9C",
   inkFaint: "#9FB2BD",
-  viewModeInactive: "#B6C4CB",
   deep: "#2E5E8C",
   divider: "#EDF0F1",
 };
 
-const VIEW_MODES = ["base", "network", "time", "gefühl"] as const;
+const VIEW_MODES = ["base", "network", "feeling"] as const;
+const GRAPH_REFRESH_INTERVAL_MS = 30_000;
 type Period = "all" | "today" | "week" | "month";
 
 type PeriodOption = { id: Period; label: string };
@@ -110,15 +109,6 @@ function graphForPeriod(graph: Graph | null, period: Period): Graph | null {
     ...cluster,
     count: counts.get(cluster.id) ?? 0,
   }));
-  const clusterIds = new Set(clusters.map(({ id }) => id));
-  const days = graph.time.days
-    .filter((day) => periodIncludes(day.date, period))
-    .map((day) => ({
-      ...day,
-      topics: day.topics.filter((topic) => clusterIds.has(topic.cluster)),
-    }));
-  const maxDailyWordCount = Math.max(0, ...days.map((day) => day.wordCount));
-
   return {
     ...graph,
     meta: { ...graph.meta, nodes: nodes.length, clusters: clusters.length },
@@ -126,17 +116,14 @@ function graphForPeriod(graph: Graph | null, period: Period): Graph | null {
     edges,
     secondaryTopicEdges,
     clusters,
-    time: { ...graph.time, days, maxDailyWordCount },
   };
 }
 
 function ViewModeButton({
-  feelingStyle,
   index,
   selected,
   onPress,
 }: {
-  feelingStyle: boolean;
   index: number;
   selected: boolean;
   onPress: () => void;
@@ -151,8 +138,8 @@ function ViewModeButton({
   }, [progress, selected]);
 
   const textStyle = useAnimatedStyle(() => {
-    const inactive = feelingStyle ? [179, 187, 194] : [182, 196, 203];
-    const active = feelingStyle ? [36, 53, 66] : [29, 59, 79];
+    const inactive = [179, 187, 194];
+    const active = [36, 53, 66];
     return {
       color: `rgba(${Math.round(inactive[0] + (active[0] - inactive[0]) * progress.value)}, ${Math.round(inactive[1] + (active[1] - inactive[1]) * progress.value)}, ${Math.round(inactive[2] + (active[2] - inactive[2]) * progress.value)}, 1)`,
     };
@@ -166,13 +153,7 @@ function ViewModeButton({
       onPress={onPress}
       style={({ pressed }) => pressed && styles.pressed}
     >
-      <Animated.Text
-        style={[
-          styles.viewModeLabel,
-          feelingStyle && styles.viewModeLabelFeeling,
-          textStyle,
-        ]}
-      >
+      <Animated.Text style={[styles.viewModeLabel, textStyle]}>
         {VIEW_MODES[index]}
       </Animated.Text>
     </Pressable>
@@ -253,9 +234,12 @@ function EmptyMessage({ children }: { children: string }) {
 
 export default function OverviewScreen() {
   const insets = useSafeAreaInsets();
-  const [activeViewModeIndex, setActiveViewModeIndex] = useState(
+  const initialViewModeIndex = Math.min(
     retainedViewModeIndex,
+    VIEW_MODES.length - 1,
   );
+  const [activeViewModeIndex, setActiveViewModeIndex] =
+    useState(initialViewModeIndex);
   const [period, setPeriod] = useState<Period>(retainedPeriod);
   const [periodSheetOpen, setPeriodSheetOpen] = useState(false);
   const [graph, setGraph] = useState<Graph | null>(null);
@@ -264,15 +248,18 @@ export default function OverviewScreen() {
     "loading",
   );
   const graphRequestIdRef = useRef(0);
+  const graphRequestInFlightRef = useRef(false);
   const viewModeOpacities = useRef(
     VIEW_MODES.map(
       (_, index) =>
-        new NativeAnimated.Value(index === retainedViewModeIndex ? 1 : 0),
+        new NativeAnimated.Value(index === initialViewModeIndex ? 1 : 0),
     ),
   ).current;
   const contentOpacity = useRef(new NativeAnimated.Value(0)).current;
 
   const loadGraph = useCallback(() => {
+    if (graphRequestInFlightRef.current) return;
+    graphRequestInFlightRef.current = true;
     // Keep the visualization mounted while refreshing after a detail view.
     // Otherwise its focused cluster, selected Thought, and camera are reset.
     if (!graphRef.current) setStatus("loading");
@@ -288,14 +275,22 @@ export default function OverviewScreen() {
         if (requestId !== graphRequestIdRef.current) return;
         if (__DEV__) console.error("Failed to load visualization graph", error);
         if (!graphRef.current) setStatus("error");
+      })
+      .finally(() => {
+        if (requestId === graphRequestIdRef.current) {
+          graphRequestInFlightRef.current = false;
+        }
       });
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       loadGraph();
+      const refreshTimer = setInterval(loadGraph, GRAPH_REFRESH_INTERVAL_MS);
       return () => {
+        clearInterval(refreshTimer);
         graphRequestIdRef.current += 1;
+        graphRequestInFlightRef.current = false;
       };
     }, [loadGraph]),
   );
@@ -307,8 +302,6 @@ export default function OverviewScreen() {
   const noData = status === "ready" && (visibleGraph?.nodes.length ?? 0) === 0;
   const periodLabel =
     PERIODS.find(({ id }) => id === period)?.label ?? "Gesamt";
-  const feelingActive = VIEW_MODES[activeViewModeIndex] === "gefühl";
-
   useEffect(() => {
     if (status !== "ready") {
       contentOpacity.setValue(0);
@@ -320,7 +313,7 @@ export default function OverviewScreen() {
       duration: 200,
       useNativeDriver: true,
     }).start();
-  }, [contentOpacity, period, status, visibleGraph]);
+  }, [contentOpacity, period, status]);
 
   const selectViewMode = useCallback(
     (index: number) => {
@@ -354,29 +347,16 @@ export default function OverviewScreen() {
 
   return (
     <View style={styles.root}>
-      <LinearGradient
-        colors={
-          feelingActive
-            ? ["#F2F3F5", "#F2F3F5", "#F2F3F5"]
-            : ["#DBE3E8", "#E7EBEC", "#EAEDED"]
-        }
-        locations={[0, 0.46, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-
       <View
         style={[
           styles.header,
-          feelingActive && styles.headerFeeling,
           {
             paddingTop: Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0),
             paddingBottom: 2,
           },
         ]}
       >
-        <Text style={[styles.brand, feelingActive && styles.brandFeeling]}>
-          thoughts
-        </Text>
+        <Text style={styles.brand}>thoughts</Text>
         <Pressable
           accessibilityLabel={`Zeitraum auswählen. Aktuell ${periodLabel}`}
           accessibilityRole="button"
@@ -386,30 +366,15 @@ export default function OverviewScreen() {
             pressed && styles.pressed,
           ]}
         >
-          <Text
-            style={[
-              styles.periodButtonText,
-              feelingActive && styles.periodButtonTextFeeling,
-            ]}
-          >
-            {periodLabel}
-          </Text>
-          <Ionicons
-            name="chevron-down"
-            size={12}
-            color={feelingActive ? "#8A949C" : COLORS.inkSoft}
-          />
+          <Text style={styles.periodButtonText}>{periodLabel}</Text>
+          <Ionicons name="chevron-down" size={12} color={MEMORY_THEME.muted} />
         </Pressable>
       </View>
 
-      <View
-        accessibilityRole="tablist"
-        style={[styles.viewModes, feelingActive && styles.viewModesFeeling]}
-      >
+      <View accessibilityRole="tablist" style={styles.viewModes}>
         {VIEW_MODES.map((viewMode, index) => (
           <ViewModeButton
             key={viewMode}
-            feelingStyle={feelingActive}
             index={index}
             onPress={() => selectViewMode(index)}
             selected={index === activeViewModeIndex}
@@ -425,7 +390,7 @@ export default function OverviewScreen() {
             style={[
               styles.page,
               viewMode === "network" && styles.networkPage,
-              viewMode === "gefühl" && styles.feelingPage,
+              viewMode === "feeling" && styles.feelingPage,
               {
                 opacity: viewModeOpacities[index],
                 zIndex: index === activeViewModeIndex ? 1 : 0,
@@ -448,7 +413,7 @@ export default function OverviewScreen() {
                   <Text style={styles.retryText}>Erneut versuchen</Text>
                 </Pressable>
               </View>
-            ) : noData && viewMode !== "network" && viewMode !== "gefühl" ? (
+            ) : noData && viewMode !== "network" && viewMode !== "feeling" ? (
               <EmptyMessage>
                 In diesem Zeitraum nichts aufgenommen.
               </EmptyMessage>
@@ -463,12 +428,6 @@ export default function OverviewScreen() {
                     graph={visibleGraph}
                     onRetry={loadGraph}
                     period={period}
-                    status="ready"
-                  />
-                ) : viewMode === "time" ? (
-                  <TimeFlow
-                    graph={visibleGraph}
-                    onRetry={loadGraph}
                     status="ready"
                   />
                 ) : (
@@ -496,27 +455,18 @@ export default function OverviewScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#E7EBEC" },
+  root: { flex: 1, backgroundColor: MEMORY_THEME.field },
   header: {
-    paddingHorizontal: 20,
+    paddingHorizontal: MEMORY_FRAME.horizontalPadding,
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  headerFeeling: {
-    paddingHorizontal: 22,
     alignItems: "baseline",
+    justifyContent: "space-between",
   },
   brand: {
     fontFamily: NOTE_SERIF,
-    fontSize: 18,
-    letterSpacing: 0.1,
-    color: COLORS.ink,
-  },
-  brandFeeling: {
-    fontSize: 27,
-    letterSpacing: -0.27,
-    color: "#243542",
+    fontSize: MEMORY_FRAME.titleFontSize,
+    letterSpacing: -0.23,
+    color: MEMORY_THEME.ink,
   },
   periodButton: {
     minHeight: 44,
@@ -527,38 +477,24 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   periodButtonText: {
-    fontFamily: NOTE_SERIF,
-    fontSize: 13.5,
-    color: COLORS.inkSoft,
-  },
-  periodButtonTextFeeling: {
     fontFamily: NOTE_SANS,
-    fontSize: 14,
-    color: "#8A949C",
+    fontSize: MEMORY_FRAME.periodFontSize,
+    color: MEMORY_THEME.muted,
   },
   viewModes: {
-    paddingTop: 10,
+    paddingTop: 14,
     paddingBottom: 2,
-    paddingHorizontal: 22,
+    paddingHorizontal: MEMORY_FRAME.horizontalPadding,
     flexDirection: "row",
     alignItems: "center",
-    gap: 22,
-  },
-  viewModesFeeling: {
-    paddingTop: 14,
-    paddingHorizontal: 22,
-    gap: 20,
+    gap: MEMORY_FRAME.tabGap,
   },
   viewModeLabel: {
     fontFamily: NOTE_SANS,
-    fontSize: 12.5,
+    fontSize: MEMORY_FRAME.tabFontSize,
     fontWeight: "400",
-    letterSpacing: 0.875,
-    color: COLORS.viewModeInactive,
-  },
-  viewModeLabelFeeling: {
-    fontSize: 15,
     letterSpacing: 0,
+    color: MEMORY_THEME.inactive,
   },
   pager: { flex: 1, position: "relative" },
   page: {

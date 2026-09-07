@@ -124,4 +124,17 @@ describe("feeling layout", () => {
     expect(layout.monthLabels).toEqual([]);
     expect(layout.distributionShares).toEqual([0, 0, 0]);
   });
+
+  it("extends the complete timeline through today", () => {
+    const layout = buildFeelingLayout(
+      [thought("latest", "2026-09-01", 0.4)],
+      "all",
+      349,
+      TODAY,
+    );
+
+    expect(layout.endDate).toBe("2026-09-06");
+    expect(layout.flowSamples.at(-1)?.date).toBe("2026-09-06");
+    expect(layout.flowPoints[0].x).toBeLessThan(349 - 8);
+  });
 });

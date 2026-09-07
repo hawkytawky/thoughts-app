@@ -51,6 +51,7 @@ import {
   type GraphCluster,
   type GraphNode,
 } from "@/lib/visualizations";
+import { MEMORY_THEME } from "@/lib/memory-theme";
 
 const W = 361;
 const H = 560;
@@ -2053,6 +2054,7 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     overflow: "hidden",
+    backgroundColor: MEMORY_THEME.field,
   },
   labelAnchor: {
     position: "absolute",

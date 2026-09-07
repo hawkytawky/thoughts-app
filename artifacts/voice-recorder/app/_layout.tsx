@@ -21,12 +21,7 @@ import {
   Newsreader_400Regular,
   Newsreader_400Regular_Italic,
 } from "@expo-google-fonts/newsreader";
-import {
-  type Href,
-  Stack,
-  useRouter,
-  useSegments,
-} from "expo-router";
+import { type Href, Stack, useRouter, useSegments } from "expo-router";
 import { ActiveRecordingBar } from "@/components/ActiveRecordingBar";
 import { ensureLocationPermission } from "@/lib/location-permission";
 import { AuthProvider, useAuth } from "@/lib/auth";
@@ -174,7 +169,14 @@ function AppShell() {
           name="thoughts/index"
           options={{ gestureEnabled: false, headerShown: false }}
         />
-        <Stack.Screen name="thoughts/detail" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="thoughts/detail"
+          options={{
+            animation: "slide_from_right",
+            animationDuration: 260,
+            headerShown: false,
+          }}
+        />
       </Stack>
       {redirecting ? (
         <View style={styles.loading}>

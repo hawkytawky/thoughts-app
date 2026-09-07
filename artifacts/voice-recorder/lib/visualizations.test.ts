@@ -90,18 +90,6 @@ function graphPayload() {
         relevance: 0.4,
       },
     ],
-    time: {
-      timezone: "Europe/Berlin",
-      maxDailyWordCount: 50,
-      days: [
-        {
-          date: "2026-09-03",
-          wordCount: 50,
-          thoughtCount: 2,
-          topics: [{ topicId: "topic-1", wordCount: 50, thoughtCount: 2 }],
-        },
-      ],
-    },
     generatedAt: "2026-09-03T10:00:00+02:00",
   };
 }
@@ -121,6 +109,7 @@ describe("fetchGraph", () => {
 
     expect(backendFetchMock).toHaveBeenCalledWith(
       "/visualizations/graph?surface=network-v2",
+      { cache: "no-store" },
     );
     expect(graph.nodes.map(({ id, idx }) => ({ id, idx }))).toEqual([
       { id: "thought-1", idx: 0 },
@@ -132,9 +121,6 @@ describe("fetchGraph", () => {
       { source: 0, targetTopicId: "topic-2", relevance: 0.4 },
     ]);
     expect(graph.topicSimilarities).toEqual([]);
-    expect(graph.time.days[0].topics).toEqual([
-      { cluster: "topic-1", wordCount: 50, thoughtCount: 2 },
-    ]);
   });
 
   it("rejects a response that violates the runtime contract", async () => {
