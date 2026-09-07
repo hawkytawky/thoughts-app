@@ -423,7 +423,7 @@ export function FeelingLens({
     if (
       x < FEELING_HORIZONTAL_PAD ||
       x > layout.width - FEELING_HORIZONTAL_PAD ||
-      layout.flowPoints.length === 0
+      layout.flowSamples.length === 0
     ) {
       setSelectedDate(null);
       setSelectedThoughtId(null);
@@ -434,21 +434,15 @@ export function FeelingLens({
       return;
     }
     showCurveMarker(x);
-    const dates = Object.keys(layout.thoughtIdsByDate);
-    let closestDate: string | null = null;
-    let distance = Number.POSITIVE_INFINITY;
-    for (const date of dates) {
-      const point = layout.flowPoints.find(
-        (candidate) => candidate.date === date,
-      );
-      if (!point) continue;
-      const nextDistance = Math.abs(point.x - x);
-      if (nextDistance < distance) {
-        closestDate = date;
-        distance = nextDistance;
-      }
-    }
-    if (!closestDate) return;
+    const usableWidth = Math.max(1, layout.width - 2 * FEELING_HORIZONTAL_PAD);
+    const sampleIndex = Math.round(
+      ((x - FEELING_HORIZONTAL_PAD) / usableWidth) *
+        (layout.flowSamples.length - 1),
+    );
+    const closestDate =
+      layout.flowSamples[
+        Math.max(0, Math.min(layout.flowSamples.length - 1, sampleIndex))
+      ].date;
     setSelectedThoughtId(null);
     if (selectedDateRef.current !== closestDate) {
       selectedDateRef.current = closestDate;
@@ -626,6 +620,17 @@ export function FeelingLens({
                   {month.label}
                 </Text>
               ))}
+              {layout.endDateLabel ? (
+                <Text
+                  style={[
+                    styles.month,
+                    styles.endDate,
+                    { left: layout.endDateLabel.x - 44 },
+                  ]}
+                >
+                  {layout.endDateLabel.label}
+                </Text>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -768,6 +773,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     color: MUTED,
+  },
+  endDate: {
+    width: 44,
+    textAlign: "right",
   },
   grain: {
     ...StyleSheet.absoluteFillObject,

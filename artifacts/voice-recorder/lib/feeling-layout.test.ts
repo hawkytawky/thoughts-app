@@ -122,6 +122,7 @@ describe("feeling layout", () => {
     expect(layout.flowPoints).toEqual([]);
     expect(layout.flowSamples).toEqual([]);
     expect(layout.monthLabels).toEqual([]);
+    expect(layout.endDateLabel).toBeNull();
     expect(layout.distributionShares).toEqual([0, 0, 0]);
   });
 
@@ -135,6 +136,8 @@ describe("feeling layout", () => {
 
     expect(layout.endDate).toBe("2026-09-06");
     expect(layout.flowSamples.at(-1)?.date).toBe("2026-09-06");
+    expect(layout.dayValues["2026-09-06"]).toBeCloseTo(0.4);
+    expect(layout.endDateLabel).toEqual({ label: "6. Sep", x: 341 });
     expect(layout.flowPoints[0].x).toBeLessThan(349 - 8);
   });
 });

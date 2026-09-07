@@ -88,6 +88,7 @@ export type FeelingLayout = {
   distributionShares: [number, number, number];
   percentages: [number, number, number];
   monthLabels: FeelingMonthLabel[];
+  endDateLabel: FeelingMonthLabel | null;
   zeroY: number;
   startDate: string | null;
   endDate: string | null;
@@ -298,6 +299,7 @@ export function buildFeelingLayout(
     distributionShares,
     percentages: feelingPercentages(thoughts),
     monthLabels: [],
+    endDateLabel: null,
     zeroY: FLOW_TOP + (FEELING_FLOW_HEIGHT - FLOW_TOP - FLOW_BOTTOM) / 2,
     startDate: bounds?.start ?? null,
     endDate: bounds?.end ?? null,
@@ -366,9 +368,10 @@ export function buildFeelingLayout(
       lastQ3 = weightedFeelingQuantile(windowThoughts, 0.75);
     }
     const directThoughts = thoughtsByDate.get(currentDate) ?? [];
-    if (directThoughts.length > 0) {
-      dayValues[currentDate] = weightedFeelingMean(directThoughts);
-    }
+    dayValues[currentDate] =
+      directThoughts.length > 0
+        ? weightedFeelingMean(directThoughts)
+        : lastValue;
     flowSamples.push({
       date: currentDate,
       x: xForDay(currentDate),
@@ -408,6 +411,11 @@ export function buildFeelingLayout(
       x: xForDay(currentDate),
     });
   }
+  const endDate = utcDate(bounds.end);
+  const endDateLabel = {
+    label: `${endDate.getUTCDate()}. ${MONTHS[endDate.getUTCMonth()]}`,
+    x: xForDay(bounds.end),
+  };
 
   return {
     ...empty,
@@ -416,6 +424,9 @@ export function buildFeelingLayout(
     flowSamples,
     thoughtIdsByDate,
     dayValues,
-    monthLabels,
+    monthLabels: monthLabels.filter(
+      ({ x }) => Math.abs(x - endDateLabel.x) >= 44,
+    ),
+    endDateLabel,
   };
 }
