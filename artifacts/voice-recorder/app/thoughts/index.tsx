@@ -26,16 +26,15 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
 import { DayPicker } from "@/components/DayPicker";
 import {
   NOTE_SANS,
   NOTE_SANS_MEDIUM,
   NOTE_SCREEN_CONTENT_TOP_GAP,
-  NOTE_SCREEN_TOP_OFFSET,
   NOTE_SERIF,
 } from "@/components/NoteUI";
+import { PrimaryScreenHeader } from "@/components/PrimaryScreenHeader";
 import {
   type ThoughtCard,
   apiDateKeyFromTimestamp,
@@ -271,7 +270,6 @@ function SkeletonFeed() {
 
 export default function ThoughtsFeedScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [dayNotes, setDayNotes] = useState<Map<string, ThoughtCard[]>>(
     new Map(),
@@ -646,30 +644,27 @@ export default function ThoughtsFeedScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      <View
-        style={[
-          styles.header,
-          {
-            paddingTop: Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0),
-            paddingBottom: 2,
-          },
-        ]}
-      >
-        <Text style={styles.brand}>thoughts</Text>
-        <Pressable
-          accessibilityLabel={`Datum auswählen. Angezeigt wird ${topDate(selectedDate)}`}
-          accessibilityRole="button"
-          hitSlop={2}
-          onPress={() => setDatePickerOpen(true)}
-          style={({ pressed }) => [
-            styles.dateButton,
-            pressed && styles.controlPressed,
-          ]}
-        >
-          <Text style={styles.topDate}>{topDate(selectedDate)}</Text>
-          <Ionicons name="chevron-down" size={12} color={MEMORY_THEME.muted} />
-        </Pressable>
-      </View>
+      <PrimaryScreenHeader
+        right={
+          <Pressable
+            accessibilityLabel={`Datum auswählen. Angezeigt wird ${topDate(selectedDate)}`}
+            accessibilityRole="button"
+            hitSlop={2}
+            onPress={() => setDatePickerOpen(true)}
+            style={({ pressed }) => [
+              styles.dateButton,
+              pressed && styles.controlPressed,
+            ]}
+          >
+            <Text style={styles.topDate}>{topDate(selectedDate)}</Text>
+            <Ionicons
+              name="chevron-down"
+              size={12}
+              color={MEMORY_THEME.muted}
+            />
+          </Pressable>
+        }
+      />
 
       {selectedLoading ? (
         <SkeletonFeed />
@@ -737,18 +732,6 @@ export default function ThoughtsFeedScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#E7EBEC" },
-  header: {
-    paddingHorizontal: MEMORY_FRAME.horizontalPadding,
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-  },
-  brand: {
-    fontFamily: NOTE_SERIF,
-    fontSize: MEMORY_FRAME.titleFontSize,
-    letterSpacing: -0.23,
-    color: MEMORY_THEME.ink,
-  },
   dateButton: {
     minHeight: 44,
     flexDirection: "row",

@@ -25,11 +25,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
-import {
-  NOTE_SANS,
-  NOTE_SCREEN_TOP_OFFSET,
-  NOTE_SERIF,
-} from "@/components/NoteUI";
+import { NOTE_SANS, NOTE_SERIF } from "@/components/NoteUI";
+import { PrimaryScreenHeader } from "@/components/PrimaryScreenHeader";
 import { GalaxyGraph } from "@/components/overview/GalaxyGraph";
 import { FeelingLens } from "@/components/overview/FeelingLens";
 import { formatApiDate } from "@/lib/featured-note";
@@ -233,7 +230,6 @@ function EmptyMessage({ children }: { children: string }) {
 }
 
 export default function OverviewScreen() {
-  const insets = useSafeAreaInsets();
   const initialViewModeIndex = Math.min(
     retainedViewModeIndex,
     VIEW_MODES.length - 1,
@@ -347,29 +343,26 @@ export default function OverviewScreen() {
 
   return (
     <View style={styles.root}>
-      <View
-        style={[
-          styles.header,
-          {
-            paddingTop: Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0),
-            paddingBottom: 2,
-          },
-        ]}
-      >
-        <Text style={styles.brand}>thoughts</Text>
-        <Pressable
-          accessibilityLabel={`Zeitraum auswählen. Aktuell ${periodLabel}`}
-          accessibilityRole="button"
-          onPress={() => setPeriodSheetOpen(true)}
-          style={({ pressed }) => [
-            styles.periodButton,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text style={styles.periodButtonText}>{periodLabel}</Text>
-          <Ionicons name="chevron-down" size={12} color={MEMORY_THEME.muted} />
-        </Pressable>
-      </View>
+      <PrimaryScreenHeader
+        right={
+          <Pressable
+            accessibilityLabel={`Zeitraum auswählen. Aktuell ${periodLabel}`}
+            accessibilityRole="button"
+            onPress={() => setPeriodSheetOpen(true)}
+            style={({ pressed }) => [
+              styles.periodButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.periodButtonText}>{periodLabel}</Text>
+            <Ionicons
+              name="chevron-down"
+              size={12}
+              color={MEMORY_THEME.muted}
+            />
+          </Pressable>
+        }
+      />
 
       <View accessibilityRole="tablist" style={styles.viewModes}>
         {VIEW_MODES.map((viewMode, index) => (
@@ -456,18 +449,6 @@ export default function OverviewScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: MEMORY_THEME.field },
-  header: {
-    paddingHorizontal: MEMORY_FRAME.horizontalPadding,
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-  },
-  brand: {
-    fontFamily: NOTE_SERIF,
-    fontSize: MEMORY_FRAME.titleFontSize,
-    letterSpacing: -0.23,
-    color: MEMORY_THEME.ink,
-  },
   periodButton: {
     minHeight: 44,
     maxWidth: 170,

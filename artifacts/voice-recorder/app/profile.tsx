@@ -10,17 +10,11 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
-import {
-  NOTE_SANS,
-  NOTE_SANS_MEDIUM,
-  NOTE_SCREEN_TOP_OFFSET,
-  NOTE_SERIF,
-} from "@/components/NoteUI";
+import { NOTE_SANS, NOTE_SANS_MEDIUM, NOTE_SERIF } from "@/components/NoteUI";
+import { PrimaryScreenHeader } from "@/components/PrimaryScreenHeader";
 import { useActiveRecording } from "@/lib/active-recording";
 import { type Gender, useAuth } from "@/lib/auth";
-import { MEMORY_FRAME, MEMORY_THEME } from "@/lib/memory-theme";
 
 const COLORS = {
   ink: "#1D3B4F",
@@ -101,7 +95,6 @@ function InfoRow({
 }
 
 export default function ProfileScreen() {
-  const insets = useSafeAreaInsets();
   const recording = useActiveRecording();
   const { deleteAccount, signOut, user } = useAuth();
   const [isDeleting, setIsDeleting] = useState(false);
@@ -164,18 +157,7 @@ export default function ProfileScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      <View
-        style={[
-          styles.header,
-          {
-            paddingTop: Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0),
-            paddingBottom: 2,
-          },
-        ]}
-      >
-        <Text style={styles.brand}>thoughts</Text>
-        <View style={styles.headerControlSpacer} />
-      </View>
+      <PrimaryScreenHeader />
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: 170 }]}
@@ -268,19 +250,6 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     paddingHorizontal: 20,
-  },
-  header: {
-    paddingHorizontal: MEMORY_FRAME.horizontalPadding,
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-  },
-  headerControlSpacer: { minHeight: 44 },
-  brand: {
-    fontFamily: NOTE_SERIF,
-    fontSize: MEMORY_FRAME.titleFontSize,
-    letterSpacing: -0.23,
-    color: MEMORY_THEME.ink,
   },
   identity: {
     paddingTop: 42,
