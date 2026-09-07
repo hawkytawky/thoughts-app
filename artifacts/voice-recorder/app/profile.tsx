@@ -20,6 +20,7 @@ import {
 } from "@/components/NoteUI";
 import { useActiveRecording } from "@/lib/active-recording";
 import { type Gender, useAuth } from "@/lib/auth";
+import { MEMORY_FRAME, MEMORY_THEME } from "@/lib/memory-theme";
 
 const COLORS = {
   ink: "#1D3B4F",
@@ -175,7 +176,6 @@ export default function ProfileScreen() {
       >
         <View style={styles.appBar}>
           <Text style={styles.brand}>thoughts</Text>
-          <Text style={styles.pageLabel}>account</Text>
         </View>
 
         <View style={styles.identity}>
@@ -270,18 +270,12 @@ const styles = StyleSheet.create({
     minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
   },
   brand: {
     fontFamily: NOTE_SERIF,
-    fontSize: 18,
-    letterSpacing: 0.1,
-    color: COLORS.ink,
-  },
-  pageLabel: {
-    fontFamily: NOTE_SERIF,
-    fontSize: 13.5,
-    color: COLORS.inkSoft,
+    fontSize: MEMORY_FRAME.titleFontSize,
+    letterSpacing: -0.23,
+    color: MEMORY_THEME.ink,
   },
   identity: {
     paddingTop: 42,
