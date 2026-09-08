@@ -17,6 +17,8 @@ import {
   useFonts,
 } from "@expo-google-fonts/instrument-sans";
 import {
+  Newsreader_200ExtraLight,
+  Newsreader_300Light,
   Newsreader_300Light_Italic,
   Newsreader_400Regular,
   Newsreader_400Regular_Italic,
@@ -196,6 +198,8 @@ export default function RootLayout() {
     InstrumentSans_400Regular_Italic,
     InstrumentSans_500Medium,
     InstrumentSans_600SemiBold,
+    Newsreader_200ExtraLight,
+    Newsreader_300Light,
     Newsreader_300Light_Italic,
     Newsreader_400Regular,
     Newsreader_400Regular_Italic,

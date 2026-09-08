@@ -8,17 +8,44 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Path } from "react-native-svg";
 import { useAuth } from "@/lib/auth";
 import {
-  NOTE_COLORS as C,
   NOTE_SANS,
-  NOTE_SANS_MEDIUM,
   NOTE_SERIF,
-  NOTE_SERIF_ITALIC,
+  NOTE_SERIF_LIGHT,
 } from "@/components/NoteUI";
+
+const COLORS = {
+  ink: "#243542",
+  muted: "#8A949C",
+} as const;
+
+function GoogleLogo() {
+  return (
+    <Svg accessibilityElementsHidden height={17} viewBox="0 0 24 24" width={17}>
+      <Path
+        d="M21.6 12.2c0-.7-.1-1.3-.2-1.9H12v3.7h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z"
+        fill="#4285F4"
+      />
+      <Path
+        d="M12 22c2.7 0 5-.9 6.6-2.5l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z"
+        fill="#34A853"
+      />
+      <Path
+        d="M6.4 13.9a6 6 0 0 1 0-3.8V7.5H3.1a10 10 0 0 0 0 9z"
+        fill="#FBBC05"
+      />
+      <Path
+        d="M12 6.1c1.5 0 2.8.5 3.8 1.5l2.8-2.8A10 10 0 0 0 3.1 7.5l3.3 2.6C7.2 7.8 9.4 6.1 12 6.1z"
+        fill="#EA4335"
+      />
+    </Svg>
+  );
+}
 
 export default function SignInScreen() {
   const router = useRouter();
@@ -42,31 +69,22 @@ export default function SignInScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={["#FDFEFE", "#EEF6FB", "#DCEBF6"]}
-      locations={[0, 0.52, 1]}
+    <View
       style={[
         styles.container,
         {
-          paddingTop: insets.top + 24,
-          paddingBottom: insets.bottom + 22,
+          paddingTop: insets.top + 18,
+          paddingBottom: Math.max(insets.bottom + 2, 12),
         },
       ]}
     >
-      <View pointerEvents="none" style={styles.atmosphere}>
-        <View style={[styles.cloud, styles.cloudOne]} />
-        <View style={[styles.cloud, styles.cloudTwo]} />
-        <View style={[styles.cloud, styles.cloudThree]} />
-      </View>
+      <StatusBar style="dark" />
 
       <Text style={styles.brand}>thoughts</Text>
 
-      <View style={styles.copy}>
-        <Text style={styles.title}>Gedanken brauchen Raum.</Text>
-        <Text style={styles.body}>
-          Ein stiller Ort für alles, was dir durch den Kopf geht.
-        </Text>
-      </View>
+      <View style={styles.spacer} />
+      <Text style={styles.claim}>AI for understanding{"\n"}yourself.</Text>
+      <View style={styles.spacer} />
 
       <View style={styles.actions}>
         {error ? (
@@ -82,7 +100,7 @@ export default function SignInScreen() {
         {Platform.OS === "ios" && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Mit Apple anmelden"
+            accessibilityLabel="Continue with Apple"
             disabled={activeProvider !== null || unavailable}
             onPress={() => void handleSignIn("apple")}
             style={({ pressed }) => [
@@ -96,15 +114,15 @@ export default function SignInScreen() {
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <>
-                <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
-                <Text style={styles.appleButtonText}>Mit Apple fortfahren</Text>
+                <Ionicons name="logo-apple" size={19} color="#FFFFFF" />
+                <Text style={styles.appleButtonText}>Continue with Apple</Text>
               </>
             )}
           </Pressable>
         )}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Mit Google anmelden"
+          accessibilityLabel="Continue with Google"
           disabled={activeProvider !== null || unavailable}
           onPress={() => void handleSignIn("google")}
           style={({ pressed }) => [
@@ -115,101 +133,61 @@ export default function SignInScreen() {
           ]}
         >
           {activeProvider === "google" ? (
-            <ActivityIndicator color={C.ink} />
+            <ActivityIndicator color={COLORS.ink} />
           ) : (
             <>
-              <Ionicons name="logo-google" size={18} color={C.ink} />
-              <Text style={styles.googleButtonText}>
-                Mit Google fortfahren
-              </Text>
+              <GoogleLogo />
+              <Text style={styles.googleButtonText}>Continue with Google</Text>
             </>
           )}
         </Pressable>
-        <Text style={styles.hint}>Privat. Sicher. Nur für dich.</Text>
+        <Text style={styles.hint}>Private and encrypted</Text>
       </View>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 26,
+    backgroundColor: "#F4F5F7",
     overflow: "hidden",
-  },
-  atmosphere: { ...StyleSheet.absoluteFillObject },
-  cloud: {
-    position: "absolute",
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.56)",
-  },
-  cloudOne: {
-    width: 310,
-    height: 180,
-    top: 95,
-    right: -145,
-    transform: [{ rotate: "-12deg" }],
-  },
-  cloudTwo: {
-    width: 260,
-    height: 145,
-    top: 250,
-    left: -160,
-    backgroundColor: "rgba(255,255,255,0.38)",
-    transform: [{ rotate: "9deg" }],
-  },
-  cloudThree: {
-    width: 350,
-    height: 190,
-    bottom: 70,
-    right: -210,
-    backgroundColor: "rgba(191,217,236,0.22)",
   },
   brand: {
     zIndex: 1,
     alignSelf: "flex-start",
     fontFamily: NOTE_SERIF,
-    fontSize: 24,
-    color: C.ink,
+    fontSize: 26,
+    lineHeight: 32,
+    letterSpacing: -0.26,
+    color: COLORS.ink,
   },
-  copy: {
+  spacer: {
     zIndex: 1,
     flex: 1,
-    justifyContent: "center",
-    paddingBottom: 42,
-    gap: 16,
   },
-  title: {
-    maxWidth: 330,
-    fontFamily: NOTE_SERIF_ITALIC,
-    fontSize: 46,
-    lineHeight: 49,
-    color: C.ink,
-  },
-  body: {
-    maxWidth: 290,
-    fontFamily: NOTE_SANS,
-    fontSize: 16,
-    lineHeight: 24,
-    color: C.ink60,
+  claim: {
+    zIndex: 1,
+    marginVertical: 12,
+    fontFamily: NOTE_SERIF_LIGHT,
+    fontSize: 34,
+    lineHeight: 40,
+    letterSpacing: -0.68,
+    color: COLORS.ink,
   },
   actions: {
     zIndex: 1,
-    gap: 13,
+    gap: 10,
   },
   appleButton: {
-    minHeight: 56,
+    height: 54,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    borderRadius: 18,
-    backgroundColor: "#17222A",
-    shadowColor: C.skyDeep,
-    shadowOpacity: 0.16,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 7 },
-    elevation: 4,
+    borderRadius: 16,
+    backgroundColor: "#1B2530",
   },
   appleButtonPressed: {
     opacity: 0.82,
@@ -218,28 +196,26 @@ const styles = StyleSheet.create({
   appleButtonDisabled: { opacity: 0.42 },
   appleButtonText: {
     color: "#FFFFFF",
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 16,
+    fontFamily: NOTE_SANS,
+    fontSize: 15.5,
   },
   googleButton: {
-    minHeight: 56,
+    height: 54,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.78)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: C.border,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.92)",
   },
   googleButtonPressed: {
     backgroundColor: "rgba(255,255,255,0.54)",
     transform: [{ scale: 0.995 }],
   },
   googleButtonText: {
-    color: C.ink,
-    fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 16,
+    color: COLORS.ink,
+    fontFamily: NOTE_SANS,
+    fontSize: 15.5,
   },
   errorCard: {
     paddingHorizontal: 14,
@@ -260,10 +236,11 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   hint: {
+    marginTop: 6,
     fontFamily: NOTE_SANS,
-    fontSize: 11,
-    letterSpacing: 0.35,
-    color: C.ink30,
+    fontSize: 11.5,
+    letterSpacing: 0.23,
+    color: COLORS.muted,
     textAlign: "center",
   },
 });

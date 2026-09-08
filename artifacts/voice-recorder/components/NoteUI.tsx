@@ -104,6 +104,8 @@ export function noteCategoryColor(type: string): string {
 
 export const NOTE_SERIF = "Newsreader_400Regular";
 export const NOTE_SERIF_ITALIC = "Newsreader_400Regular_Italic";
+export const NOTE_SERIF_EXTRALIGHT = "Newsreader_200ExtraLight";
+export const NOTE_SERIF_LIGHT = "Newsreader_300Light";
 
 export const NOTE_SANS = "InstrumentSans_400Regular";
 export const NOTE_SANS_ITALIC = "InstrumentSans_400Regular_Italic";

@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
-  Alert,
   Animated,
   AppState,
   Easing,
@@ -20,13 +19,12 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
-import { BlurView } from "expo-blur";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Ionicons } from "@expo/vector-icons";
 import { type Href, useFocusEffect, useRouter } from "expo-router";
+import Svg, { Circle, Path, Rect } from "react-native-svg";
 import {
   addPendingThought,
   markPendingThoughtUploaded,
@@ -42,9 +40,9 @@ import {
 } from "@/lib/location-permission";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  NOTE_SANS,
   NOTE_SCREEN_TOP_OFFSET,
-  NOTE_SERIF as SERIF,
-  NOTE_SERIF_ITALIC as SERIF_ITALIC,
+  NOTE_SERIF_EXTRALIGHT,
 } from "@/components/NoteUI";
 import { SkyBackground } from "@/components/SkyBackground";
 import { authConfig, backendFetch } from "@/lib/auth";
@@ -57,25 +55,15 @@ import {
 } from "@/lib/recording-utils";
 
 const C = {
-  ink: "#10180F",
-  ink2: "#152113",
-  moss: "#26351F",
-  sage: "#93A67E",
-  sageSoft: "#5C7048",
+  ink: "#2A3547",
+  sage: "#A9CFB4",
+  terracotta: "#E0836B",
   ivory: "#EBE7DA",
   ivory60: "rgba(235,231,218,0.60)",
-  ivory35: "rgba(235,231,218,0.35)",
-  ivory30: "rgba(235,231,218,0.30)",
   ivory14: "rgba(235,231,218,0.14)",
-  ivory12: "rgba(235,231,218,0.12)",
 } as const;
 
-const SANS = Platform.select({
-  ios: "System",
-  android: "sans-serif",
-  default: "sans-serif",
-});
-const WAVE_HISTORY_POINTS = 14;
+const WAVE_HISTORY_POINTS = 24;
 const WAVE_POINT_COUNT = WAVE_HISTORY_POINTS * 2 - 1;
 const INITIAL_AMPLITUDES = Array.from({ length: WAVE_POINT_COUNT }, () => 0);
 const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings-v2/`;
@@ -327,6 +315,113 @@ function syncPendingRecordings(): Promise<void> {
   return pendingRecordingSync;
 }
 
+type RecorderIconName =
+  | "alert"
+  | "back"
+  | "microphone"
+  | "microphoneOff"
+  | "pause"
+  | "trash";
+
+function RecorderIcon({
+  color = "rgba(255,255,255,0.72)",
+  name,
+  size = 22,
+}: {
+  color?: string;
+  name: RecorderIconName;
+  size?: number;
+}) {
+  return (
+    <Svg
+      accessibilityElementsHidden
+      focusable={false}
+      height={size}
+      viewBox="0 0 24 24"
+      width={size}
+    >
+      {name === "back" ? (
+        <Path
+          d="M15.5 5.5 9 12l6.5 6.5"
+          fill="none"
+          stroke={color}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={1.4}
+        />
+      ) : null}
+      {name === "trash" ? (
+        <Path
+          d="M4.5 7h15M9.5 7V5.4A1.4 1.4 0 0 1 10.9 4h2.2a1.4 1.4 0 0 1 1.4 1.4V7M6.6 7l.8 11.7A1.4 1.4 0 0 0 8.8 20h6.4a1.4 1.4 0 0 0 1.4-1.3L17.4 7"
+          fill="none"
+          stroke={color}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={1.4}
+        />
+      ) : null}
+      {name === "pause" ? (
+        <Path
+          d="M9.5 5.5v13M14.5 5.5v13"
+          fill="none"
+          stroke={color}
+          strokeLinecap="round"
+          strokeWidth={1.4}
+        />
+      ) : null}
+      {name === "microphone" || name === "microphoneOff" ? (
+        <>
+          <Rect
+            fill="none"
+            height={11}
+            rx={3}
+            stroke={color}
+            strokeWidth={1.4}
+            width={6}
+            x={9}
+            y={3}
+          />
+          <Path
+            d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"
+            fill="none"
+            stroke={color}
+            strokeLinecap="round"
+            strokeWidth={1.4}
+          />
+          {name === "microphoneOff" ? (
+            <Path
+              d="m4 4 16 16"
+              fill="none"
+              stroke={color}
+              strokeLinecap="round"
+              strokeWidth={1.4}
+            />
+          ) : null}
+        </>
+      ) : null}
+      {name === "alert" ? (
+        <>
+          <Circle
+            cx={12}
+            cy={12}
+            fill="none"
+            r={8.5}
+            stroke={color}
+            strokeWidth={1.4}
+          />
+          <Path
+            d="M12 7.5v5.8M12 16.8h.01"
+            fill="none"
+            stroke={color}
+            strokeLinecap="round"
+            strokeWidth={1.4}
+          />
+        </>
+      ) : null}
+    </Svg>
+  );
+}
+
 function Timer({ durationMs }: { durationMs: number }) {
   const time = formatRecordingTime(durationMs);
 
@@ -345,10 +440,12 @@ function Timer({ durationMs }: { durationMs: number }) {
 const WaveformBar = React.memo(function WaveformBar({
   amplitude,
   isRecording,
+  isPaused,
   reduceMotion,
 }: {
   amplitude: number;
   isRecording: boolean;
+  isPaused: boolean;
   reduceMotion: boolean;
 }) {
   const scale = useRef(new Animated.Value(0.04)).current;
@@ -356,6 +453,19 @@ const WaveformBar = React.memo(function WaveformBar({
   const previousAmplitude = useRef(amplitude);
 
   useEffect(() => {
+    if (isPaused) {
+      if (reduceMotion) {
+        opacity.setValue(0.28);
+        return;
+      }
+      Animated.timing(opacity, {
+        toValue: 0.28,
+        duration: 260,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
     const targetScale = isRecording ? 0.045 + amplitude * 0.955 : 0.045;
     const targetOpacity = isRecording
       ? 0.22 + Math.min(1, amplitude * 1.3) * 0.72
@@ -383,7 +493,7 @@ const WaveformBar = React.memo(function WaveformBar({
         useNativeDriver: true,
       }),
     ]).start();
-  }, [amplitude, isRecording, opacity, reduceMotion, scale]);
+  }, [amplitude, isPaused, isRecording, opacity, reduceMotion, scale]);
 
   return (
     <Animated.View
@@ -395,19 +505,21 @@ const WaveformBar = React.memo(function WaveformBar({
 function Waveform({
   amplitudes,
   isRecording,
+  isPaused,
   reduceMotion,
 }: {
   amplitudes: number[];
   isRecording: boolean;
+  isPaused: boolean;
   reduceMotion: boolean;
 }) {
   return (
     <View style={styles.waveform} accessibilityElementsHidden>
-      <View style={styles.waveBaseline} />
       {amplitudes.map((amplitude, index) => (
         <WaveformBar
           key={index}
           amplitude={amplitude}
+          isPaused={isPaused}
           isRecording={isRecording}
           reduceMotion={reduceMotion}
         />
@@ -435,9 +547,9 @@ function StopButton({
           pressed && styles.stopPressed,
         ]}
       >
-        <BlurView intensity={34} tint="light" style={styles.stopGlass}>
+        <View style={styles.stopGlass}>
           <View style={styles.stopSquare} />
-        </BlurView>
+        </View>
       </Pressable>
     </View>
   );
@@ -447,6 +559,7 @@ type ScreenState =
   | "requesting"
   | "denied"
   | "recording"
+  | "paused"
   | "stopping"
   | "discarding"
   | "saveError"
@@ -468,6 +581,7 @@ function RecorderScreen() {
   const [saveErrorTitle, setSaveErrorTitle] = useState(
     "Aufnahme noch nicht abgelegt",
   );
+  const [discardSheetVisible, setDiscardSheetVisible] = useState(false);
   const audioRecorder = useAudioRecorder(RECORDING_OPTIONS);
   const recorderState = useAudioRecorderState(audioRecorder, 65);
   const recordingRef = useRef<AudioRecorder | null>(null);
@@ -483,6 +597,15 @@ function RecorderScreen() {
   const levelHistoryRef = useRef<number[]>(
     Array.from({ length: WAVE_HISTORY_POINTS }, () => 0),
   );
+  const discardSheetProgress = useRef(new Animated.Value(0)).current;
+  const savedMessageOpacity = useRef(new Animated.Value(0)).current;
+  const savedMessageTranslate = useRef(new Animated.Value(4)).current;
+  const savedScreenOpacity = useRef(new Animated.Value(1)).current;
+
+  const returnToPrevious = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/" as Href);
+  }, [router]);
 
   useEffect(() => {
     if (!recorderState.isRecording) return;
@@ -642,6 +765,7 @@ function RecorderScreen() {
   const startNextRecording = useCallback(() => {
     if (
       screenStateRef.current === "recording" ||
+      screenStateRef.current === "paused" ||
       screenStateRef.current === "stopping"
     ) {
       return;
@@ -783,6 +907,26 @@ function RecorderScreen() {
     await finishStoppedRecording(stopped);
   }, [captureLocation, durationMs, finishStoppedRecording]);
 
+  const pauseRecording = useCallback(() => {
+    const recording = recordingRef.current;
+    if (!recording || screenStateRef.current !== "recording") return;
+
+    recording.pause();
+    const status = recording.getStatus();
+    setDurationMs((current) => Math.max(current, status.durationMillis));
+    setScreenState("paused");
+    void Haptics.selectionAsync();
+  }, []);
+
+  const resumeRecording = useCallback(() => {
+    const recording = recordingRef.current;
+    if (!recording || screenStateRef.current !== "paused") return;
+
+    recording.record();
+    setScreenState("recording");
+    void Haptics.selectionAsync();
+  }, []);
+
   const retrySavingRecording = useCallback(() => {
     const stopped = stoppedRecordingRef.current;
     if (stopped) void finishStoppedRecording(stopped);
@@ -816,24 +960,38 @@ function RecorderScreen() {
       );
       setAmplitudes(INITIAL_AMPLITUDES);
       setDurationMs(0);
-      router.replace("/" as Href);
+      returnToPrevious();
     }
-  }, [router]);
+  }, [returnToPrevious]);
 
-  const confirmDiscardRecording = useCallback(() => {
-    Alert.alert(
-      "Aufnahme verwerfen?",
-      "Diese Aufnahme wird nicht gespeichert und kann nicht wiederhergestellt werden.",
-      [
-        { text: "Weiter aufnehmen", style: "cancel" },
-        {
-          text: "Verwerfen",
-          style: "destructive",
-          onPress: () => void discardRecording(),
-        },
-      ],
-    );
-  }, [discardRecording]);
+  const showDiscardSheet = useCallback(() => {
+    setDiscardSheetVisible(true);
+    discardSheetProgress.stopAnimation();
+    discardSheetProgress.setValue(0);
+    Animated.timing(discardSheetProgress, {
+      toValue: 1,
+      duration: reduceMotion ? 0 : 380,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [discardSheetProgress, reduceMotion]);
+
+  const hideDiscardSheet = useCallback(
+    (afterClose?: () => void) => {
+      discardSheetProgress.stopAnimation();
+      Animated.timing(discardSheetProgress, {
+        toValue: 0,
+        duration: reduceMotion ? 0 : 260,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (!finished) return;
+        setDiscardSheetVisible(false);
+        afterClose?.();
+      });
+    },
+    [discardSheetProgress, reduceMotion],
+  );
 
   useEffect(() => {
     screenStateRef.current = screenState;
@@ -868,6 +1026,8 @@ function RecorderScreen() {
   useEffect(() => {
     if (screenState === "recording") {
       publishActiveRecording(durationMs);
+    } else if (screenState === "paused") {
+      publishActiveRecording(durationMs);
     } else if (
       screenState === "saved" ||
       screenState === "discarding" ||
@@ -892,7 +1052,7 @@ function RecorderScreen() {
           isFocusedRef.current &&
           screenStateRef.current === "saved"
         ) {
-          router.replace("/" as Href);
+          returnToPrevious();
         }
       },
     );
@@ -904,13 +1064,46 @@ function RecorderScreen() {
       appStateSubscription.remove();
       urlSubscription.remove();
     };
-  }, [router, startNextRecording]);
+  }, [returnToPrevious, startNextRecording]);
 
   useEffect(() => {
     if (screenState !== "saved" || !isFocusedRef.current) return;
-    const timeout = setTimeout(() => router.replace("/" as Href), 1_000);
+    savedMessageOpacity.setValue(reduceMotion ? 1 : 0);
+    savedMessageTranslate.setValue(reduceMotion ? 0 : 4);
+    savedScreenOpacity.setValue(1);
+    Animated.parallel([
+      Animated.timing(savedMessageOpacity, {
+        toValue: 1,
+        duration: reduceMotion ? 0 : 600,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(savedMessageTranslate, {
+        toValue: 0,
+        duration: reduceMotion ? 0 : 600,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+    const timeout = setTimeout(() => {
+      Animated.timing(savedScreenOpacity, {
+        toValue: 0,
+        duration: reduceMotion ? 0 : 550,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished && isFocusedRef.current) returnToPrevious();
+      });
+    }, 1_500);
     return () => clearTimeout(timeout);
-  }, [router, screenState]);
+  }, [
+    reduceMotion,
+    returnToPrevious,
+    savedMessageOpacity,
+    savedMessageTranslate,
+    savedScreenOpacity,
+    screenState,
+  ]);
 
   useEffect(() => {
     let mounted = true;
@@ -967,6 +1160,14 @@ function RecorderScreen() {
   }, [captureLocation, startRecording]);
 
   const isActive = screenState === "recording";
+  const isPaused = screenState === "paused";
+  const canControl = isActive || isPaused;
+  const isSaved = screenState === "saved";
+  const displayDurationMs = isSaved
+    ? savedDurationMs
+    : screenState === "stopping"
+      ? Math.max(savedDurationMs, durationMs)
+      : durationMs;
   const paddingTop =
     Math.max(insets.top + NOTE_SCREEN_TOP_OFFSET, 0) +
     (Platform.OS === "web" ? 52 : 0);
@@ -979,10 +1180,11 @@ function RecorderScreen() {
       <View style={shellStyle}>
         <SkyBackground reduceMotion={reduceMotion} />
         <View style={styles.messageContent}>
-          <Ionicons name="mic-off-outline" size={42} color={C.sage} />
-          <Text style={styles.messageTitle}>microphone access needed</Text>
+          <RecorderIcon name="microphoneOff" size={42} color={C.sage} />
+          <Text style={styles.messageTitle}>Mikrofonzugriff erforderlich</Text>
           <Text style={styles.messageBody}>
-            Enable microphone access in Settings to use thoughts.
+            Erlaube den Mikrofonzugriff in den Einstellungen, um eine Aufnahme
+            zu starten.
           </Text>
         </View>
         <View style={styles.bottomSpacer} />
@@ -995,7 +1197,7 @@ function RecorderScreen() {
       <View style={shellStyle}>
         <SkyBackground reduceMotion={reduceMotion} />
         <View style={styles.messageContent}>
-          <Ionicons name="alert-circle-outline" size={42} color={C.sage} />
+          <RecorderIcon name="alert" size={42} color={C.sage} />
           <Text style={styles.messageTitle}>{saveErrorTitle}</Text>
           <Text style={styles.messageBody}>
             {saveError ??
@@ -1012,89 +1214,27 @@ function RecorderScreen() {
                 pressed && styles.pressed,
               ]}
             >
-              <Ionicons name="refresh" size={18} color={C.ivory} />
-              <Text style={styles.recordAgainText}>erneut versuchen</Text>
+              <Text style={styles.recordAgainText}>Erneut versuchen</Text>
             </Pressable>
           ) : (
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.replace("/" as Href)}
+              onPress={returnToPrevious}
               style={({ pressed }) => [
                 styles.recordAgainButton,
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.recordAgainText}>zum Feed</Text>
+              <Text style={styles.recordAgainText}>Zurück zur Übersicht</Text>
             </Pressable>
           )}
-        </View>
-      </View>
-    );
-  }
-
-  if (screenState === "saved") {
-    return (
-      <View style={shellStyle}>
-        <SkyBackground reduceMotion={reduceMotion} />
-        <View style={styles.messageContent}>
-          <View style={styles.savedRing}>
-            <Ionicons name="checkmark" size={34} color={C.sage} />
-          </View>
-          <Text style={styles.status}>abgelegt</Text>
-          <Text style={styles.savedDuration}>
-            {formatRecordingTime(savedDurationMs)}
-          </Text>
-          <Text style={styles.savedPath}>
-            {syncState === "uploaded" && remotePath
-              ? "In der Cloud abgelegt"
-              : syncState === "uploading"
-                ? "Wird sicher hochgeladen"
-                : RECORDING_API_URL
-                  ? "Upload ausstehend · sicher auf dem iPhone"
-                  : "API nicht konfiguriert · sicher auf dem iPhone"}
-          </Text>
-        </View>
-        <View style={styles.savedActions}>
-          {pendingUploadUri && RECORDING_API_URL && (
-            <Pressable
-              accessibilityRole="button"
-              disabled={syncState === "uploading"}
-              onPress={() => void attemptUpload(pendingUploadUri)}
-              style={({ pressed }) => [
-                styles.retryButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Ionicons
-                name="cloud-upload-outline"
-                size={17}
-                color={C.ivory60}
-              />
-              <Text style={styles.retryText}>
-                {syncState === "uploading" ? "sending" : "retry upload"}
-              </Text>
-            </Pressable>
-          )}
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              startNextRecording();
-            }}
-            style={({ pressed }) => [
-              styles.recordAgainButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Ionicons name="mic-outline" size={18} color={C.ivory} />
-            <Text style={styles.recordAgainText}>record again</Text>
-          </Pressable>
         </View>
       </View>
     );
   }
 
   return (
-    <View style={shellStyle}>
+    <Animated.View style={[shellStyle, { opacity: savedScreenOpacity }]}>
       <SkyBackground reduceMotion={reduceMotion} />
 
       <View style={styles.topBar}>
@@ -1110,46 +1250,144 @@ function RecorderScreen() {
             pressed && styles.pressed,
           ]}
         >
-          <Ionicons
-            name="chevron-back"
-            size={20}
-            color="rgba(255,255,255,0.72)"
-          />
-          <Text style={styles.brand}>thoughts</Text>
+          <RecorderIcon name="back" size={22} />
         </Pressable>
       </View>
 
       <View style={styles.center}>
-        <Timer durationMs={durationMs} />
-        <Waveform
-          amplitudes={amplitudes}
-          isRecording={isActive}
-          reduceMotion={reduceMotion}
-        />
+        <Timer durationMs={displayDurationMs} />
+        <View style={styles.stateSlot}>
+          {isPaused ? <Text style={styles.pausedText}>pausiert</Text> : null}
+          {isSaved ? (
+            <Animated.View
+              style={[
+                styles.uploadStatus,
+                {
+                  opacity: savedMessageOpacity,
+                  transform: [{ translateY: savedMessageTranslate }],
+                },
+              ]}
+            >
+              <View style={styles.uploadDot} />
+              <Text style={styles.uploadText}>wird sicher hochgeladen</Text>
+            </Animated.View>
+          ) : null}
+        </View>
+        {isSaved ? (
+          <View style={styles.waveformPlaceholder} />
+        ) : (
+          <Waveform
+            amplitudes={amplitudes}
+            isPaused={isPaused || screenState === "stopping"}
+            isRecording={isActive}
+            reduceMotion={reduceMotion}
+          />
+        )}
       </View>
 
       <View style={styles.bottomControls}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Aufnahme abbrechen und verwerfen"
-          disabled={!isActive}
-          hitSlop={12}
-          onPress={confirmDiscardRecording}
-          style={({ pressed }) => [
-            styles.trashButton,
-            !isActive && styles.disabled,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Ionicons
-            name="trash-outline"
-            size={21}
-            color="rgba(255,255,255,0.72)"
-          />
-        </Pressable>
-        <StopButton disabled={!isActive} onPress={stopRecording} />
+        {canControl ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Aufnahme verwerfen"
+              hitSlop={8}
+              onPress={showDiscardSheet}
+              style={({ pressed }) => [
+                styles.sideControl,
+                pressed && styles.pressed,
+              ]}
+            >
+              <RecorderIcon
+                name="trash"
+                size={21}
+                color="rgba(255,255,255,0.50)"
+              />
+            </Pressable>
+            <StopButton disabled={false} onPress={stopRecording} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                isPaused ? "Aufnahme fortsetzen" : "Aufnahme pausieren"
+              }
+              hitSlop={8}
+              onPress={isPaused ? resumeRecording : pauseRecording}
+              style={({ pressed }) => [
+                styles.sideControl,
+                pressed && styles.pressed,
+              ]}
+            >
+              <RecorderIcon
+                name={isPaused ? "microphone" : "pause"}
+                size={21}
+              />
+            </Pressable>
+          </>
+        ) : null}
       </View>
-    </View>
+
+      {discardSheetVisible ? (
+        <View style={styles.sheetLayer}>
+          <Animated.View
+            style={[
+              styles.sheetBackdrop,
+              { opacity: discardSheetProgress },
+            ]}
+          >
+            <Pressable
+              accessibilityLabel="Verwerfen schließen"
+              accessibilityRole="button"
+              onPress={() => hideDiscardSheet()}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
+          <Animated.View
+            style={[
+              styles.discardSheet,
+              {
+                paddingBottom: Math.max(insets.bottom, 18) + 16,
+                transform: [
+                  {
+                    translateY: discardSheetProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [320, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Text style={styles.sheetTitle}>Aufnahme verwerfen?</Text>
+            <View style={styles.sheetActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => hideDiscardSheet()}
+                style={({ pressed }) => [
+                  styles.sheetButton,
+                  styles.keepButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.sheetButtonText}>Behalten</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() =>
+                  hideDiscardSheet(() => void discardRecording())
+                }
+                style={({ pressed }) => [
+                  styles.sheetButton,
+                  styles.discardButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.sheetButtonText}>Verwerfen</Text>
+              </Pressable>
+            </View>
+          </Animated.View>
+        </View>
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -1163,8 +1401,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 28,
-    transform: [{ translateY: -16 }],
+    transform: [{ translateY: -20 }],
   },
   topBar: {
     minHeight: 44,
@@ -1173,105 +1410,114 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   archiveButton: {
-    minHeight: 44,
-    flexDirection: "row",
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
-    gap: 2,
-    marginLeft: -4,
-  },
-  brand: {
-    fontFamily: SERIF,
-    fontSize: 18,
-    letterSpacing: 0.1,
-    color: "rgba(255,255,255,0.72)",
-  },
-  status: {
-    fontFamily: SERIF_ITALIC,
-    fontSize: 17,
-    color: C.ivory60,
+    marginLeft: -8,
   },
   timer: {
-    minWidth: 235,
-    fontFamily: SANS,
-    fontSize: 68,
-    fontWeight: "300",
-    letterSpacing: 1,
-    color: "rgba(255,255,255,0.92)",
+    minWidth: 250,
+    fontFamily: NOTE_SERIF_EXTRALIGHT,
+    fontSize: 74,
+    lineHeight: 78,
+    letterSpacing: -1.2,
+    color: "rgba(255,255,255,0.96)",
     fontVariant: ["tabular-nums"],
     includeFontPadding: false,
     textAlign: "center",
   },
+  stateSlot: {
+    height: 22,
+    marginTop: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pausedText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 14,
+    lineHeight: 20,
+    color: "rgba(255,255,255,0.55)",
+  },
+  uploadStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  uploadDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: C.sage,
+    shadowColor: C.sage,
+    shadowOpacity: 0.55,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  uploadText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 14,
+    lineHeight: 20,
+    color: C.sage,
+  },
   waveform: {
-    height: 76,
+    width: 234,
+    height: 44,
+    marginTop: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 3.6,
-    position: "relative",
+    gap: 3,
   },
-  waveBaseline: {
-    position: "absolute",
-    width: 174,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: "rgba(255,255,255,0.18)",
-  },
+  waveformPlaceholder: { width: 234, height: 44, marginTop: 20 },
   waveBar: {
-    width: 2.4,
-    height: 68,
+    width: 2,
+    height: 44,
     borderRadius: 2,
-    backgroundColor: "rgba(239,247,252,0.96)",
+    backgroundColor: "rgba(255,255,255,0.72)",
   },
   bottomControls: {
     width: "100%",
-    minHeight: 86,
+    minHeight: 74,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
   },
-  trashButton: {
-    position: "absolute",
-    left: -2,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  sideControl: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
   stopWrap: {
-    width: 86,
-    height: 86,
+    width: 74,
+    height: 74,
     alignItems: "center",
     justifyContent: "center",
   },
   stopPressable: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
+    width: 74,
+    height: 74,
+    borderRadius: 37,
     shadowColor: "#24455F",
-    shadowOpacity: 0.2,
-    shadowRadius: 18,
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 7,
   },
   stopGlass: {
     flex: 1,
-    borderRadius: 42,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.52)",
-    backgroundColor: "rgba(255,255,255,0.13)",
+    borderRadius: 37,
+    backgroundColor: "rgba(255,255,255,0.96)",
     alignItems: "center",
     justifyContent: "center",
   },
   stopSquare: {
-    width: 22,
-    height: 22,
-    borderRadius: 5,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    shadowColor: "#24455F",
-    shadowOpacity: 0.14,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: C.ink,
   },
   stopPressed: { opacity: 0.88, transform: [{ scale: 0.96 }] },
   disabled: { opacity: 0.42 },
@@ -1285,63 +1531,20 @@ const styles = StyleSheet.create({
   },
   messageTitle: {
     marginTop: 10,
-    fontFamily: SERIF_ITALIC,
-    fontSize: 22,
+    fontFamily: NOTE_SANS,
+    fontSize: 20,
     color: C.ivory,
     textAlign: "center",
   },
   messageBody: {
     maxWidth: 280,
-    fontFamily: SERIF,
+    fontFamily: NOTE_SANS,
     fontSize: 15,
     lineHeight: 22,
     color: C.ivory60,
     textAlign: "center",
   },
-  savedRing: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 1,
-    borderColor: C.ivory30,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-  savedDuration: {
-    fontFamily: SANS,
-    fontSize: 48,
-    fontWeight: "300",
-    color: C.ivory,
-    fontVariant: ["tabular-nums"],
-    marginTop: 2,
-  },
-  savedPath: {
-    maxWidth: 300,
-    marginTop: 14,
-    fontFamily: SANS,
-    fontSize: 10.5,
-    lineHeight: 17,
-    letterSpacing: 0.8,
-    color: C.ivory35,
-    textAlign: "center",
-  },
   savedActions: { alignItems: "center", gap: 12 },
-  retryButton: {
-    height: 38,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 18,
-  },
-  retryText: {
-    fontFamily: SANS,
-    fontSize: 10.5,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: C.ivory60,
-  },
   recordAgainButton: {
     height: 52,
     flexDirection: "row",
@@ -1352,14 +1555,52 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderRadius: 26,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: C.ivory30,
+    borderColor: "rgba(235,231,218,0.30)",
   },
   recordAgainText: {
-    fontFamily: SERIF_ITALIC,
-    fontSize: 16,
+    fontFamily: NOTE_SANS,
+    fontSize: 15,
     color: C.ivory,
   },
   bottomSpacer: { height: 52 },
+  sheetLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    justifyContent: "flex-end",
+  },
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(10,18,30,0.24)",
+  },
+  discardSheet: {
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    backgroundColor: "rgba(38,48,66,0.96)",
+  },
+  sheetTitle: {
+    marginBottom: 20,
+    fontFamily: NOTE_SANS,
+    fontSize: 19,
+    lineHeight: 25,
+    color: "rgba(255,255,255,0.94)",
+  },
+  sheetActions: { flexDirection: "row", gap: 12 },
+  sheetButton: {
+    minHeight: 48,
+    flex: 1,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  keepButton: { backgroundColor: "rgba(255,255,255,0.14)" },
+  discardButton: { backgroundColor: "rgba(224,131,107,0.76)" },
+  sheetButtonText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 15,
+    color: "#FFFFFF",
+  },
 });
 
 export default RecorderScreen;

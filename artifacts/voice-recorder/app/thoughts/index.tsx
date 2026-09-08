@@ -133,6 +133,13 @@ function topDate(dateKey: string): string {
   return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}, ${calendarDate}`;
 }
 
+function pendingTimestamp(timestamp: string): string {
+  return new Intl.DateTimeFormat("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parseApiTimestamp(timestamp));
+}
+
 function sortedNotes(notes: ThoughtCard[]): ThoughtCard[] {
   return [...notes].sort((left, right) => {
     const timeDifference =
@@ -214,22 +221,25 @@ function PendingThoughtRow({
 }) {
   const failed = pending.processingStatus === "failed";
   return (
-    <View style={[styles.card, styles.pendingCard]}>
-      <View style={styles.cardTop}>
-        <Text style={styles.pendingKind}>
-          {failed
-            ? "Verarbeitung fehlgeschlagen"
-            : pending.remotePath
-              ? "wird verarbeitet…"
-              : "wird übertragen…"}
+    <View
+      style={[
+        styles.card,
+        styles.pendingCard,
+        failed && styles.pendingFailedCard,
+      ]}
+    >
+      <Text style={styles.pendingTitle}>
+        {failed ? "Verarbeitung fehlgeschlagen" : "wird verarbeitet …"}
+      </Text>
+      <View style={styles.pendingMeta}>
+        <Text style={styles.pendingMetaText}>
+          {pendingTimestamp(pending.createdAt)} Uhr
         </Text>
-        <Text style={styles.duration}>
+        <Text style={styles.pendingMetaText}>·</Text>
+        <Text style={styles.pendingMetaText}>
           {formatDuration(pending.durationSeconds)} min
         </Text>
       </View>
-      <Text numberOfLines={3} style={styles.cardTitle}>
-        neuer thought
-      </Text>
       {failed ? (
         <View style={styles.pendingFailure}>
           <Text numberOfLines={2} style={styles.pendingError}>
@@ -787,11 +797,24 @@ const styles = StyleSheet.create({
     letterSpacing: -0.13,
     color: COLORS.ink,
   },
-  pendingCard: { opacity: 0.82 },
-  pendingKind: {
+  pendingCard: { opacity: 0.55 },
+  pendingFailedCard: { opacity: 0.82 },
+  pendingTitle: {
     fontFamily: NOTE_SANS,
-    fontSize: 12.5,
-    color: "#7C918B",
+    fontSize: 16.5,
+    lineHeight: 22,
+    color: COLORS.ink,
+  },
+  pendingMeta: {
+    marginTop: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  pendingMetaText: {
+    fontFamily: NOTE_SANS,
+    fontSize: 12,
+    color: COLORS.inkFaint,
   },
   pendingFailure: { marginTop: 8, gap: 5 },
   pendingError: {
