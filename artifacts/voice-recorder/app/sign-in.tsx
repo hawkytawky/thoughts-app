@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -97,29 +96,11 @@ export default function SignInScreen() {
             <Text style={styles.error}>{error}</Text>
           </View>
         ) : null}
-        {Platform.OS === "ios" && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Continue with Apple"
-            disabled={activeProvider !== null || unavailable}
-            onPress={() => void handleSignIn("apple")}
-            style={({ pressed }) => [
-              styles.appleButton,
-              pressed && styles.appleButtonPressed,
-              (activeProvider !== null || unavailable) &&
-                styles.appleButtonDisabled,
-            ]}
-          >
-            {activeProvider === "apple" ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <>
-                <Ionicons name="logo-apple" size={19} color="#FFFFFF" />
-                <Text style={styles.appleButtonText}>Continue with Apple</Text>
-              </>
-            )}
-          </Pressable>
-        )}
+        {/* No Apple button until the backend can verify Apple ID tokens; it
+            would only ever throw. The provider plumbing below and the
+            appleButton styles stay so restoring it is a paste. Note that
+            App Store review requires it (guideline 4.8) as soon as this
+            ships publicly alongside Google. */}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Continue with Google"
