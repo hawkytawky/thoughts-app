@@ -4,15 +4,29 @@
     "appVersionSource": "local"
   },
   "build": {
+    "base": {
+      "env": {
+        "EXPO_PUBLIC_THOUGHTS_API_URL": "https://thoughts-api.delightfulfield-a3163c35.westeurope.azurecontainerapps.io",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "660632473974-ee1pilng805otr2ta2d6s83v7iq7q6dl.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "660632473974-orlaocj5p5lhu06kgh208skn16pp0tk8.apps.googleusercontent.com"
+      }
+    },
     "simulator": {
+      "extends": "base",
       "distribution": "internal",
       "ios": {
         "simulator": true
       }
     },
-    "preview": {
-      "distribution": "internal"
-    },
-    "production": {}
+    "production": {
+      "extends": "base"
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleTeamId": "J2NG98FJQ5"
+      }
+    }
   }
 }
