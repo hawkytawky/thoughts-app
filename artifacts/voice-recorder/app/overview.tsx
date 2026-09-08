@@ -14,7 +14,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -27,9 +27,14 @@ import { PrimaryScreenHeader } from "@/components/PrimaryScreenHeader";
 import { TopRightMenu } from "@/components/TopRightMenu";
 import { GalaxyGraph } from "@/components/overview/GalaxyGraph";
 import { FeelingLens } from "@/components/overview/FeelingLens";
+import { MemoryBriefing } from "@/components/overview/MemoryBriefing";
 import { formatApiDate } from "@/lib/featured-note";
 import { MEMORY_FRAME, MEMORY_THEME } from "@/lib/memory-theme";
 import { fetchGraph, type Graph, type GraphNode } from "@/lib/visualizations";
+import {
+  fetchWeeklyBriefings,
+  type WeeklyBriefingArchive,
+} from "@/lib/weekly-briefings";
 
 const COLORS = {
   inkFaint: "#9FB2BD",
@@ -178,17 +183,10 @@ function PeriodMenu({
   );
 }
 
-function EmptyMessage({ children }: { children: string }) {
-  return (
-    <View pointerEvents="none" style={styles.emptyState}>
-      <Text style={styles.emptyText}>{children}</Text>
-    </View>
-  );
-}
-
 export default function OverviewScreen() {
+  const params = useLocalSearchParams<{ view?: string }>();
   const initialViewModeIndex = Math.min(
-    retainedViewModeIndex,
+    params.view === "base" ? 0 : retainedViewModeIndex,
     VIEW_MODES.length - 1,
   );
   const [activeViewModeIndex, setActiveViewModeIndex] =
@@ -202,6 +200,14 @@ export default function OverviewScreen() {
   );
   const graphRequestIdRef = useRef(0);
   const graphRequestInFlightRef = useRef(false);
+  const [briefingArchive, setBriefingArchive] =
+    useState<WeeklyBriefingArchive | null>(null);
+  const briefingArchiveRef = useRef<WeeklyBriefingArchive | null>(null);
+  const [briefingStatus, setBriefingStatus] = useState<
+    "loading" | "error" | "ready"
+  >("loading");
+  const briefingRequestIdRef = useRef(0);
+  const briefingRequestInFlightRef = useRef(false);
   const viewModeOpacities = useRef(
     VIEW_MODES.map(
       (_, index) =>
@@ -236,6 +242,30 @@ export default function OverviewScreen() {
       });
   }, []);
 
+  const loadBriefings = useCallback(() => {
+    if (briefingRequestInFlightRef.current) return;
+    briefingRequestInFlightRef.current = true;
+    if (!briefingArchiveRef.current) setBriefingStatus("loading");
+    const requestId = ++briefingRequestIdRef.current;
+    fetchWeeklyBriefings()
+      .then((archive) => {
+        if (requestId !== briefingRequestIdRef.current) return;
+        briefingArchiveRef.current = archive;
+        setBriefingArchive(archive);
+        setBriefingStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (requestId !== briefingRequestIdRef.current) return;
+        if (__DEV__) console.error("Failed to load weekly briefings", error);
+        if (!briefingArchiveRef.current) setBriefingStatus("error");
+      })
+      .finally(() => {
+        if (requestId === briefingRequestIdRef.current) {
+          briefingRequestInFlightRef.current = false;
+        }
+      });
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       loadGraph();
@@ -248,11 +278,38 @@ export default function OverviewScreen() {
     }, [loadGraph]),
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      loadBriefings();
+      return () => {
+        briefingRequestIdRef.current += 1;
+        briefingRequestInFlightRef.current = false;
+      };
+    }, [loadBriefings]),
+  );
+
+  useEffect(() => {
+    if (params.view !== "base" || activeViewModeIndex === 0) return;
+    retainedViewModeIndex = 0;
+    setActiveViewModeIndex(0);
+    viewModeOpacities.forEach((opacity, index) => {
+      opacity.setValue(index === 0 ? 1 : 0);
+    });
+  }, [activeViewModeIndex, params.view, viewModeOpacities]);
+
   const visibleGraph = useMemo(
     () => graphForPeriod(graph, period),
     [graph, period],
   );
-  const noData = status === "ready" && (visibleGraph?.nodes.length ?? 0) === 0;
+  const visibleBriefingArchive = useMemo(() => {
+    if (!briefingArchive || period === "all") return briefingArchive;
+    return {
+      ...briefingArchive,
+      entries: briefingArchive.entries.filter((entry) =>
+        periodIncludes(entry.local_end_date, period),
+      ),
+    };
+  }, [briefingArchive, period]);
   const periodLabel =
     PERIODS.find(({ id }) => id === period)?.label ?? "Gesamt";
   useEffect(() => {
@@ -339,6 +396,7 @@ export default function OverviewScreen() {
             pointerEvents={index === activeViewModeIndex ? "auto" : "none"}
             style={[
               styles.page,
+              viewMode === "base" && styles.basePage,
               viewMode === "network" && styles.networkPage,
               viewMode === "feeling" && styles.feelingPage,
               {
@@ -347,7 +405,13 @@ export default function OverviewScreen() {
               },
             ]}
           >
-            {status === "loading" ? null : status === "error" ? (
+            {viewMode === "base" ? (
+              <MemoryBriefing
+                archive={visibleBriefingArchive}
+                onRetry={loadBriefings}
+                status={briefingStatus}
+              />
+            ) : status === "loading" ? null : status === "error" ? (
               <View style={styles.errorState}>
                 <Text style={styles.emptyText}>
                   Memory konnte nicht geladen werden.
@@ -363,12 +427,6 @@ export default function OverviewScreen() {
                   <Text style={styles.retryText}>Erneut versuchen</Text>
                 </Pressable>
               </View>
-            ) : noData && viewMode !== "network" && viewMode !== "feeling" ? (
-              <EmptyMessage>
-                In diesem Zeitraum nichts aufgenommen.
-              </EmptyMessage>
-            ) : viewMode === "base" ? (
-              <EmptyMessage>Noch nichts hier.</EmptyMessage>
             ) : (
               <NativeAnimated.View
                 style={[styles.visualization, { opacity: contentOpacity }]}
@@ -441,6 +499,11 @@ const styles = StyleSheet.create({
     paddingTop: 2,
     paddingBottom: 104,
   },
+  basePage: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
   networkPage: {
     paddingHorizontal: 0,
     paddingTop: 0,
@@ -452,12 +515,6 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
   visualization: { flex: 1 },
-  emptyState: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    transform: [{ translateY: -50 }],
-  },
   emptyText: {
     fontFamily: "Newsreader_300Light_Italic",
     fontSize: 15,

@@ -23,6 +23,7 @@ import {
 } from "@expo-google-fonts/newsreader";
 import { type Href, Stack, useRouter, useSegments } from "expo-router";
 import { ActiveRecordingBar } from "@/components/ActiveRecordingBar";
+import { NotificationBootstrap } from "@/components/NotificationBootstrap";
 import { ensureLocationPermission } from "@/lib/location-permission";
 import { AuthProvider, useAuth } from "@/lib/auth";
 
@@ -125,6 +126,7 @@ function AppShell() {
     <>
       {appIsAvailable ? <LocationPermissionBootstrap /> : null}
       {appIsAvailable ? <RecordingDeepLinkBootstrap /> : null}
+      {appIsAvailable ? <NotificationBootstrap /> : null}
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen
           name="index"

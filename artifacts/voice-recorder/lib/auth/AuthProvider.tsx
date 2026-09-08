@@ -27,6 +27,7 @@ import {
   clearFeedCache,
   prefetchFeedBootstrap,
 } from "@/lib/feed-bootstrap";
+import { unregisterCurrentPushInstallation } from "@/lib/push-notifications";
 
 type AuthStatus =
   "loading" | "signed-out" | "signed-in" | "configuration-error";
@@ -122,6 +123,11 @@ export function AuthProvider({ children }: React.PropsWithChildren) {
   }, []);
 
   const signOut = useCallback(async () => {
+    try {
+      await unregisterCurrentPushInstallation();
+    } catch (caught) {
+      if (__DEV__) console.error("Failed to unregister push notifications", caught);
+    }
     await clearFeedCache();
     await clearSession();
     setUser(null);
