@@ -28,15 +28,15 @@ export function todayKey(): string {
   return formatApiDate(new Date());
 }
 
-export function yesterdayKey(): string {
+function yesterdayKey(): string {
   return shiftApiDateKey(todayKey(), -1);
 }
 
-export function monthKey(dateKey: string): string {
+function monthKey(dateKey: string): string {
   return dateKey.slice(0, 7);
 }
 
-export function previousMonth(month: string): string {
+function previousMonth(month: string): string {
   const [year, monthNumber] = month.split("-").map(Number);
   const previousYear = monthNumber === 1 ? year - 1 : year;
   const previousMonthNumber = monthNumber === 1 ? 12 : monthNumber - 1;
@@ -45,7 +45,7 @@ export function previousMonth(month: string): string {
 
 // Merge the two months we always want counts for so `yesterday` is covered
 // even when it falls into the previous calendar month.
-export function initialMonths(): [string, string] {
+function initialMonths(): [string, string] {
   const current = monthKey(todayKey());
   return [current, previousMonth(current)];
 }

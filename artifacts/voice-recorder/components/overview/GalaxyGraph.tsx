@@ -6,7 +6,6 @@ import React, {
   useState,
 } from "react";
 import {
-  ActivityIndicator,
   type LayoutChangeEvent,
   Pressable,
   ScrollView,
@@ -44,11 +43,11 @@ import {
   NOTE_SANS,
   NOTE_SANS_MEDIUM,
   NOTE_SERIF,
+  ThoughtLoading,
   noteCategoryColor,
 } from "@/components/NoteUI";
 import {
   type Graph,
-  type GraphCluster,
   type GraphNode,
 } from "@/lib/visualizations";
 import { MEMORY_THEME } from "@/lib/memory-theme";
@@ -325,7 +324,7 @@ function rectangleHitsCircle(
 }
 
 function placeLabels(themes: ThemeLayout[]): void {
-  const placed: Array<{ x: number; y: number; width: number; height: number }> =
+  const placed: { x: number; y: number; width: number; height: number }[] =
     [];
   const ordered = [...themes].sort(
     (left, right) =>
@@ -872,7 +871,7 @@ function TopicDensityTimeline({
       buckets.push(count);
     }
 
-    const months: Array<{ key: string; label: string; days: number }> = [];
+    const months: { key: string; label: string; days: number }[] = [];
     for (
       const cursor = new Date(start);
       cursor <= today;
@@ -1161,7 +1160,6 @@ export function GalaxyGraph({
   const [selectedThoughtNodeIndex, setSelectedThoughtNodeIndex] = useState<
     number | null
   >(null);
-  const [themeClosing, setThemeClosing] = useState(false);
   const themeClosingRef = useRef(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thoughtCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -1231,7 +1229,6 @@ export function GalaxyGraph({
     if (selectedThemeIndex < 0) {
       setSelectedThemeId(null);
       setSelectedThoughtNodeIndex(null);
-      setThemeClosing(false);
       themeClosingRef.current = false;
       selectedThemeIndexSV.value = -1;
       selectedThoughtIndexSV.value = -1;
@@ -1296,7 +1293,6 @@ export function GalaxyGraph({
     setSelectedThemeId(null);
     setSelectedProtoId(null);
     setSelectedThoughtNodeIndex(null);
-    setThemeClosing(false);
     themeClosingRef.current = false;
     selectedThemeIndexSV.value = -1;
     selectedThoughtIndexSV.value = -1;
@@ -1317,7 +1313,6 @@ export function GalaxyGraph({
   const closeTheme = useCallback(() => {
     if (themeClosingRef.current) return;
     themeClosingRef.current = true;
-    setThemeClosing(true);
     cancelAnimation(cameraX);
     cancelAnimation(cameraY);
     cancelAnimation(zoom);
@@ -1338,7 +1333,6 @@ export function GalaxyGraph({
       selectedThoughtIndexSV.value = -1;
       selectedThemeIndexSV.value = -1;
       setSelectedThemeId(null);
-      setThemeClosing(false);
       themeClosingRef.current = false;
       closeTimerRef.current = null;
     }, CAMERA_DURATION);
@@ -1372,7 +1366,6 @@ export function GalaxyGraph({
         sheetY.value = 0;
         return;
       }
-      setThemeClosing(false);
       themeClosingRef.current = false;
       setSelectedProtoId(null);
       setSelectedThoughtNodeIndex(null);
@@ -1995,7 +1988,7 @@ export function GalaxyGraph({
 
       {status === "loading" ? (
         <View pointerEvents="none" style={styles.center}>
-          <ActivityIndicator color={C.sky} />
+          <ThoughtLoading compact label="Deine Gedanken verbinden sich …" />
         </View>
       ) : null}
       {status === "error" ? (

@@ -83,7 +83,6 @@ type RecordingStatusResponse = {
   recording_id: string;
   status: string;
 };
-type SyncState = "idle" | "uploading" | "uploaded" | "pending";
 type RecordingLocation = {
   latitude: number;
   longitude: number;
@@ -574,9 +573,6 @@ function RecorderScreen() {
   const [savedDurationMs, setSavedDurationMs] = useState(0);
   const [noteNumber, setNoteNumber] = useState(1);
   const [reduceMotion, setReduceMotion] = useState(false);
-  const [syncState, setSyncState] = useState<SyncState>("idle");
-  const [remotePath, setRemotePath] = useState<string | null>(null);
-  const [pendingUploadUri, setPendingUploadUri] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveErrorTitle, setSaveErrorTitle] = useState(
     "Aufnahme noch nicht abgelegt",
@@ -691,22 +687,13 @@ function RecorderScreen() {
     }, []);
 
   const attemptUpload = useCallback(async (localUri: string) => {
-    setPendingUploadUri(localUri);
-    if (!RECORDING_API_URL) {
-      setSyncState("pending");
-      return;
-    }
+    if (!RECORDING_API_URL) return;
 
-    setSyncState("uploading");
     try {
       const path = await uploadRecording(localUri);
       await markPendingThoughtUploaded(localUri, path);
-      setRemotePath(path);
-      setPendingUploadUri(null);
-      setSyncState("uploaded");
     } catch (error) {
       console.error("upload error:", error);
-      setSyncState("pending");
     }
   }, []);
 
@@ -779,8 +766,6 @@ function RecorderScreen() {
       () => 0,
     );
     setAmplitudes(INITIAL_AMPLITUDES);
-    setRemotePath(null);
-    setSyncState("idle");
     setSaveError(null);
     stoppedRecordingRef.current = null;
     void startRecording();
@@ -832,8 +817,6 @@ function RecorderScreen() {
         throw error;
       }
 
-      setPendingUploadUri(localUri);
-      setSyncState(RECORDING_API_URL ? "uploading" : "pending");
       void attemptUpload(localUri);
     },
     [attemptUpload],

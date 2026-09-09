@@ -48,12 +48,78 @@ export type WeeklyBriefingArchive = z.infer<
 export type WeeklyBriefingEntry = z.infer<typeof weeklyBriefingEntrySchema>;
 export type WeeklyObservation = z.infer<typeof weeklyObservationSchema>;
 
-export async function fetchWeeklyBriefings(): Promise<WeeklyBriefingArchive> {
-  const response = await backendFetch("/briefings/weekly");
+const MEMORY_CACHE_TTL_MS = 60_000;
+const MEMORY_REQUEST_TIMEOUT_MS = 10_000;
+
+type CachedArchive = {
+  archive: WeeklyBriefingArchive;
+  expiresAt: number;
+};
+
+type FetchWeeklyBriefingsOptions = {
+  forceRefresh?: boolean;
+  timeoutMs?: number;
+};
+
+let cachedArchive: CachedArchive | null = null;
+let requestInFlight: Promise<WeeklyBriefingArchive> | null = null;
+
+async function requestWeeklyBriefings(
+  timeoutMs: number,
+): Promise<WeeklyBriefingArchive> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await backendFetch("/briefings/weekly", {
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("Memory hat zu lange zum Laden gebraucht.", {
+        cause: error,
+      });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) {
     throw new Error(
       `Wochenbriefings konnten nicht geladen werden (${response.status}).`,
     );
   }
-  return weeklyBriefingArchiveSchema.parse(await response.json());
+  const archive = weeklyBriefingArchiveSchema.parse(await response.json());
+  cachedArchive = {
+    archive,
+    expiresAt: Date.now() + MEMORY_CACHE_TTL_MS,
+  };
+  return archive;
+}
+
+export async function fetchWeeklyBriefings(
+  options: FetchWeeklyBriefingsOptions = {},
+): Promise<WeeklyBriefingArchive> {
+  if (requestInFlight) return requestInFlight;
+  if (
+    !options.forceRefresh &&
+    cachedArchive &&
+    cachedArchive.expiresAt > Date.now()
+  ) {
+    return cachedArchive.archive;
+  }
+
+  const request = requestWeeklyBriefings(
+    options.timeoutMs ?? MEMORY_REQUEST_TIMEOUT_MS,
+  );
+  requestInFlight = request;
+  try {
+    return await request;
+  } finally {
+    if (requestInFlight === request) requestInFlight = null;
+  }
+}
+
+export function resetWeeklyBriefingCache(): void {
+  cachedArchive = null;
 }

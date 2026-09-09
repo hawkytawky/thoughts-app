@@ -13,11 +13,13 @@ export function BottomSheetModal({
   children: React.ReactNode;
 }) {
   const [rendered, setRendered] = useState(visible);
+  const renderedRef = useRef(visible);
   const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
 
   useEffect(() => {
     progress.stopAnimation();
     if (visible) {
+      renderedRef.current = true;
       setRendered(true);
       progress.setValue(0);
       requestAnimationFrame(() => {
@@ -32,13 +34,16 @@ export function BottomSheetModal({
       return;
     }
 
-    if (rendered) {
+    if (renderedRef.current) {
       Animated.timing(progress, {
         toValue: 0,
         duration: 180,
         useNativeDriver: true,
       }).start(({ finished }) => {
-        if (finished) setRendered(false);
+        if (finished) {
+          renderedRef.current = false;
+          setRendered(false);
+        }
       });
     }
   }, [progress, visible]);

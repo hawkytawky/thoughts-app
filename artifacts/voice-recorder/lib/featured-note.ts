@@ -1,6 +1,6 @@
 import { backendFetch } from "@/lib/auth";
 
-export const API_TIMEZONE = "Europe/Berlin";
+const API_TIMEZONE = "Europe/Berlin";
 
 const apiDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: API_TIMEZONE,
@@ -9,7 +9,7 @@ const apiDateFormatter = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 
-export type NoteLocation = {
+type NoteLocation = {
   latitude: number;
   longitude: number;
   accuracy: number | null;
@@ -19,7 +19,7 @@ export type NoteLocation = {
   suburb?: string | null;
 };
 
-export type NoteTranscriptSegment = {
+type NoteTranscriptSegment = {
   start: number;
   end: number;
   text: string;
@@ -147,7 +147,6 @@ async function apiError(response: Response): Promise<Error> {
   }
   return new Error(detail || `thought API request failed (${response.status})`);
 }
-
 function locationLabel(recording: BackendRecording): string {
   return (
     [recording.city, recording.suburb].filter(Boolean).join(", ") ||
@@ -381,3 +380,4 @@ export function formatNoteDay(isoDate: string): string {
     month: "long",
   }).format(parseApiTimestamp(isoDate));
 }
+

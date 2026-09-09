@@ -9,6 +9,7 @@ import {
   NOTE_SANS_SEMIBOLD,
 } from "@/components/NoteUI";
 import { fetchThoughtDays, formatApiDate } from "@/lib/featured-note";
+import { replaceThoughtMonth } from "@/lib/thought-calendar";
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
@@ -29,11 +30,13 @@ function monthTitle(date: Date): string {
 }
 
 export function DayPicker({
+  knownThoughtDays,
   visible,
   value,
   onChange,
   onClose,
 }: {
+  knownThoughtDays?: ReadonlySet<string>;
   visible: boolean;
   value: Date;
   onChange: (date: Date) => void;
@@ -42,7 +45,10 @@ export function DayPicker({
   const insets = useSafeAreaInsets();
   const today = startOfDay(new Date());
   const [month, setMonth] = useState(() => monthStart(value));
-  const [thoughtDays, setThoughtDays] = useState<Set<string>>(new Set());
+  const [loadedThoughtDays, setLoadedThoughtDays] = useState<Set<string>>(
+    new Set(),
+  );
+  const [loadedMonths, setLoadedMonths] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (visible) setMonth(monthStart(value));
@@ -52,14 +58,15 @@ export function DayPicker({
     if (!visible) return;
     let cancelled = false;
     const apiMonth = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
-    setThoughtDays(new Set());
     void fetchThoughtDays(apiMonth)
       .then((days) => {
-        if (!cancelled) setThoughtDays(days);
+        if (cancelled) return;
+        setLoadedThoughtDays((current) =>
+          replaceThoughtMonth(current, apiMonth, days),
+        );
+        setLoadedMonths((current) => new Set(current).add(apiMonth));
       })
-      .catch(() => {
-        if (!cancelled) setThoughtDays(new Set());
-      });
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -161,16 +168,20 @@ export function DayPicker({
             const isToday = key === formatApiDate(today);
             const outsideMonth = date.getMonth() !== month.getMonth();
             const future = date > today;
-            const hasThoughts = thoughtDays.has(key);
+            const keyMonth = key.slice(0, 7);
+            const hasThoughts = loadedMonths.has(keyMonth)
+              ? loadedThoughtDays.has(key)
+              : Boolean(knownThoughtDays?.has(key));
+            const dateLabel = new Intl.DateTimeFormat("de-DE", {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            }).format(date);
             return (
               <View key={key} style={styles.dayCell}>
                 <Pressable
-                  accessibilityLabel={new Intl.DateTimeFormat("de-DE", {
-                    weekday: "long",
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  }).format(date)}
+                  accessibilityLabel={`${dateLabel}${hasThoughts ? ", mit Thought" : ""}`}
                   accessibilityState={{ disabled: future, selected }}
                   disabled={future}
                   onPress={() => onChange(startOfDay(date))}
@@ -295,11 +306,15 @@ const styles = StyleSheet.create({
   dayTextSelected: { fontFamily: NOTE_SANS_SEMIBOLD, color: C.card },
   thoughtDot: {
     position: "absolute",
-    bottom: 3,
-    width: 3.5,
-    height: 3.5,
-    borderRadius: 2,
+    bottom: 2,
+    width: 5,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: C.plum,
+    shadowColor: C.plum,
+    shadowOpacity: 0.22,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
   },
   thoughtDotSelected: { backgroundColor: C.card },
   disabled: { opacity: 0.24 },

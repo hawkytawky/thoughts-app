@@ -1,13 +1,16 @@
 import React from "react";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { NOTE_SANS, NOTE_SERIF } from "@/components/NoteUI";
+import {
+  NOTE_SANS,
+  NOTE_SERIF,
+  ThoughtLoading,
+} from "@/components/NoteUI";
 import { MEMORY_FRAME, MEMORY_THEME } from "@/lib/memory-theme";
 import type {
   WeeklyBriefingArchive,
@@ -166,7 +169,7 @@ export function MemoryBriefing({ archive, onRetry, status }: Props) {
   if (status === "loading" && !archive) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color="#7FB0D6" />
+        <ThoughtLoading compact label="Memory wird für dich geordnet …" />
       </View>
     );
   }

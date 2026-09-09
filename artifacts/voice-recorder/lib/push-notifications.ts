@@ -6,6 +6,7 @@ import { Platform } from "react-native";
 import { backendFetch } from "./auth/api";
 
 const INSTALLATION_ID_KEY = "@thoughts/push-installation-id";
+let registrationInFlight: Promise<boolean> | null = null;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -41,7 +42,7 @@ function currentTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin";
 }
 
-export async function registerCurrentPushInstallation(): Promise<boolean> {
+async function performPushRegistration(): Promise<boolean> {
   if (Platform.OS !== "ios" || !Device.isDevice) return false;
 
   const existing = await Notifications.getPermissionsAsync();
@@ -74,6 +75,22 @@ export async function registerCurrentPushInstallation(): Promise<boolean> {
     );
   }
   return true;
+}
+
+export function registerCurrentPushInstallation(): Promise<boolean> {
+  if (registrationInFlight) return registrationInFlight;
+
+  const pending = performPushRegistration();
+  registrationInFlight = pending;
+  pending.then(
+    () => {
+      if (registrationInFlight === pending) registrationInFlight = null;
+    },
+    () => {
+      if (registrationInFlight === pending) registrationInFlight = null;
+    },
+  );
+  return pending;
 }
 
 export async function unregisterCurrentPushInstallation(): Promise<void> {

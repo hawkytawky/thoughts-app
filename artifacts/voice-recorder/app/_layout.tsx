@@ -1,11 +1,5 @@
 import React, { useCallback, useEffect, useRef } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Linking,
-  StyleSheet,
-  View,
-} from "react-native";
+import { Alert, Linking, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -26,6 +20,7 @@ import {
 import { type Href, Stack, useRouter, useSegments } from "expo-router";
 import { ActiveRecordingBar } from "@/components/ActiveRecordingBar";
 import { NotificationBootstrap } from "@/components/NotificationBootstrap";
+import { ThoughtLoading } from "@/components/NoteUI";
 import { ensureLocationPermission } from "@/lib/location-permission";
 import { AuthProvider, useAuth } from "@/lib/auth";
 
@@ -184,7 +179,7 @@ function AppShell() {
       </Stack>
       {redirecting ? (
         <View style={styles.loading}>
-          <ActivityIndicator color="#7FB0D6" />
+          <ThoughtLoading compact label="thoughts öffnet sich …" />
         </View>
       ) : null}
       {appIsAvailable ? <ActiveRecordingBar /> : null}

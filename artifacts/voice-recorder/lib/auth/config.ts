@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+
 export const authConfig = {
   apiUrl: process.env.EXPO_PUBLIC_THOUGHTS_API_URL?.replace(/\/+$/, ""),
   googleIosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
@@ -5,7 +7,6 @@ export const authConfig = {
 } as const;
 
 export function getAuthConfigurationError(): string | null {
-  const { Platform } = require("react-native");
   const missing = [
     ["EXPO_PUBLIC_THOUGHTS_API_URL", authConfig.apiUrl],
     ...(Platform.OS === "ios"

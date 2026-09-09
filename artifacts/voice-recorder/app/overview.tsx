@@ -242,12 +242,12 @@ export default function OverviewScreen() {
       });
   }, []);
 
-  const loadBriefings = useCallback(() => {
+  const loadBriefings = useCallback((forceRefresh = false) => {
     if (briefingRequestInFlightRef.current) return;
     briefingRequestInFlightRef.current = true;
     if (!briefingArchiveRef.current) setBriefingStatus("loading");
     const requestId = ++briefingRequestIdRef.current;
-    fetchWeeklyBriefings()
+    fetchWeeklyBriefings({ forceRefresh })
       .then((archive) => {
         if (requestId !== briefingRequestIdRef.current) return;
         briefingArchiveRef.current = archive;
@@ -268,6 +268,7 @@ export default function OverviewScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (activeViewModeIndex === 0) return;
       loadGraph();
       const refreshTimer = setInterval(loadGraph, GRAPH_REFRESH_INTERVAL_MS);
       return () => {
@@ -275,7 +276,7 @@ export default function OverviewScreen() {
         graphRequestIdRef.current += 1;
         graphRequestInFlightRef.current = false;
       };
-    }, [loadGraph]),
+    }, [activeViewModeIndex, loadGraph]),
   );
 
   useFocusEffect(
@@ -405,10 +406,10 @@ export default function OverviewScreen() {
               },
             ]}
           >
-            {viewMode === "base" ? (
+            {index !== activeViewModeIndex ? null : viewMode === "base" ? (
               <MemoryBriefing
                 archive={visibleBriefingArchive}
-                onRetry={loadBriefings}
+                onRetry={() => loadBriefings(true)}
                 status={briefingStatus}
               />
             ) : status === "loading" ? null : status === "error" ? (

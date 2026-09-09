@@ -74,7 +74,7 @@ function NavigationItem({ item, active }: { item: TabItem; active: TabId }) {
   );
 }
 
-export function RecordingActionButton({
+function RecordingActionButton({
   state = "idle",
 }: {
   state?: "idle" | "recording";

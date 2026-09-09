@@ -61,6 +61,10 @@ import {
   markPendingThoughtProcessingFailed,
   removePendingThought,
 } from "@/lib/pending-thoughts";
+import {
+  mergeThoughtDays,
+  thoughtDaysFromCounts,
+} from "@/lib/thought-calendar";
 
 const COLORS = {
   ink: "#1D3B4F",
@@ -284,6 +288,7 @@ export default function ThoughtsFeedScreen() {
   const [dayNotes, setDayNotes] = useState<Map<string, ThoughtCard[]>>(
     new Map(),
   );
+  const [thoughtDays, setThoughtDays] = useState<Set<string>>(new Set());
   const [optimisticNotes, setOptimisticNotes] = useState<
     Map<string, ThoughtCard[]>
   >(new Map());
@@ -306,6 +311,9 @@ export default function ThoughtsFeedScreen() {
   }, [selectedDate]);
 
   const applyBootstrap = useCallback((data: FeedBootstrap) => {
+    setThoughtDays((current) =>
+      mergeThoughtDays(current, thoughtDaysFromCounts(data.counts)),
+    );
     setDayNotes((current) => {
       const next = new Map(current);
       for (const [date, notes] of data.notes) {
@@ -360,6 +368,9 @@ export default function ThoughtsFeedScreen() {
     try {
       const { notes } = await fetchNotesForDate(date);
       if (latestDayRequestAt.current.get(date) !== requestedAt) return;
+      if (notes.length > 0) {
+        setThoughtDays((current) => mergeThoughtDays(current, [date]));
+      }
       setDayNotes((current) => new Map(current).set(date, sortedNotes(notes)));
       const confirmedPaths = new Set(
         notes.map(({ relativePath }) => relativePath),
@@ -432,6 +443,18 @@ export default function ThoughtsFeedScreen() {
       if (initialSyncComplete.current) refreshVisibleDay();
     }, [refreshVisibleDay]),
   );
+
+  useEffect(() => {
+    if (pendingThoughts.length === 0) return;
+    setThoughtDays((current) => {
+      return mergeThoughtDays(
+        current,
+        pendingThoughts.map(({ createdAt }) =>
+          apiDateKeyFromTimestamp(createdAt),
+        ),
+      );
+    });
+  }, [pendingThoughts]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
@@ -731,6 +754,7 @@ export default function ThoughtsFeedScreen() {
 
       <BottomTabBar active="today" />
       <DayPicker
+        knownThoughtDays={thoughtDays}
         onChange={selectDate}
         onClose={() => setDatePickerOpen(false)}
         value={dayKeyToDate(selectedDate)}

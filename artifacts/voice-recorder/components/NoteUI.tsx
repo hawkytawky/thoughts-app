@@ -1,12 +1,18 @@
-import React from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import React, { useEffect } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import Animated, {
+  cancelAnimation,
+  Easing,
+  interpolate,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 
 export const NOTE_COLORS = {
   warmWhite: "#FBFAF7",
@@ -88,8 +94,6 @@ export const NOTE_CATEGORY_COLORS = {
   },
 } as const;
 
-export const NOTE_CATEGORY_TEXT_OPACITY = 1;
-
 // Keeps the first control aligned consistently below the safe area on all
 // primary app screens.
 export const NOTE_SCREEN_TOP_OFFSET = -4;
@@ -108,7 +112,6 @@ export const NOTE_SERIF_EXTRALIGHT = "Newsreader_200ExtraLight";
 export const NOTE_SERIF_LIGHT = "Newsreader_300Light";
 
 export const NOTE_SANS = "InstrumentSans_400Regular";
-export const NOTE_SANS_ITALIC = "InstrumentSans_400Regular_Italic";
 export const NOTE_SANS_MEDIUM = "InstrumentSans_500Medium";
 export const NOTE_SANS_SEMIBOLD = "InstrumentSans_600SemiBold";
 
@@ -128,11 +131,70 @@ export function NoteTag({ label, index }: { label: string; index: number }) {
   );
 }
 
+function ThoughtLoadingDot({ delay }: { delay: number }) {
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, {
+            duration: 480,
+            easing: Easing.out(Easing.quad),
+            reduceMotion: ReduceMotion.System,
+          }),
+          withTiming(0, {
+            duration: 720,
+            easing: Easing.inOut(Easing.quad),
+            reduceMotion: ReduceMotion.System,
+          }),
+        ),
+        -1,
+      ),
+    );
+    return () => cancelAnimation(progress);
+  }, [delay, progress]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 1], [0.28, 1]),
+    transform: [
+      { translateY: interpolate(progress.value, [0, 1], [1.5, -3]) },
+      { scale: interpolate(progress.value, [0, 1], [0.76, 1]) },
+    ],
+  }));
+
+  return <Animated.View style={[styles.loadingDot, animatedStyle]} />;
+}
+
+export function ThoughtLoading({
+  compact = false,
+  label = "Gedanken werden geladen …",
+}: {
+  compact?: boolean;
+  label?: string;
+}) {
+  return (
+    <View
+      accessibilityLabel={label}
+      accessibilityLiveRegion="polite"
+      accessibilityRole="progressbar"
+      style={[styles.loadingExperience, compact && styles.loadingCompact]}
+    >
+      <View accessibilityElementsHidden style={styles.loadingMark}>
+        <ThoughtLoadingDot delay={0} />
+        <ThoughtLoadingDot delay={150} />
+        <ThoughtLoadingDot delay={300} />
+      </View>
+      <Text style={styles.loadingText}>{label}</Text>
+    </View>
+  );
+}
+
 export function NoteLoading() {
   return (
     <View style={styles.stateScreen}>
-      <ActivityIndicator color={NOTE_COLORS.plum} />
-      <Text style={styles.stateText}>Gedanken werden geladen …</Text>
+      <ThoughtLoading />
     </View>
   );
 }
@@ -168,16 +230,44 @@ export function NoteError({
   );
 }
 
-export const noteUiStyles = StyleSheet.create({
-  tags: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-});
-
 const styles = StyleSheet.create({
   tag: { borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
   tagText: {
     fontFamily: NOTE_SANS_MEDIUM,
     fontSize: 11,
     opacity: 0.78,
+  },
+  loadingExperience: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 13,
+    paddingHorizontal: 24,
+    paddingVertical: 18,
+  },
+  loadingCompact: { paddingVertical: 8 },
+  loadingMark: {
+    height: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  loadingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: NOTE_COLORS.sky,
+    shadowColor: NOTE_COLORS.skyDeep,
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  loadingText: {
+    fontFamily: NOTE_SERIF_ITALIC,
+    fontSize: 15,
+    lineHeight: 21,
+    color: NOTE_COLORS.ink40,
+    textAlign: "center",
   },
   stateScreen: {
     flex: 1,

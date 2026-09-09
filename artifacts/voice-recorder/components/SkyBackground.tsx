@@ -137,7 +137,7 @@ export interface SkySettings {
   rothko: number;
 }
 
-export const DEFAULT_SKY_SETTINGS: SkySettings = {
+const DEFAULT_SKY_SETTINGS: SkySettings = {
   coverage: 50,
   softness: 20,
   size: 17,
@@ -177,7 +177,7 @@ function cssColor(color: Rgb): string {
   return `rgb(${color.map((channel) => Math.round(channel * 255)).join(",")})`;
 }
 
-export function paletteForLocalTime(date: Date) {
+function paletteForLocalTime(date: Date) {
   const minutes = date.getHours() * 60 + date.getMinutes();
 
   // 04:00–05:00 is a direct night-to-morning dawn transition.

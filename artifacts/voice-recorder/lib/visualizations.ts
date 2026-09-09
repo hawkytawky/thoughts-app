@@ -37,14 +37,14 @@ export type GraphCluster = {
   lastActivity?: string;
 };
 
-export type TopicSimilarity = {
+type TopicSimilarity = {
   sourceTopicId: string;
   targetTopicId: string;
   similarity: number;
 };
 
-export type GraphEdge = { source: number; target: number; weight: number };
-export type SecondaryTopicEdge = {
+type GraphEdge = { source: number; target: number; weight: number };
+type SecondaryTopicEdge = {
   source: number;
   targetTopicId: string;
   relevance: number;

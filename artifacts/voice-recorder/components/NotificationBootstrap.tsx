@@ -23,11 +23,9 @@ export function NotificationBootstrap() {
 
     const responseSubscription =
       Notifications.addNotificationResponseReceivedListener(openNotification);
-    const tokenSubscription = Notifications.addPushTokenListener(() => {
-      void registerCurrentPushInstallation().catch((error: unknown) => {
-        if (__DEV__) console.error("Failed to refresh push registration", error);
-      });
-    });
+    // Register once per authenticated app launch. Calling
+    // getExpoPushTokenAsync() from a native token listener can itself trigger
+    // that listener and create an unbounded registration loop.
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       openNotification(response);
       if (response) void Notifications.clearLastNotificationResponseAsync();
@@ -35,7 +33,6 @@ export function NotificationBootstrap() {
 
     return () => {
       responseSubscription.remove();
-      tokenSubscription.remove();
     };
   }, [openNotification]);
 
