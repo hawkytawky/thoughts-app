@@ -255,6 +255,39 @@ export async function retryNoteProcessing(recordingId: string): Promise<void> {
   if (!response.ok) throw await apiError(response);
 }
 
+export const THOUGHT_KEY_POINT_LIMIT = 5;
+
+export type ThoughtCardEdit = {
+  summary?: string;
+  keyPoints?: string[];
+};
+
+export async function updateThoughtCard(
+  recordingId: string,
+  edit: ThoughtCardEdit,
+): Promise<FeaturedNote> {
+  const response = await backendFetch(
+    `/recordings/${encodeURIComponent(recordingId)}/thought-card`,
+    {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...(edit.summary === undefined ? {} : { summary: edit.summary }),
+        ...(edit.keyPoints === undefined
+          ? {}
+          : { key_points: edit.keyPoints }),
+      }),
+    },
+  );
+  if (!response.ok) throw await apiError(response);
+  const note = toFeaturedNote((await response.json()) as BackendRecording);
+  if (!note) throw new Error("Der bearbeitete thought konnte nicht gelesen werden");
+  return note;
+}
+
 export async function deleteThought(recordingId: string): Promise<void> {
   const response = await backendFetch(
     `/recordings/${encodeURIComponent(recordingId)}`,

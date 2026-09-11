@@ -8,6 +8,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -32,12 +33,14 @@ import {
 } from "@/components/NoteUI";
 import { TopRightMenu } from "@/components/TopRightMenu";
 import {
+  THOUGHT_KEY_POINT_LIMIT,
   type FeaturedNote,
   deleteThought,
   fetchNoteStatus,
   formatDuration,
   formatNoteDate,
   formatTimestamp,
+  updateThoughtCard,
 } from "@/lib/featured-note";
 import {
   formatValence,
@@ -226,6 +229,119 @@ function SummaryView({
   );
 }
 
+type DraftPoint = { id: string; text: string };
+
+type CardDraft = { summary: string; keyPoints: DraftPoint[] };
+
+let draftPointSequence = 0;
+
+function toDraftPoints(points: string[]): DraftPoint[] {
+  return points.map((text) => ({ id: `point-${draftPointSequence++}`, text }));
+}
+
+function cleanedPoints(points: DraftPoint[]): string[] {
+  return points.map(({ text }) => text.trim()).filter(Boolean);
+}
+
+function SummaryEditor({
+  draft,
+  onChange,
+}: {
+  draft: CardDraft;
+  onChange: (next: CardDraft) => void;
+}) {
+  const full = draft.keyPoints.length >= THOUGHT_KEY_POINT_LIMIT;
+
+  return (
+    <>
+      <View style={styles.section}>
+        <Text style={styles.sectionHeading}>Zusammenfassung</Text>
+        <TextInput
+          accessibilityLabel="Zusammenfassung bearbeiten"
+          multiline
+          onChangeText={(summary) => onChange({ ...draft, summary })}
+          placeholder="Worum ging es in diesem thought?"
+          placeholderTextColor={C.ink40}
+          style={[styles.input, styles.summaryInput]}
+          textAlignVertical="top"
+          value={draft.summary}
+        />
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionHeading}>Kerngedanken</Text>
+        {draft.keyPoints.map((point, index) => (
+          <View key={point.id} style={styles.keyPointRow}>
+            <TextInput
+              accessibilityLabel={`Kerngedanke ${index + 1} bearbeiten`}
+              multiline
+              onChangeText={(value) =>
+                onChange({
+                  ...draft,
+                  keyPoints: draft.keyPoints.map((current) =>
+                    current.id === point.id
+                      ? { ...current, text: value }
+                      : current,
+                  ),
+                })
+              }
+              placeholder="Kerngedanke"
+              placeholderTextColor={C.ink40}
+              style={[styles.input, styles.keyPointInput]}
+              textAlignVertical="top"
+              value={point.text}
+            />
+            <Pressable
+              accessibilityLabel={`Kerngedanke ${index + 1} entfernen`}
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() =>
+                onChange({
+                  ...draft,
+                  keyPoints: draft.keyPoints.filter(
+                    (current) => current.id !== point.id,
+                  ),
+                })
+              }
+              style={({ pressed }) => [
+                styles.keyPointRemove,
+                pressed && styles.navButtonPressed,
+              ]}
+            >
+              <Ionicons name="close" size={17} color={C.ink40} />
+            </Pressable>
+          </View>
+        ))}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: full }}
+          disabled={full}
+          onPress={() =>
+            onChange({
+              ...draft,
+              keyPoints: [...draft.keyPoints, ...toDraftPoints([""])],
+            })
+          }
+          style={({ pressed }) => [
+            styles.addPoint,
+            pressed && styles.navButtonPressed,
+          ]}
+        >
+          <Ionicons
+            name="add"
+            size={16}
+            color={full ? C.inactive : C.skyDeep}
+          />
+          <Text style={[styles.addPointText, full && styles.addPointTextFull]}>
+            {full
+              ? `Maximal ${THOUGHT_KEY_POINT_LIMIT} Kerngedanken`
+              : "Kerngedanke hinzufügen"}
+          </Text>
+        </Pressable>
+      </View>
+    </>
+  );
+}
+
 function TranscriptView({ note }: { note: FeaturedNote }) {
   return (
     <View style={styles.section}>
@@ -253,6 +369,8 @@ export default function ThoughtDetailScreen() {
   const [detailView, setDetailView] = useState<DetailView>("summary");
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const [draft, setDraft] = useState<CardDraft | null>(null);
+  const [savingEdits, setSavingEdits] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
@@ -323,6 +441,77 @@ export default function ThoughtDetailScreen() {
       );
     } finally {
       setSharing(false);
+    }
+  };
+
+  const startEditing = () => {
+    setDetailView("summary");
+    setDraft({
+      summary: note.summary,
+      keyPoints: toDraftPoints(note.keyPoints),
+    });
+  };
+
+  const draftChanged = () => {
+    if (!draft) return false;
+    const points = cleanedPoints(draft.keyPoints);
+    return (
+      draft.summary.trim() !== note.summary ||
+      points.length !== note.keyPoints.length ||
+      points.some((point, index) => point !== note.keyPoints[index])
+    );
+  };
+
+  const cancelEditing = () => {
+    if (!draftChanged()) {
+      setDraft(null);
+      return;
+    }
+    Alert.alert(
+      "Änderungen verwerfen?",
+      "Deine Bearbeitung wird nicht gespeichert.",
+      [
+        { text: "Weiter bearbeiten", style: "cancel" },
+        {
+          text: "Verwerfen",
+          style: "destructive",
+          onPress: () => setDraft(null),
+        },
+      ],
+    );
+  };
+
+  const saveEdits = async () => {
+    if (!draft || savingEdits) return;
+    const summary = draft.summary.trim();
+    if (!summary) {
+      Alert.alert(
+        "Zusammenfassung fehlt",
+        "Ein thought braucht eine Zusammenfassung. Schreib ein paar Worte, bevor du sicherst.",
+      );
+      return;
+    }
+    if (!draftChanged()) {
+      setDraft(null);
+      return;
+    }
+    setSavingEdits(true);
+    try {
+      const updated = await updateThoughtCard(note.id, {
+        summary,
+        keyPoints: cleanedPoints(draft.keyPoints),
+      });
+      setNote(updated);
+      setDraft(null);
+    } catch (saveError) {
+      Alert.alert(
+        "Speichern nicht möglich",
+        saveError instanceof Error
+          ? saveError.message
+          : "Die Bearbeitung konnte nicht gespeichert werden.",
+      );
+    } finally {
+      setSavingEdits(false);
     }
   };
 
@@ -404,40 +593,85 @@ export default function ThoughtDetailScreen() {
           },
         ]}
       >
-        <View style={styles.nav}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Zurück"
-            hitSlop={8}
-            onPress={() => router.back()}
-            style={({ pressed }) => [
-              styles.navButton,
-              styles.backButton,
-              pressed && styles.navButtonPressed,
-            ]}
-          >
-            <Ionicons name="chevron-back" size={24} color={C.ink60} />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Weitere Aktionen"
-            accessibilityState={{ disabled: deleting || sharing }}
-            disabled={deleting || sharing}
-            hitSlop={8}
-            onPress={() => setActionMenuOpen(true)}
-            style={({ pressed }) => [
-              styles.navButton,
-              styles.menuButton,
-              pressed && styles.navButtonPressed,
-            ]}
-          >
-            {deleting || sharing ? (
-              <ActivityIndicator size="small" color={C.skyDeep} />
-            ) : (
-              <Ionicons name="ellipsis-horizontal" size={23} color={C.ink60} />
-            )}
-          </Pressable>
-        </View>
+        {draft ? (
+          <View style={styles.nav}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Bearbeitung abbrechen"
+              accessibilityState={{ disabled: savingEdits }}
+              disabled={savingEdits}
+              hitSlop={8}
+              onPress={cancelEditing}
+              style={({ pressed }) => [
+                styles.navTextButton,
+                styles.backButton,
+                pressed && styles.navButtonPressed,
+              ]}
+            >
+              <Text style={styles.navAction}>Abbrechen</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Bearbeitung sichern"
+              accessibilityState={{ disabled: savingEdits }}
+              disabled={savingEdits}
+              hitSlop={8}
+              onPress={() => void saveEdits()}
+              style={({ pressed }) => [
+                styles.navTextButton,
+                styles.menuButton,
+                pressed && styles.navButtonPressed,
+              ]}
+            >
+              {savingEdits ? (
+                <ActivityIndicator size="small" color={C.skyDeep} />
+              ) : (
+                <Text style={[styles.navAction, styles.navActionPrimary]}>
+                  Sichern
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.nav}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Zurück"
+              hitSlop={8}
+              onPress={() => router.back()}
+              style={({ pressed }) => [
+                styles.navButton,
+                styles.backButton,
+                pressed && styles.navButtonPressed,
+              ]}
+            >
+              <Ionicons name="chevron-back" size={24} color={C.ink60} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Weitere Aktionen"
+              accessibilityState={{ disabled: deleting || sharing }}
+              disabled={deleting || sharing}
+              hitSlop={8}
+              onPress={() => setActionMenuOpen(true)}
+              style={({ pressed }) => [
+                styles.navButton,
+                styles.menuButton,
+                pressed && styles.navButtonPressed,
+              ]}
+            >
+              {deleting || sharing ? (
+                <ActivityIndicator size="small" color={C.skyDeep} />
+              ) : (
+                <Ionicons
+                  name="ellipsis-horizontal"
+                  size={23}
+                  color={C.ink60}
+                />
+              )}
+            </Pressable>
+          </View>
+        )}
         <LinearGradient
           colors={["rgba(249,249,248,0.96)", "rgba(249,249,248,0)"]}
           locations={[0, 1]}
@@ -446,6 +680,8 @@ export default function ThoughtDetailScreen() {
         />
       </View>
       <ScrollView
+        automaticallyAdjustKeyboardInsets
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={[
           styles.content,
           {
@@ -491,7 +727,9 @@ export default function ThoughtDetailScreen() {
         {theme ? <Text style={styles.themeLine}>{theme}</Text> : null}
 
         <View style={styles.detailBody}>
-          {detailView === "summary" ? (
+          {draft ? (
+            <SummaryEditor draft={draft} onChange={setDraft} />
+          ) : detailView === "summary" ? (
             <SummaryView
               detailsExpanded={detailsExpanded}
               note={note}
@@ -510,6 +748,17 @@ export default function ThoughtDetailScreen() {
       <TopRightMenu
         closeLabel="Aktionsmenü schließen"
         items={[
+          {
+            key: "edit",
+            label: "Bearbeiten",
+            icon: (
+              <Ionicons name="create-outline" size={18} color={C.ink60} />
+            ),
+            onPress: () => {
+              setActionMenuOpen(false);
+              startEditing();
+            },
+          },
           {
             key: "copy-transcript",
             label: transcriptCopied
@@ -604,6 +853,22 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: "center",
     justifyContent: "center",
+  },
+  navTextButton: {
+    minHeight: 44,
+    minWidth: 44,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navAction: {
+    fontFamily: NOTE_SANS,
+    fontSize: 15,
+    color: C.ink60,
+  },
+  navActionPrimary: {
+    fontFamily: NOTE_SANS_SEMIBOLD,
+    color: C.skyDeep,
   },
   backButton: { marginLeft: -4 },
   menuButton: { marginRight: -4 },
@@ -741,6 +1006,45 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 },
+  input: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.divider,
+    backgroundColor: C.card,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontFamily: NOTE_SANS,
+    fontSize: 15,
+    lineHeight: 23,
+    color: C.ink70,
+  },
+  summaryInput: { minHeight: 168 },
+  keyPointInput: { flex: 1, minHeight: 52 },
+  keyPointRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginBottom: 10,
+  },
+  keyPointRemove: {
+    width: 32,
+    height: 32,
+    marginTop: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addPoint: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  addPointText: {
+    fontFamily: NOTE_SANS_MEDIUM,
+    fontSize: 13,
+    color: C.skyDeep,
+  },
+  addPointTextFull: { color: C.inactive },
   transcriptBlock: { marginBottom: 22 },
   timestamp: {
     fontFamily: NOTE_SANS,
