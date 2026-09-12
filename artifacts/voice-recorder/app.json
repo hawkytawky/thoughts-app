@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.otto.thoughts",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "appleTeamId": "J2NG98FJQ5",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,

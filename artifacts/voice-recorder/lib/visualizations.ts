@@ -6,6 +6,7 @@ export type GraphNode = {
   idx: number;
   x: number;
   y: number;
+  z: number;
   cluster: string;
   primaryTopicId: string;
   secondaryTopicIds: string[];
@@ -16,6 +17,7 @@ export type GraphNode = {
   summary: string;
   capturedAt: string;
   wordCount: number;
+  durationSeconds: number | null;
   valence: number | null;
   date: string;
   dateLabel: string;
@@ -60,6 +62,10 @@ export type Graph = {
     themeThreshold: number;
     model?: string | null;
     pipelineVersion: string;
+    layoutVersion: string;
+    layoutSignature?: string | null;
+    medianWordCount: number | null;
+    medianDurationSeconds: number | null;
   };
   clusters: GraphCluster[];
   nodes: GraphNode[];
@@ -80,6 +86,8 @@ const topicGraphResponseSchema = z.object({
     themeThreshold: z.number().int().nonnegative().optional(),
     model: z.string().nullable().optional(),
     pipelineVersion: z.string(),
+    layoutVersion: z.string().default("legacy-v1"),
+    layoutSignature: z.string().nullable().optional(),
   }),
   topics: z.array(
     z.object({
@@ -101,6 +109,7 @@ const topicGraphResponseSchema = z.object({
       id: z.string(),
       x: z.number().finite(),
       y: z.number().finite(),
+      z: z.number().finite().default(0),
       primaryTopicId: z.string(),
       secondaryTopicIds: z.array(z.string()),
       size: nonNegativeNumber,
@@ -110,6 +119,7 @@ const topicGraphResponseSchema = z.object({
       summary: z.string(),
       capturedAt: z.string().datetime({ offset: true }),
       wordCount: z.number().int().nonnegative(),
+      durationSeconds: z.number().int().nonnegative().nullable().default(null),
       valence: z.number().finite().min(-1).max(1).nullable().default(null),
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       dateLabel: z.string(),
@@ -144,6 +154,15 @@ const topicGraphResponseSchema = z.object({
 });
 
 export type GraphSurface = "network-v2";
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
 
 export async function fetchGraph(
   surface: GraphSurface = "network-v2",
@@ -181,6 +200,14 @@ export async function fetchGraph(
       themeThreshold:
         payload.meta.themeThreshold ??
         Math.max(5, Math.ceil(payload.meta.sourceCount * 0.03)),
+      medianWordCount: median(
+        payload.nodes.map(({ wordCount }) => wordCount).filter((value) => value > 0),
+      ),
+      medianDurationSeconds: median(
+        payload.nodes
+          .map(({ durationSeconds }) => durationSeconds)
+          .filter((value): value is number => value != null && value > 0),
+      ),
     },
     clusters: payload.topics,
     nodes: payload.nodes.map((node, idx) => ({

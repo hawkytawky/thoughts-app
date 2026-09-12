@@ -18,6 +18,11 @@
         "simulator": true
       }
     },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal"
+    },
     "production": {
       "extends": "base"
     }
@@ -25,6 +30,7 @@
   "submit": {
     "production": {
       "ios": {
+        "ascAppId": "6810109132",
         "appleTeamId": "J2NG98FJQ5"
       }
     }

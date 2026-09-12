@@ -17,6 +17,8 @@ function graphPayload() {
       assignedCount: 2,
       pendingThoughts: 0,
       pipelineVersion: "v2",
+      layoutVersion: "semantic-v1",
+      layoutSignature: "layout-1",
     },
     topics: [
       {
@@ -36,6 +38,7 @@ function graphPayload() {
         id: "thought-1",
         x: 0,
         y: 0,
+        z: -0.2,
         primaryTopicId: "topic-1",
         secondaryTopicIds: [],
         size: 1,
@@ -45,6 +48,7 @@ function graphPayload() {
         summary: "Zusammenfassung",
         capturedAt: "2026-09-03T08:00:00+02:00",
         wordCount: 20,
+        durationSeconds: 30,
         valence: -0.4,
         date: "2026-09-03",
         dateLabel: "3. September 2026",
@@ -55,6 +59,7 @@ function graphPayload() {
         id: "thought-2",
         x: 1,
         y: 1,
+        z: 0.3,
         primaryTopicId: "topic-1",
         secondaryTopicIds: [],
         size: 2,
@@ -64,6 +69,7 @@ function graphPayload() {
         summary: "Zusammenfassung",
         capturedAt: "2026-09-03T09:00:00+02:00",
         wordCount: 30,
+        durationSeconds: null,
         valence: 0.6,
         date: "2026-09-03",
         dateLabel: "3. September 2026",
@@ -118,6 +124,13 @@ describe("fetchGraph", () => {
     ]);
     expect(graph.edges).toEqual([{ source: 0, target: 1, weight: 0.8 }]);
     expect(graph.nodes.map(({ valence }) => valence)).toEqual([-0.4, 0.6]);
+    expect(
+      graph.nodes.map(({ z, durationSeconds }) => ({ z, durationSeconds })),
+    ).toEqual([
+      { z: -0.2, durationSeconds: 30 },
+      { z: 0.3, durationSeconds: null },
+    ]);
+    expect(graph.meta.layoutVersion).toBe("semantic-v1");
     expect(graph.secondaryTopicEdges).toEqual([
       { source: 0, targetTopicId: "topic-2", relevance: 0.4 },
     ]);

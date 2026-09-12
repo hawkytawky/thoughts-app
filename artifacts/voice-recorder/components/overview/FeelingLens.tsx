@@ -185,6 +185,21 @@ function drawFlow(
   selectedThoughtId: string | null,
 ) {
   return createPicture((canvas) => {
+    const monthBoundaryPaint = Skia.Paint();
+    monthBoundaryPaint.setAntiAlias(true);
+    monthBoundaryPaint.setColor(Skia.Color(AXIS));
+    monthBoundaryPaint.setStrokeWidth(0.5);
+    monthBoundaryPaint.setAlphaf(0.65);
+    for (const x of layout.monthBoundaries) {
+      canvas.drawLine(
+        x,
+        FLOW_TOP,
+        x,
+        FEELING_FLOW_HEIGHT - FLOW_BOTTOM,
+        monthBoundaryPaint,
+      );
+    }
+
     const axisPaint = Skia.Paint();
     axisPaint.setAntiAlias(true);
     axisPaint.setColor(Skia.Color(AXIS));
@@ -617,17 +632,6 @@ export function FeelingLens({
                   {month.label}
                 </Text>
               ))}
-              {layout.endDateLabel ? (
-                <Text
-                  style={[
-                    styles.month,
-                    styles.endDate,
-                    { left: layout.endDateLabel.x - 60 },
-                  ]}
-                >
-                  {layout.endDateLabel.label}
-                </Text>
-              ) : null}
             </View>
           ) : null}
         </View>
@@ -764,10 +768,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     color: MUTED,
-  },
-  endDate: {
-    width: 60,
-    textAlign: "right",
   },
   grain: {
     ...StyleSheet.absoluteFillObject,

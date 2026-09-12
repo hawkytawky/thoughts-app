@@ -159,9 +159,7 @@ function SummaryView({
             pressed && styles.detailsTogglePressed,
           ]}
         >
-          <Text style={styles.detailsToggleText}>
-            Weitere Details · {detailCount}
-          </Text>
+          <Text style={styles.detailsToggleText}>Weitere Details</Text>
           <Ionicons
             name={detailsExpanded ? "chevron-up" : "chevron-down"}
             size={16}
@@ -943,8 +941,10 @@ const styles = StyleSheet.create({
   detailsTogglePressed: { opacity: 0.55 },
   detailsToggleText: {
     fontFamily: NOTE_SANS_MEDIUM,
-    fontSize: 12,
-    color: C.ink60,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: C.ink40,
   },
   detailsContent: { paddingTop: 4 },
   section: { paddingHorizontal: 6, marginBottom: 26 },

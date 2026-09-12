@@ -118,6 +118,41 @@ describe("feeling layout", () => {
     expect(feelingPercentages(thoughts)).toEqual([20, 60, 20]);
   });
 
+  it("uses equal opacity so valence alone determines point color", () => {
+    const layout = buildFeelingLayout(
+      [
+        thought("older-high", "2026-09-01", 0.8),
+        thought("newer-low", "2026-09-06", 0.6),
+      ],
+      "week",
+      349,
+      TODAY,
+    );
+
+    expect(layout.swarmPoints.map(({ alpha }) => alpha)).toEqual([0.9, 0.9]);
+    expect(layout.flowPoints.map(({ alpha }) => alpha)).toEqual([0.72, 0.72]);
+  });
+
+  it("stacks equal backend values in symmetric columns", () => {
+    const thoughts = [
+      thought("repeated-a", "2026-09-06", 0.82),
+      thought("repeated-b", "2026-09-06", 0.82),
+      thought("repeated-c", "2026-09-06", 0.82),
+    ];
+    const layout = buildFeelingLayout(thoughts, "week", 349, TODAY);
+
+    expect(layout.swarmPoints.map(({ valence }) => valence)).toEqual([
+      0.82, 0.82, 0.82,
+    ]);
+    expect(new Set(layout.swarmPoints.map(({ x }) => x)).size).toBe(1);
+    expect(layout.swarmPoints.map(({ y }) => y)).toEqual([
+      62,
+      62 + 3.6 * 2.05,
+      62 - 3.6 * 2.05,
+    ]);
+    expect(layout.percentages).toEqual([0, 0, 100]);
+  });
+
   it("keeps both charts structurally empty when no valence exists", () => {
     const layout = buildFeelingLayout([], "all", 349, TODAY);
 
@@ -125,7 +160,7 @@ describe("feeling layout", () => {
     expect(layout.flowPoints).toEqual([]);
     expect(layout.flowSamples).toEqual([]);
     expect(layout.monthLabels).toEqual([]);
-    expect(layout.endDateLabel).toBeNull();
+    expect(layout.monthBoundaries).toEqual([]);
     expect(layout.distributionShares).toEqual([0, 0, 0]);
   });
 
@@ -140,8 +175,23 @@ describe("feeling layout", () => {
     expect(layout.endDate).toBe("2026-09-06");
     expect(layout.flowSamples.at(-1)?.date).toBe("2026-09-06");
     expect(layout.dayValues["2026-09-06"]).toBeCloseTo(0.4);
-    expect(layout.endDateLabel).toEqual({ label: "6. Sep", x: 341 });
     expect(layout.flowPoints[0].x).toBeLessThan(349 - 8);
+  });
+
+  it("marks each new month without adding a label for today", () => {
+    const layout = buildFeelingLayout(
+      [thought("start", "2026-08-08", 0.2)],
+      "month",
+      349,
+      TODAY,
+    );
+
+    expect(layout.monthLabels.map(({ label }) => label)).toEqual([
+      "Aug",
+      "Sep",
+    ]);
+    expect(layout.monthBoundaries).toHaveLength(1);
+    expect(layout.monthBoundaries[0]).toBeCloseTo(8 + (24 / 29) * 333);
   });
 });
 

@@ -10,6 +10,8 @@ export const FEELING_THRESHOLD = 0.25;
 const FLOW_TOP = 10;
 const FLOW_BOTTOM = 22;
 const DAY_MS = 86_400_000;
+const SWARM_POINT_ALPHA = 0.9;
+const FLOW_POINT_ALPHA = 0.72;
 
 const ROSE = [201, 126, 132] as const;
 const MID = [190, 198, 205] as const;
@@ -88,7 +90,7 @@ export type FeelingLayout = {
   distributionShares: [number, number, number];
   percentages: [number, number, number];
   monthLabels: FeelingMonthLabel[];
-  endDateLabel: FeelingMonthLabel | null;
+  monthBoundaries: number[];
   zeroY: number;
   startDate: string | null;
   endDate: string | null;
@@ -295,18 +297,6 @@ export function buildFeelingDistributionSegments(
   ];
 }
 
-function recencyAlpha(
-  date: string,
-  startDate: string,
-  endDate: string,
-  minimum: number,
-  range: number,
-): number {
-  const span = Math.max(1, daysBetween(startDate, endDate));
-  const age = clamp(daysBetween(date, endDate), 0, span);
-  return minimum + range * (1 - age / span);
-}
-
 export function buildFeelingLayout(
   thoughts: FeelingThought[],
   period: FeelingPeriod,
@@ -330,7 +320,7 @@ export function buildFeelingLayout(
     distributionShares,
     percentages: feelingPercentages(thoughts),
     monthLabels: [],
-    endDateLabel: null,
+    monthBoundaries: [],
     zeroY: FLOW_TOP + (FEELING_FLOW_HEIGHT - FLOW_TOP - FLOW_BOTTOM) / 2,
     startDate: bounds?.start ?? null,
     endDate: bounds?.end ?? null,
@@ -358,7 +348,7 @@ export function buildFeelingLayout(
       x: column * radius * 2.1,
       y: centerY + level * radius * 2.05,
       color: feelingColor(thought.valence),
-      alpha: recencyAlpha(thought.date, bounds.start, bounds.end, 0.45, 0.5),
+      alpha: SWARM_POINT_ALPHA,
     };
   });
 
@@ -420,7 +410,7 @@ export function buildFeelingLayout(
     x: xForDay(thought.date),
     y: yForValence(thought.valence),
     color: feelingColor(thought.valence),
-    alpha: recencyAlpha(thought.date, bounds.start, bounds.end, 0.35, 0.35),
+    alpha: FLOW_POINT_ALPHA,
   }));
   const thoughtIdsByDate = Object.fromEntries(
     [...thoughtsByDate].map(([date, dayThoughts]) => [
@@ -430,6 +420,7 @@ export function buildFeelingLayout(
   );
 
   const monthLabels: FeelingMonthLabel[] = [];
+  const monthBoundaries: number[] = [];
   let previousMonth = "";
   for (let offset = 0; offset <= totalDays; offset++) {
     const currentDate = addDays(bounds.start, offset);
@@ -441,12 +432,8 @@ export function buildFeelingLayout(
       label: MONTHS[current.getUTCMonth()],
       x: xForDay(currentDate),
     });
+    if (offset > 0) monthBoundaries.push(xForDay(currentDate));
   }
-  const endDate = utcDate(bounds.end);
-  const endDateLabel = {
-    label: `${endDate.getUTCDate()}. ${MONTHS[endDate.getUTCMonth()]}`,
-    x: xForDay(bounds.end),
-  };
 
   return {
     ...empty,
@@ -455,9 +442,7 @@ export function buildFeelingLayout(
     flowSamples,
     thoughtIdsByDate,
     dayValues,
-    monthLabels: monthLabels.filter(
-      ({ x }) => Math.abs(x - endDateLabel.x) >= 44,
-    ),
-    endDateLabel,
+    monthLabels,
+    monthBoundaries,
   };
 }

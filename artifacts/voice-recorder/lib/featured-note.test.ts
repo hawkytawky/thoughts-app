@@ -2,6 +2,9 @@ import { backendFetch } from "@/lib/auth";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteThought,
+  fetchNotesForDate,
+  fetchThoughtDayCounts,
+  formatApiDate,
   formatNoteDate,
   updateThoughtCard,
 } from "./featured-note";
@@ -117,6 +120,39 @@ describe("thought actions", () => {
     await expect(
       updateThoughtCard("id", { summary: "Zu früh." }),
     ).rejects.toThrow("Recording has no Thought Card yet");
+  });
+
+  it("uses the device timezone for day and calendar requests", async () => {
+    backendFetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [],
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ days: [] }),
+      } as Response);
+
+    await fetchNotesForDate("2026-09-04", "America/Los_Angeles");
+    await fetchThoughtDayCounts("2026-09", "America/Los_Angeles");
+
+    expect(backendFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/recordings?date=2026-09-04&timezone=America%2FLos_Angeles",
+      { headers: { Accept: "application/json" } },
+    );
+    expect(backendFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/recordings/calendar?month=2026-09&timezone=America%2FLos_Angeles",
+      { headers: { Accept: "application/json" } },
+    );
+  });
+
+  it("creates calendar keys in the device timezone", () => {
+    const timestamp = new Date("2026-09-04T00:30:00Z");
+
+    expect(formatApiDate(timestamp, "America/Los_Angeles")).toBe("2026-09-03");
+    expect(formatApiDate(timestamp, "Asia/Tokyo")).toBe("2026-09-04");
   });
 
   it("includes the year in the detail metadata date", () => {

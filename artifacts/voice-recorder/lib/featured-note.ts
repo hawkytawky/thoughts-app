@@ -1,13 +1,14 @@
 import { backendFetch } from "@/lib/auth";
 
-const API_TIMEZONE = "Europe/Berlin";
+const FALLBACK_TIMEZONE = "Europe/Berlin";
 
-const apiDateFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: API_TIMEZONE,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
+function currentTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || FALLBACK_TIMEZONE;
+  } catch {
+    return FALLBACK_TIMEZONE;
+  }
+}
 
 type NoteLocation = {
   latitude: number;
@@ -298,9 +299,10 @@ export async function deleteThought(recordingId: string): Promise<void> {
 
 export async function fetchNotesForDate(
   date: string,
+  timezone = currentTimezone(),
 ): Promise<{ notes: ThoughtCard[]; processingCount: number }> {
   const response = await backendFetch(
-    `/recordings?date=${encodeURIComponent(date)}&timezone=${encodeURIComponent(API_TIMEZONE)}`,
+    `/recordings?date=${encodeURIComponent(date)}&timezone=${encodeURIComponent(timezone)}`,
     { headers: { Accept: "application/json" } },
   );
   if (!response.ok) throw await apiError(response);
@@ -317,9 +319,10 @@ export async function fetchNotesForDate(
 
 export async function fetchThoughtDayCounts(
   month: string,
+  timezone = currentTimezone(),
 ): Promise<ThoughtDayCount[]> {
   const response = await backendFetch(
-    `/recordings/calendar?month=${encodeURIComponent(month)}&timezone=${encodeURIComponent(API_TIMEZONE)}`,
+    `/recordings/calendar?month=${encodeURIComponent(month)}&timezone=${encodeURIComponent(timezone)}`,
     { headers: { Accept: "application/json" } },
   );
   if (!response.ok) throw await apiError(response);
@@ -329,8 +332,11 @@ export async function fetchThoughtDayCounts(
     .map(({ date, recording_count }) => ({ date, count: recording_count }));
 }
 
-export async function fetchThoughtDays(month: string): Promise<Set<string>> {
-  const days = await fetchThoughtDayCounts(month);
+export async function fetchThoughtDays(
+  month: string,
+  timezone = currentTimezone(),
+): Promise<Set<string>> {
+  const days = await fetchThoughtDayCounts(month, timezone);
   return new Set(days.map(({ date }) => date));
 }
 
@@ -364,9 +370,17 @@ export function parseApiTimestamp(value: string): Date {
   return new Date(epoch);
 }
 
-export function formatApiDate(date: Date): string {
+export function formatApiDate(
+  date: Date,
+  timezone = currentTimezone(),
+): string {
   const safe = Number.isNaN(date.getTime()) ? new Date() : date;
-  const parts = apiDateFormatter.formatToParts(safe);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(safe);
   const year = parts.find(({ type }) => type === "year")?.value;
   const month = parts.find(({ type }) => type === "month")?.value;
   const day = parts.find(({ type }) => type === "day")?.value;
